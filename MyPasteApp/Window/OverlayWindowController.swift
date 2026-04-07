@@ -28,7 +28,7 @@ final class OverlayWindowController {
 
     func show() {
         guard let screen = NSScreen.main else { return }
-        let height: CGFloat = 280
+        let height: CGFloat = 320
         let frame = NSRect(
             x: screen.frame.minX,
             y: screen.visibleFrame.minY,

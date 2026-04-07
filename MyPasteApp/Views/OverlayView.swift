@@ -58,8 +58,9 @@ struct OverlayView: View {
                         }
                     }
                     .padding(.horizontal, 16)
-                    .padding(.bottom, 16)
+                    .padding(.vertical, 12)
                 }
+                .frame(maxHeight: .infinity)
                 .onChange(of: selectedID) { _, newID in
                     if let id = newID {
                         withAnimation { proxy.scrollTo(id, anchor: .center) }
@@ -68,11 +69,9 @@ struct OverlayView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(
-            VisualEffectBackground()
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .padding(8)
-        )
+        .background(VisualEffectBackground())
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .padding(8)
         .onAppear {
             searchFocused = true
             selectedID = filtered.first?.id
