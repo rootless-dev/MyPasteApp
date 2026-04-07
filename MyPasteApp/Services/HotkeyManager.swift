@@ -29,7 +29,7 @@ final class HotkeyManager {
         signature = sig
         Self.instances[sig] = self
 
-        var hotKeyID = EventHotKeyID(signature: sig, id: 1)
+        let hotKeyID = EventHotKeyID(signature: sig, id: 1)
         let modifiers: UInt32 = UInt32(cmdKey | shiftKey)
         let keyCode: UInt32 = UInt32(kVK_ANSI_V)
 

@@ -27,7 +27,7 @@ final class ClipboardMonitor {
     func start() {
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.poll() }
+            Task { @MainActor [weak self] in self?.poll() }
         }
         RunLoop.main.add(timer!, forMode: .common)
         backfillLinkMetadata()
