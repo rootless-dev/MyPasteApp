@@ -23,6 +23,7 @@ final class ClipboardItem {
     var textContent: String?
     @Attribute(.externalStorage) var imageData: Data?
     var fileURLStrings: [String]?
+    var linkTitle: String?
     var sourceAppBundleID: String?
     var isPinned: Bool
     /// Hash do conteúdo bruto para deduplicação.
@@ -42,6 +43,7 @@ final class ClipboardItem {
         textContent: String? = nil,
         imageData: Data? = nil,
         fileURLStrings: [String]? = nil,
+        linkTitle: String? = nil,
         sourceAppBundleID: String? = nil,
         isPinned: Bool = false
     ) {
@@ -53,6 +55,7 @@ final class ClipboardItem {
         self.textContent = textContent
         self.imageData = imageData
         self.fileURLStrings = fileURLStrings
+        self.linkTitle = linkTitle
         self.sourceAppBundleID = sourceAppBundleID
         self.isPinned = isPinned
     }

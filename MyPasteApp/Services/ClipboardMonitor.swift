@@ -49,6 +49,50 @@ final class ClipboardMonitor {
 
         guard let item = readCurrentItem() else { return }
         insertIfNotDuplicate(item)
+
+        if item.type == .url, let urlString = item.textContent,
+           let url = URL(string: urlString.trimmingCharacters(in: .whitespacesAndNewlines)),
+           url.scheme?.hasPrefix("http") == true {
+            fetchLinkTitle(for: item, url: url)
+        }
+    }
+
+    // MARK: - Link title
+
+    private func fetchLinkTitle(for item: ClipboardItem, url: URL) {
+        Task { [weak self] in
+            guard let title = await Self.downloadTitle(from: url) else { return }
+            await MainActor.run {
+                guard let self else { return }
+                item.linkTitle = title
+                try? self.modelContext.save()
+            }
+        }
+    }
+
+    private static func downloadTitle(from url: URL) async -> String? {
+        var request = URLRequest(url: url, timeoutInterval: 5)
+        request.setValue("Mozilla/5.0 MyPasteApp", forHTTPHeaderField: "User-Agent")
+        guard let (data, _) = try? await URLSession.shared.data(for: request) else { return nil }
+        let slice = data.prefix(64 * 1024)
+        guard let html = String(data: slice, encoding: .utf8)
+              ?? String(data: slice, encoding: .isoLatin1) else { return nil }
+        guard let regex = try? NSRegularExpression(
+            pattern: "<title[^>]*>([\\s\\S]*?)</title>",
+            options: [.caseInsensitive]
+        ) else { return nil }
+        let range = NSRange(html.startIndex..., in: html)
+        guard let match = regex.firstMatch(in: html, range: range),
+              match.numberOfRanges >= 2,
+              let r = Range(match.range(at: 1), in: html) else { return nil }
+        let raw = String(html[r])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "&amp;", with: "&")
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .replacingOccurrences(of: "&quot;", with: "\"")
+            .replacingOccurrences(of: "&#39;", with: "'")
+        return raw.isEmpty ? nil : raw
     }
 
     // MARK: - Reading
