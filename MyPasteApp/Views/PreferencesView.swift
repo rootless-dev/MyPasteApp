@@ -11,6 +11,7 @@ struct PreferencesView: View {
     @Environment(\.modelContext) private var modelContext
     @AppStorage("maxItems") private var maxItems: Int = 500
     @AppStorage("retentionDays") private var retentionDays: Int = 30
+    @AppStorage("enableSoundFeedback") private var enableSoundFeedback: Bool = true
     @State private var launchAtLogin: Bool = SMAppService.mainApp.status == .enabled
 
     var body: some View {
@@ -20,6 +21,7 @@ struct PreferencesView: View {
                         value: $maxItems, in: 50...5000, step: 50)
                 Stepper("Reter por: \(retentionDays) dias",
                         value: $retentionDays, in: 1...365)
+                Toggle("Som ao copiar", isOn: $enableSoundFeedback)
                 Button("Limpar histórico não-fixado") {
                     clearHistory()
                 }

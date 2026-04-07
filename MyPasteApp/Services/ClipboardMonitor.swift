@@ -153,6 +153,10 @@ final class ClipboardMonitor {
 
         modelContext.insert(item)
         try? modelContext.save()
+
+        if UserDefaults.standard.object(forKey: "enableSoundFeedback") as? Bool ?? true {
+            NSSound(named: "Tink")?.play()
+        }
     }
 
     // MARK: - Hash helpers
