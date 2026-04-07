@@ -2,23 +2,11 @@
 //  ContentView.swift
 //  MyPasteApp
 //
-//  Created by Carlos Eduardo on 07/04/26.
+//  Substituído por Views/OverlayView. Mantido como stub.
 //
 
 import SwiftUI
 
 struct ContentView: View {
-    var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
-        }
-        .padding()
-    }
-}
-
-#Preview {
-    ContentView()
+    var body: some View { EmptyView() }
 }
