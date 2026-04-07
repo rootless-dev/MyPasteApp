@@ -74,16 +74,27 @@ struct ClipboardCardView: View {
                 Text(item.preview).font(.caption)
             }
         case .file:
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .center, spacing: 6) {
                 if let first = item.fileURLStrings?.first {
-                    Image(nsImage: NSWorkspace.shared.icon(forFile: first))
-                        .resizable()
-                        .frame(width: 48, height: 48)
+                    if Self.isImageFile(first),
+                       let img = NSImage(contentsOf: URL(fileURLWithPath: first)) {
+                        Image(nsImage: img)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        Image(nsImage: NSWorkspace.shared.icon(forFile: first))
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 96, height: 96)
+                    }
                 }
                 Text(item.preview)
                     .font(.system(size: 11))
-                    .lineLimit(3)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -103,6 +114,13 @@ struct ClipboardCardView: View {
         case .image: return "IMAGEM"
         case .file: return "ARQUIVO"
         }
+    }
+
+    private static let imageExtensions: Set<String> = [
+        "png", "jpg", "jpeg", "gif", "heic", "heif", "tiff", "tif", "bmp", "webp"
+    ]
+    private static func isImageFile(_ path: String) -> Bool {
+        imageExtensions.contains((path as NSString).pathExtension.lowercased())
     }
 
     private static var iconCache: [String: NSImage] = [:]
