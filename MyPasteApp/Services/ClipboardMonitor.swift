@@ -30,6 +30,22 @@ final class ClipboardMonitor {
             Task { @MainActor in self?.poll() }
         }
         RunLoop.main.add(timer!, forMode: .common)
+        backfillLinkMetadata()
+    }
+
+    /// Para itens do tipo URL salvos antes do suporte a metadata visual,
+    /// dispara fetch assíncrono em background para popular banner/favicon/cor.
+    private func backfillLinkMetadata() {
+        let descriptor = FetchDescriptor<ClipboardItem>(
+            predicate: #Predicate { $0.typeRaw == "url" }
+        )
+        guard let items = try? modelContext.fetch(descriptor) else { return }
+        for item in items where item.linkImageData == nil && item.linkFaviconData == nil {
+            guard let urlString = item.textContent,
+                  let url = URL(string: urlString.trimmingCharacters(in: .whitespacesAndNewlines)),
+                  url.scheme?.hasPrefix("http") == true else { continue }
+            fetchLinkMetadata(for: item, url: url)
+        }
     }
 
     func stop() {
@@ -53,46 +69,24 @@ final class ClipboardMonitor {
         if item.type == .url, let urlString = item.textContent,
            let url = URL(string: urlString.trimmingCharacters(in: .whitespacesAndNewlines)),
            url.scheme?.hasPrefix("http") == true {
-            fetchLinkTitle(for: item, url: url)
+            fetchLinkMetadata(for: item, url: url)
         }
     }
 
-    // MARK: - Link title
+    // MARK: - Link metadata
 
-    private func fetchLinkTitle(for item: ClipboardItem, url: URL) {
+    private func fetchLinkMetadata(for item: ClipboardItem, url: URL) {
         Task { [weak self] in
-            guard let title = await Self.downloadTitle(from: url) else { return }
+            let metadata = await LinkMetadataService.fetch(from: url)
             await MainActor.run {
                 guard let self else { return }
-                item.linkTitle = title
+                if let title = metadata.title { item.linkTitle = title }
+                item.linkImageData = metadata.imageData
+                item.linkFaviconData = metadata.faviconData
+                item.linkBackgroundHex = metadata.backgroundHex
                 try? self.modelContext.save()
             }
         }
-    }
-
-    private static func downloadTitle(from url: URL) async -> String? {
-        var request = URLRequest(url: url, timeoutInterval: 5)
-        request.setValue("Mozilla/5.0 MyPasteApp", forHTTPHeaderField: "User-Agent")
-        guard let (data, _) = try? await URLSession.shared.data(for: request) else { return nil }
-        let slice = data.prefix(64 * 1024)
-        guard let html = String(data: slice, encoding: .utf8)
-              ?? String(data: slice, encoding: .isoLatin1) else { return nil }
-        guard let regex = try? NSRegularExpression(
-            pattern: "<title[^>]*>([\\s\\S]*?)</title>",
-            options: [.caseInsensitive]
-        ) else { return nil }
-        let range = NSRange(html.startIndex..., in: html)
-        guard let match = regex.firstMatch(in: html, range: range),
-              match.numberOfRanges >= 2,
-              let r = Range(match.range(at: 1), in: html) else { return nil }
-        let raw = String(html[r])
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: "&amp;", with: "&")
-            .replacingOccurrences(of: "&lt;", with: "<")
-            .replacingOccurrences(of: "&gt;", with: ">")
-            .replacingOccurrences(of: "&quot;", with: "\"")
-            .replacingOccurrences(of: "&#39;", with: "'")
-        return raw.isEmpty ? nil : raw
     }
 
     // MARK: - Reading

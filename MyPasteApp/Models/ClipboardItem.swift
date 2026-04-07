@@ -24,6 +24,9 @@ final class ClipboardItem {
     @Attribute(.externalStorage) var imageData: Data?
     var fileURLStrings: [String]?
     var linkTitle: String?
+    @Attribute(.externalStorage) var linkImageData: Data?
+    @Attribute(.externalStorage) var linkFaviconData: Data?
+    var linkBackgroundHex: String?
     var sourceAppBundleID: String?
     var isPinned: Bool
     /// Hash do conteúdo bruto para deduplicação.
@@ -44,6 +47,9 @@ final class ClipboardItem {
         imageData: Data? = nil,
         fileURLStrings: [String]? = nil,
         linkTitle: String? = nil,
+        linkImageData: Data? = nil,
+        linkFaviconData: Data? = nil,
+        linkBackgroundHex: String? = nil,
         sourceAppBundleID: String? = nil,
         isPinned: Bool = false
     ) {
@@ -56,6 +62,9 @@ final class ClipboardItem {
         self.imageData = imageData
         self.fileURLStrings = fileURLStrings
         self.linkTitle = linkTitle
+        self.linkImageData = linkImageData
+        self.linkFaviconData = linkFaviconData
+        self.linkBackgroundHex = linkBackgroundHex
         self.sourceAppBundleID = sourceAppBundleID
         self.isPinned = isPinned
     }

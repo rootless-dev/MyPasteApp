@@ -88,12 +88,14 @@ struct ClipboardCardView: View {
     @ViewBuilder
     private var content: some View {
         switch item.type {
-        case .text, .url:
+        case .text:
             Text(item.preview)
-                .font(.system(size: 12, design: item.type == .text ? .monospaced : .default))
+                .font(.system(size: 12, design: .monospaced))
                 .foregroundStyle(.primary)
                 .lineLimit(8)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        case .url:
+            LinkPreviewView(item: item)
         case .image:
             if let data = item.imageData, let img = NSImage(data: data) {
                 Image(nsImage: img)
@@ -104,28 +106,9 @@ struct ClipboardCardView: View {
                 Text(item.preview).font(.caption)
             }
         case .file:
-            VStack(alignment: .center, spacing: 6) {
-                if let first = item.fileURLStrings?.first {
-                    if Self.isImageFile(first),
-                       let img = NSImage(contentsOf: URL(fileURLWithPath: first)) {
-                        Image(nsImage: img)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else {
-                        Image(nsImage: NSWorkspace.shared.icon(forFile: first))
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 64, height: 64)
-                        Text(item.preview)
-                            .font(.system(size: 11))
-                            .lineLimit(2)
-                            .multilineTextAlignment(.center)
-                            .foregroundStyle(.secondary)
-                    }
-                }
+            if let first = item.fileURLStrings?.first {
+                FilePreviewView(path: first)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -213,13 +196,6 @@ struct ClipboardCardView: View {
 
     private var relativeTime: String {
         item.createdAt.formatted(.relative(presentation: .numeric))
-    }
-
-    private static let imageExtensions: Set<String> = [
-        "png", "jpg", "jpeg", "gif", "heic", "heif", "tiff", "tif", "bmp", "webp"
-    ]
-    private static func isImageFile(_ path: String) -> Bool {
-        imageExtensions.contains((path as NSString).pathExtension.lowercased())
     }
 
     private static var iconCache: [String: NSImage] = [:]
