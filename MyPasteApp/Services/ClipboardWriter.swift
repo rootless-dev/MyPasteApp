@@ -5,6 +5,7 @@
 
 import AppKit
 import Foundation
+import SwiftData
 
 @MainActor
 final class ClipboardWriter {
@@ -18,6 +19,10 @@ final class ClipboardWriter {
         let pb = NSPasteboard.general
         monitor?.ignoreNextChange = true
         pb.clearContents()
+
+        item.createdAt = .now
+        item.lastUsedAt = .now
+        try? item.modelContext?.save()
 
         switch item.type {
         case .text, .url:

@@ -76,6 +76,9 @@ struct OverlayView: View {
             searchFocused = true
             selectedID = filtered.first?.id
         }
+        .onChange(of: filtered.first?.id) { _, newID in
+            selectedID = newID
+        }
         .onKeyPress(.escape) { onDismiss(); return .handled }
         .onKeyPress(.return) {
             if let item = filtered.first(where: { $0.id == selectedID }) {

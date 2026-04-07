@@ -14,6 +14,7 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
     private let onPick: (ClipboardItem) -> Void
     private var globalMouseMonitor: Any?
     private var localMouseMonitor: Any?
+    private var previousApp: NSRunningApplication?
 
     init(modelContainer: ModelContainer, onPick: @escaping (ClipboardItem) -> Void) {
         self.modelContainer = modelContainer
@@ -35,6 +36,10 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
 
     func show() {
         guard let screen = NSScreen.main else { return }
+        let frontmost = NSWorkspace.shared.frontmostApplication
+        if frontmost?.bundleIdentifier != Bundle.main.bundleIdentifier {
+            previousApp = frontmost
+        }
         let height: CGFloat = 320
         let frame = NSRect(
             x: screen.frame.minX,
@@ -66,7 +71,6 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
             let root = OverlayView(
                 onPick: { [weak self] item in
                     self?.onPick(item)
-                    self?.hide()
                 },
                 onDismiss: { [weak self] in self?.hide() }
             )
