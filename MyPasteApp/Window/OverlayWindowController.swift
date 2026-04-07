@@ -8,14 +8,21 @@ import SwiftData
 import SwiftUI
 
 @MainActor
-final class OverlayWindowController {
+final class OverlayWindowController: NSObject, NSWindowDelegate {
     private var window: NSPanel?
     private let modelContainer: ModelContainer
     private let onPick: (ClipboardItem) -> Void
+    private var globalMouseMonitor: Any?
+    private var localMouseMonitor: Any?
 
     init(modelContainer: ModelContainer, onPick: @escaping (ClipboardItem) -> Void) {
         self.modelContainer = modelContainer
         self.onPick = onPick
+        super.init()
+    }
+
+    func windowDidResignKey(_ notification: Notification) {
+        hide()
     }
 
     func toggle() {
@@ -54,6 +61,7 @@ final class OverlayWindowController {
             panel.backgroundColor = .clear
             panel.hasShadow = true
             panel.hidesOnDeactivate = false
+            panel.delegate = self
 
             let root = OverlayView(
                 onPick: { [weak self] item in
@@ -85,9 +93,12 @@ final class OverlayWindowController {
             panel.animator().setFrame(frame, display: true)
             panel.animator().alphaValue = 1
         }
+
+        installClickOutsideMonitors()
     }
 
     func hide() {
+        removeClickOutsideMonitors()
         guard let panel = window, panel.isVisible else { return }
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.18
@@ -95,5 +106,31 @@ final class OverlayWindowController {
         }, completionHandler: {
             panel.orderOut(nil)
         })
+    }
+
+    private func installClickOutsideMonitors() {
+        removeClickOutsideMonitors()
+        let mask: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] _ in
+            Task { @MainActor in self?.hide() }
+        }
+        localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] event in
+            guard let self else { return event }
+            if event.window !== self.window {
+                self.hide()
+            }
+            return event
+        }
+    }
+
+    private func removeClickOutsideMonitors() {
+        if let m = globalMouseMonitor {
+            NSEvent.removeMonitor(m)
+            globalMouseMonitor = nil
+        }
+        if let m = localMouseMonitor {
+            NSEvent.removeMonitor(m)
+            localMouseMonitor = nil
+        }
     }
 }
