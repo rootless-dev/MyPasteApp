@@ -33,6 +33,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         overlay = OverlayWindowController(modelContainer: modelContainer) { [weak self] item in
             self?.writer.write(item)
         }
+        // Pré-aquece o painel: cria a janela e força o layout inicial do
+        // SwiftUI agora, para que a primeira hotkey não pague esse custo
+        // durante a animação de abertura.
+        overlay.prepare()
 
         hotkey = HotkeyManager { [weak self] in
             self?.overlay.toggle()

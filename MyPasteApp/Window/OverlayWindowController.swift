@@ -34,55 +34,80 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         }
     }
 
+    private static let overlayHeight: CGFloat = 320
+
+    /// Cria o `NSPanel` e faz layout inicial do SwiftUI antecipadamente, para
+    /// que a primeira invocação da hotkey não pague o custo de layout durante
+    /// a animação de abertura. Idempotente.
+    func prepare() {
+        guard window == nil else { return }
+        let height = Self.overlayHeight
+        let initial = NSRect(x: 0, y: 0, width: 800, height: height)
+
+        let panel = NSPanel(
+            contentRect: initial,
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.isFloatingPanel = true
+        panel.level = .floating
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.hidesOnDeactivate = false
+        panel.delegate = self
+        panel.alphaValue = 0
+
+        let root = OverlayView(
+            onPick: { [weak self] item in
+                self?.onPick(item)
+            },
+            onDismiss: { [weak self] in self?.hide() }
+        )
+        .modelContainer(modelContainer)
+
+        let host = NSHostingView(rootView: root)
+        host.frame = panel.contentView?.bounds ?? initial
+        host.autoresizingMask = [NSView.AutoresizingMask.width, NSView.AutoresizingMask.height]
+        host.wantsLayer = true
+        panel.contentView = host
+        // Força o layout inicial agora, fora do hot path da hotkey.
+        host.layoutSubtreeIfNeeded()
+        window = panel
+
+        // Pré-aquecimento "de verdade": exibe o painel brevemente fora da
+        // tela visível e ordena saída no próximo runloop. Isso obriga o
+        // SwiftUI a rodar onAppear e os loaders das previews uma vez no
+        // startup, para que a primeira animação real não compita com esses
+        // trabalhos assíncronos.
+        let warmupFrame = NSRect(x: -10_000, y: -10_000, width: 800, height: height)
+        panel.setFrame(warmupFrame, display: false)
+        panel.orderFrontRegardless()
+        host.layoutSubtreeIfNeeded()
+        host.displayIfNeeded()
+        DispatchQueue.main.async {
+            panel.orderOut(nil)
+        }
+    }
+
     func show() {
         let frontmost = NSWorkspace.shared.frontmostApplication
         if frontmost?.bundleIdentifier != Bundle.main.bundleIdentifier {
             previousApp = frontmost
         }
         guard let screen = targetScreen(for: frontmost) else { return }
-        let height: CGFloat = 320
+        prepare()
+        guard let panel = window else { return }
+
+        let height = Self.overlayHeight
         let frame = NSRect(
             x: screen.frame.minX,
             y: screen.visibleFrame.minY,
             width: screen.frame.width,
             height: height
         )
-
-        let panel: NSPanel
-        if let existing = window {
-            panel = existing
-            panel.setFrame(frame, display: false)
-        } else {
-            panel = NSPanel(
-                contentRect: frame,
-                styleMask: [.borderless, .nonactivatingPanel],
-                backing: .buffered,
-                defer: false
-            )
-            panel.isFloatingPanel = true
-            panel.level = .floating
-            panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
-            panel.isOpaque = false
-            panel.backgroundColor = .clear
-            panel.hasShadow = true
-            panel.hidesOnDeactivate = false
-            panel.delegate = self
-
-            let root = OverlayView(
-                onPick: { [weak self] item in
-                    self?.onPick(item)
-                },
-                onDismiss: { [weak self] in self?.hide() }
-            )
-            .modelContainer(modelContainer)
-
-            let host = NSHostingView(rootView: root)
-            host.frame = panel.contentView?.bounds ?? frame
-            host.autoresizingMask = [NSView.AutoresizingMask.width, NSView.AutoresizingMask.height]
-            host.wantsLayer = true
-            panel.contentView = host
-            window = panel
-        }
 
         // A janela é colocada DIRETAMENTE no frame final (sem slide pela
         // janela). O slide-up é feito internamente, transladando a layer da
@@ -101,21 +126,38 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
 
         // Estado inicial: transladado pra baixo da própria janela.
         hostLayer.removeAnimation(forKey: "slideUp")
+        hostLayer.removeAnimation(forKey: "fadeIn")
         hostLayer.setAffineTransform(CGAffineTransform(translationX: 0, y: -height))
         panel.alphaValue = 1
 
-        let slide = CABasicAnimation(keyPath: "transform")
+        // Rasterização durante a animação: o Core Animation tira um snapshot
+        // bitmap da hierarquia uma vez e só translada o snapshot a cada frame,
+        // em vez de recompor a árvore SwiftUI. Desligamos no completion para
+        // não degradar a nitidez quando a janela está parada.
+        hostLayer.shouldRasterize = true
+        hostLayer.rasterizationScale = panel.backingScaleFactor
+        // Garante que o conteúdo já está renderizado ANTES de a animação
+        // começar, para que o primeiro frame do slide-up não pague o custo
+        // de layout/draw da árvore SwiftUI.
+        panel.contentView?.layoutSubtreeIfNeeded()
+        panel.contentView?.displayIfNeeded()
+        hostLayer.displayIfNeeded()
+
+        let slide = CASpringAnimation(keyPath: "transform")
         slide.fromValue = CATransform3DMakeTranslation(0, -height, 0)
         slide.toValue = CATransform3DIdentity
-        slide.duration = 0.22
-        slide.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        slide.damping = 18
+        slide.stiffness = 220
+        slide.mass = 1
+        slide.initialVelocity = 0
+        slide.duration = slide.settlingDuration
         slide.fillMode = .forwards
         slide.isRemovedOnCompletion = false
 
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.fromValue = 0
         fade.toValue = 1
-        fade.duration = 0.22
+        fade.duration = 0.18
         fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
         fade.fillMode = .forwards
         fade.isRemovedOnCompletion = false
@@ -124,6 +166,7 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         CATransaction.setCompletionBlock {
             hostLayer.setAffineTransform(.identity)
             hostLayer.opacity = 1
+            hostLayer.shouldRasterize = false
             hostLayer.removeAnimation(forKey: "slideUp")
             hostLayer.removeAnimation(forKey: "fadeIn")
         }
