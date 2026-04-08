@@ -1,0 +1,42 @@
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Xcode - User-specific state
+xcuserdata/
+**/xcuserdata/
+*.xcuserstate
+*.xcuserdatad/
+
+# Xcode - Build output
+build/
+DerivedData/
+**/DerivedData/
+*.o
+*.a
+*.dSYM/
+*.hmap
+*.ipa
+*.xcarchive
+
+# Xcode - Workspace user data
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Packages/
+Package.pins
+Package.resolved
+
+# CocoaPods (caso venha a usar)
+Pods/
+
+# Carthage (caso venha a usar)
+Carthage/Build/
+
+# Misc
+*.log
+*.tmp
