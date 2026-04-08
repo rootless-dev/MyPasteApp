@@ -33,9 +33,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         overlay = OverlayWindowController(modelContainer: modelContainer) { [weak self] item in
             self?.writer.write(item)
         }
-        // Pré-aquece o painel: cria a janela e força o layout inicial do
-        // SwiftUI agora, para que a primeira hotkey não pague esse custo
-        // durante a animação de abertura.
+        // Pre-warm the panel: create the window and force SwiftUI's initial
+        // layout now, so that the first hotkey press doesn't pay that cost
+        // during the open animation.
         overlay.prepare()
 
         hotkey = HotkeyManager { [weak self] in
@@ -73,19 +73,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showStatusMenu() {
         let menu = NSMenu()
-        let show = NSMenuItem(title: "Mostrar histórico  ⌘⇧V",
+        let show = NSMenuItem(title: "Show history  ⌘⇧V",
                               action: #selector(showHistoryAction),
                               keyEquivalent: "")
         show.target = self
         menu.addItem(show)
         menu.addItem(.separator())
-        let prefs = NSMenuItem(title: "Preferências…",
+        let prefs = NSMenuItem(title: "Preferences…",
                                action: #selector(openPreferences),
                                keyEquivalent: ",")
         prefs.target = self
         menu.addItem(prefs)
         menu.addItem(.separator())
-        let quit = NSMenuItem(title: "Sair",
+        let quit = NSMenuItem(title: "Quit",
                               action: #selector(quitAction),
                               keyEquivalent: "q")
         quit.target = self

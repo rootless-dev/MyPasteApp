@@ -6,8 +6,8 @@
 import AppKit
 import SwiftUI
 
-/// Extrai a cor dominante (vibrante) do ícone de um app a partir do seu bundleID.
-/// Usado para colorir o header dos tiles de acordo com o app de origem do clipboard.
+/// Extracts the dominant (vibrant) color from an app's icon given its bundleID.
+/// Used to tint the tile header based on the clipboard item's source app.
 enum AppColorExtractor {
     private static var cache: [String: NSColor] = [:]
     private static let fallback = NSColor.controlAccentColor
@@ -84,7 +84,7 @@ enum AppColorExtractor {
                 let luminance = 0.299 * r + 0.587 * g + 0.114 * b
                 guard luminance > 0.15, luminance < 0.85 else { continue }
 
-                // Pondera pela saturação para favorecer cores vibrantes
+                // Weight by saturation to favor vibrant colors
                 let maxC = max(r, g, b)
                 let minC = min(r, g, b)
                 let saturation = maxC == 0 ? 0 : (maxC - minC) / maxC
@@ -103,7 +103,7 @@ enum AppColorExtractor {
         var g = CGFloat(gSum / count)
         var b = CGFloat(bSum / count)
 
-        // Garante uma cor com saturação mínima razoável para o header não ficar acinzentado
+        // Ensures a reasonable minimum saturation so the header doesn't look grayish
         let nsColor = NSColor(red: r, green: g, blue: b, alpha: 1.0)
         var h: CGFloat = 0, s: CGFloat = 0, v: CGFloat = 0, a: CGFloat = 0
         nsColor.usingColorSpace(.deviceRGB)?.getHue(&h, saturation: &s, brightness: &v, alpha: &a)

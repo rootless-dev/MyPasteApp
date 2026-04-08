@@ -15,8 +15,8 @@ final class ClipboardMonitor {
     private var lastChangeCount: Int
     private var timer: Timer?
 
-    /// Quando true, ignora a próxima mudança detectada (usado pelo ClipboardWriter
-    /// para não recapturar itens que ele mesmo escreveu de volta).
+    /// When true, ignores the next detected change (used by ClipboardWriter
+    /// to avoid recapturing items it just wrote back to the pasteboard).
     var ignoreNextChange = false
 
     init(modelContext: ModelContext) {
@@ -33,8 +33,8 @@ final class ClipboardMonitor {
         backfillLinkMetadata()
     }
 
-    /// Para itens do tipo URL salvos antes do suporte a metadata visual,
-    /// dispara fetch assíncrono em background para popular banner/favicon/cor.
+    /// For URL-type items saved before visual metadata support existed,
+    /// kicks off an async background fetch to populate banner/favicon/color.
     private func backfillLinkMetadata() {
         let descriptor = FetchDescriptor<ClipboardItem>(
             predicate: #Predicate { $0.typeRaw == "url" }

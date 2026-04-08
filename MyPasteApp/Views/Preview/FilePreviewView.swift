@@ -19,7 +19,7 @@ struct FilePreviewView: View {
                     .scaledToFit()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                // Fallback placeholder: ícone do Finder enquanto carrega.
+                // Fallback placeholder: Finder icon while loading.
                 Image(nsImage: NSWorkspace.shared.icon(forFile: path))
                     .resizable()
                     .scaledToFit()

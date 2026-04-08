@@ -29,7 +29,7 @@ final class RetentionPolicy {
             byAdding: .day, value: -retentionDays, to: .now
         ) ?? .now
 
-        // 1) Delete itens antigos não-fixados
+        // 1) Delete old non-pinned items
         let oldDescriptor = FetchDescriptor<ClipboardItem>(
             predicate: #Predicate { !$0.isPinned && $0.createdAt < cutoff }
         )
@@ -37,7 +37,7 @@ final class RetentionPolicy {
             for item in old { modelContext.delete(item) }
         }
 
-        // 2) Cap em maxItems (mantém os mais recentes não-fixados)
+        // 2) Cap at maxItems (keeps the most recent non-pinned ones)
         let allDescriptor = FetchDescriptor<ClipboardItem>(
             predicate: #Predicate { !$0.isPinned },
             sortBy: [SortDescriptor(\.createdAt, order: .reverse)]

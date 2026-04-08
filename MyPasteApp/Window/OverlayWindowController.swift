@@ -36,9 +36,9 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
 
     private static let overlayHeight: CGFloat = 320
 
-    /// Cria o `NSPanel` e faz layout inicial do SwiftUI antecipadamente, para
-    /// que a primeira invocação da hotkey não pague o custo de layout durante
-    /// a animação de abertura. Idempotente.
+    /// Creates the `NSPanel` and performs SwiftUI's initial layout up front,
+    /// so the first hotkey invocation doesn't pay the layout cost during the
+    /// open animation. Idempotent.
     func prepare() {
         guard window == nil else { return }
         let height = Self.overlayHeight
@@ -73,15 +73,14 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         host.autoresizingMask = [NSView.AutoresizingMask.width, NSView.AutoresizingMask.height]
         host.wantsLayer = true
         panel.contentView = host
-        // Força o layout inicial agora, fora do hot path da hotkey.
+        // Force the initial layout now, outside the hotkey hot path.
         host.layoutSubtreeIfNeeded()
         window = panel
 
-        // Pré-aquecimento "de verdade": exibe o painel brevemente fora da
-        // tela visível e ordena saída no próximo runloop. Isso obriga o
-        // SwiftUI a rodar onAppear e os loaders das previews uma vez no
-        // startup, para que a primeira animação real não compita com esses
-        // trabalhos assíncronos.
+        // "Real" pre-warm: briefly show the panel off-screen and order it out
+        // on the next runloop. This forces SwiftUI to run onAppear and the
+        // preview loaders once at startup, so the first real animation
+        // doesn't have to compete with that async work.
         let warmupFrame = NSRect(x: -10_000, y: -10_000, width: 800, height: height)
         panel.setFrame(warmupFrame, display: false)
         panel.orderFrontRegardless()
@@ -109,10 +108,11 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
             height: height
         )
 
-        // A janela é colocada DIRETAMENTE no frame final (sem slide pela
-        // janela). O slide-up é feito internamente, transladando a layer da
-        // contentView. Isso evita que a animação cruze a fronteira entre
-        // monitores em setups multi-display, o que antes causava o "teleporte".
+        // The window is placed DIRECTLY at its final frame (no window-level
+        // slide). The slide-up is performed internally by translating the
+        // contentView's layer. This prevents the animation from crossing
+        // monitor boundaries in multi-display setups, which previously
+        // caused the "teleport" glitch.
         panel.alphaValue = 0
         panel.setFrame(frame, display: false)
         panel.orderFrontRegardless()
@@ -124,21 +124,21 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
             return
         }
 
-        // Estado inicial: transladado pra baixo da própria janela.
+        // Initial state: translated below the window itself.
         hostLayer.removeAnimation(forKey: "slideUp")
         hostLayer.removeAnimation(forKey: "fadeIn")
         hostLayer.setAffineTransform(CGAffineTransform(translationX: 0, y: -height))
         panel.alphaValue = 1
 
-        // Rasterização durante a animação: o Core Animation tira um snapshot
-        // bitmap da hierarquia uma vez e só translada o snapshot a cada frame,
-        // em vez de recompor a árvore SwiftUI. Desligamos no completion para
-        // não degradar a nitidez quando a janela está parada.
+        // Rasterization during the animation: Core Animation snapshots the
+        // hierarchy as a bitmap once and just translates that snapshot each
+        // frame, instead of recomposing the SwiftUI tree. We turn it off in
+        // the completion block so sharpness isn't degraded while idle.
         hostLayer.shouldRasterize = true
         hostLayer.rasterizationScale = panel.backingScaleFactor
-        // Garante que o conteúdo já está renderizado ANTES de a animação
-        // começar, para que o primeiro frame do slide-up não pague o custo
-        // de layout/draw da árvore SwiftUI.
+        // Make sure the content is already rendered BEFORE the animation
+        // starts, so the first slide-up frame doesn't pay the layout/draw
+        // cost of the SwiftUI tree.
         panel.contentView?.layoutSubtreeIfNeeded()
         panel.contentView?.displayIfNeeded()
         hostLayer.displayIfNeeded()
@@ -203,16 +203,15 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         }
     }
 
-    /// Resolve em qual `NSScreen` o overlay deve aparecer.
+    /// Resolves which `NSScreen` the overlay should appear on.
     ///
-    /// Estratégia (em ordem):
-    /// 1. Tela que contém a janela frontmost do app que estava em foco
-    ///    (descoberta via `CGWindowListCopyWindowInfo`, sem precisar de
-    ///    permissão de Accessibility).
-    /// 2. Tela que contém o cursor do mouse — usada quando o app frontmost
-    ///    não tem janelas visíveis (ex.: Finder mostrando só a área de
-    ///    trabalho).
-    /// 3. `NSScreen.main` como último recurso.
+    /// Strategy (in order):
+    /// 1. Screen containing the frontmost window of the previously focused
+    ///    app (discovered via `CGWindowListCopyWindowInfo`, no Accessibility
+    ///    permission required).
+    /// 2. Screen containing the mouse cursor — used when the frontmost app
+    ///    has no visible windows (e.g. Finder showing only the desktop).
+    /// 3. `NSScreen.main` as a last resort.
     private func targetScreen(for frontmost: NSRunningApplication?) -> NSScreen? {
         if let app = frontmost,
            app.bundleIdentifier != Bundle.main.bundleIdentifier,
@@ -230,16 +229,16 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         guard let infoList = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else {
             return nil
         }
-        // A lista vem do mais frontmost para o mais ao fundo. Pegamos a
-        // primeira janela "normal" (layer 0) que pertença ao processo.
+        // The list is ordered from frontmost to backmost. We pick the first
+        // "normal" window (layer 0) that belongs to the process.
         for info in infoList {
             guard let ownerPID = info[kCGWindowOwnerPID as String] as? pid_t, ownerPID == pid else { continue }
             guard let layer = info[kCGWindowLayer as String] as? Int, layer == 0 else { continue }
             guard let boundsDict = info[kCGWindowBounds as String] as? [String: Any],
                   let cgBounds = CGRect(dictionaryRepresentation: boundsDict as CFDictionary) else { continue }
-            // CGWindow usa origem no topo-esquerda do display primário; AppKit
-            // usa rodapé-esquerda. Convertemos pegando o centro em coordenadas
-            // do AppKit.
+            // CGWindow uses top-left origin on the primary display; AppKit
+            // uses bottom-left. Convert by taking the center in AppKit
+            // coordinates.
             guard let primary = NSScreen.screens.first else { continue }
             let primaryHeight = primary.frame.height
             let centerCG = CGPoint(x: cgBounds.midX, y: cgBounds.midY)
