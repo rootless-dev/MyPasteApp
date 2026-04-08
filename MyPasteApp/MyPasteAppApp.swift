@@ -18,7 +18,7 @@ struct MyPasteAppApp: App {
                 PreferencesView()
                     .modelContainer(container)
             } else {
-                Text("Carregando…").padding()
+                Text("Loading…").padding()
             }
         }
     }

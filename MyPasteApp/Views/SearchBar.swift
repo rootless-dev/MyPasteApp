@@ -12,7 +12,7 @@ struct SearchBar: View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
-            TextField("Buscar no histórico…", text: $text)
+            TextField("Search history…", text: $text)
                 .textFieldStyle(.plain)
                 .font(.system(size: 14))
             if !text.isEmpty {

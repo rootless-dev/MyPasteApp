@@ -16,22 +16,22 @@ struct PreferencesView: View {
 
     var body: some View {
         Form {
-            Section("Histórico") {
-                Stepper("Itens máximos: \(maxItems)",
+            Section("History") {
+                Stepper("Max items: \(maxItems)",
                         value: $maxItems, in: 50...5000, step: 50)
-                Stepper("Reter por: \(retentionDays) dias",
+                Stepper("Retain for: \(retentionDays) days",
                         value: $retentionDays, in: 1...365)
-                Toggle("Som ao copiar", isOn: $enableSoundFeedback)
-                Button("Limpar histórico não-fixado") {
+                Toggle("Sound on copy", isOn: $enableSoundFeedback)
+                Button("Clear non-pinned history") {
                     clearHistory()
                 }
             }
-            Section("Atalho global") {
-                Text("⌘⇧V — Mostrar/ocultar overlay")
+            Section("Global shortcut") {
+                Text("⌘⇧V — Show/hide overlay")
                     .foregroundStyle(.secondary)
             }
-            Section("Inicialização") {
-                Toggle("Iniciar no login", isOn: $launchAtLogin)
+            Section("Startup") {
+                Toggle("Launch at login", isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { _, newValue in
                         toggleLaunchAtLogin(newValue)
                     }

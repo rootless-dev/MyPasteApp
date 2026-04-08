@@ -29,7 +29,7 @@ final class ClipboardItem {
     var linkBackgroundHex: String?
     var sourceAppBundleID: String?
     var isPinned: Bool
-    /// Hash do conteúdo bruto para deduplicação.
+    /// Hash of the raw content, used for deduplication.
     var contentHash: String
 
     var type: ClipboardItemType {

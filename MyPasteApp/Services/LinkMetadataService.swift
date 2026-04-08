@@ -101,7 +101,7 @@ enum LinkMetadataService {
         return String(html[r])
     }
 
-    /// Extrai todas as tags `<name ...>` (apenas o conteúdo entre `<` e `>`).
+    /// Extracts all `<name ...>` tags (only the content between `<` and `>`).
     private static func extractTags(html: String, name: String) -> [String] {
         let pattern = "<\(name)\\b[^>]*/?>"
         guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return [] }
@@ -111,7 +111,7 @@ enum LinkMetadataService {
         }
     }
 
-    /// Lê o valor de um atributo HTML (`name="value"` ou `name='value'`).
+    /// Reads the value of an HTML attribute (`name="value"` or `name='value'`).
     private static func attribute(_ name: String, in tag: String) -> String? {
         let pattern = "\\b\(name)\\s*=\\s*[\"']([^\"']*)[\"']"
         return firstMatch(in: tag, pattern: pattern)
