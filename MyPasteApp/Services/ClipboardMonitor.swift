@@ -75,6 +75,13 @@ final class ClipboardMonitor {
             return
         }
 
+        // Checked before reading anything: discarding the string afterwards
+        // would have let the password travel through the app for no reason.
+        if PasteboardPrivacy.shouldIgnore(types: pasteboard.types ?? [],
+                                          settings: .current(from: defaults)) {
+            return
+        }
+
         guard let item = readCurrentItem() else { return }
 
         // Skip ignored source apps.
