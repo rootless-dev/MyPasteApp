@@ -86,7 +86,8 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
                     PasteSimulator.paste(activating: target, delay: Double(delayMs) / 1000.0)
                 }
             },
-            onDismiss: { [weak self] in self?.hide() }
+            onDismiss: { [weak self] in self?.hide() },
+            destinationAppName: { [weak self] in self?.previousApp?.localizedName }
         )
         .modelContainer(modelContainer)
 

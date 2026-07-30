@@ -21,13 +21,25 @@ struct OverlayView: View {
     let writer: ClipboardWriter
     let onPick: (ClipboardItem, Bool) -> Void
     let onDismiss: () -> Void
+    /// Resolves the name of the app a paste would land in, read fresh at menu
+    /// build time.
+    ///
+    /// `OverlayView` is constructed once, in `prepare()`, and reused across
+    /// every hotkey invocation — but the previously-frontmost app changes on
+    /// every `show()`. A plain `String?` captured through `init` would freeze
+    /// whatever app was frontmost the first time the panel was built. A
+    /// closure defers that read to whenever the context menu is actually
+    /// assembled, so it always reflects the current opening.
+    let destinationAppName: () -> String?
 
     init(writer: ClipboardWriter,
          onPick: @escaping (ClipboardItem, Bool) -> Void,
-         onDismiss: @escaping () -> Void) {
+         onDismiss: @escaping () -> Void,
+         destinationAppName: @escaping () -> String? = { nil }) {
         self.writer = writer
         self.onPick = onPick
         self.onDismiss = onDismiss
+        self.destinationAppName = destinationAppName
     }
 
     /// Built fresh on every access: it only wraps references (the model
@@ -82,6 +94,11 @@ struct OverlayView: View {
                             )
                             .id(item.id)
                             .onTapGesture { pick(item) }
+                            .contextMenu {
+                                ItemContextMenu(item: item,
+                                                actions: itemActions,
+                                                destinationAppName: destinationAppName())
+                            }
                         }
                     }
                     .padding(.horizontal, 16)
