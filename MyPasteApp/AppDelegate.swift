@@ -122,7 +122,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Registers both global shortcuts, unless they collide.
     ///
-    /// `PreferencesView.applyHotkeyChange` refuses to save a colliding combo,
+    /// `ShortcutsSettingsView.applyHotkeyChange` refuses to save a colliding combo,
     /// but that guard never runs on a combo that was already on disk before
     /// this version existed — e.g. someone who'd bound the overlay shortcut
     /// to ⌘⇧P upgrading into a `pauseHotkey` that, being unset, falls back to
@@ -131,7 +131,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// nothing but an `NSLog` to show for it. The overlay shortcut is treated
     /// as the pre-existing one and wins; the pause one is simply left
     /// unregistered. Preferences re-derives this same comparison from what's
-    /// on disk every time it's opened (see `PreferencesView.refreshHotkeyState`),
+    /// on disk every time it's opened (see `ShortcutsSettingsView.refreshHotkeyState`),
     /// so the user is told which shortcut is dead instead of only the log.
     private func registerHotkeysCheckingConflict() {
         overlayHotkeyRegistered = hotkey.register()

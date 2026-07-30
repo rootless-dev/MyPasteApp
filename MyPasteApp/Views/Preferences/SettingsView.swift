@@ -60,8 +60,8 @@ struct SettingsView: View {
         case .general:    GeneralSettingsView()
         case .history:    HistorySettingsView()
         case .appearance: AppearanceSettingsView()
-        case .shortcuts:  Text("Shortcuts")
-        case .privacy:    Text("Privacy")
+        case .shortcuts:  ShortcutsSettingsView()
+        case .privacy:    PrivacySettingsView()
         }
     }
 }
