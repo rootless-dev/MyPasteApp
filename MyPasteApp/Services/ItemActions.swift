@@ -62,6 +62,14 @@ final class ItemActions {
     func edit(_ item: ClipboardItem, focus: ItemEditorFocus = .body) {
         editorWindow.open(item: item, focus: focus)
     }
+
+    /// Opens the item editor window, focused on the label field.
+    ///
+    /// Unlike `edit`, this applies to every type: an image or a file benefits
+    /// from a name just as much as a piece of text does.
+    func rename(_ item: ClipboardItem) {
+        editorWindow.open(item: item, focus: .label)
+    }
 }
 
 /// Applies an edit to an item, recomputing everything derived from its text.
@@ -94,6 +102,24 @@ enum ItemEdit {
         // Editing counts as use, the same way pasting does. `createdAt` is
         // already "last used" rather than "captured at" — see the note at the
         // top of ROADMAP.md.
+        item.createdAt = .now
+        item.lastUsedAt = .now
+
+        try? item.modelContext?.save()
+    }
+
+    /// Applies a label-only rename, for item types with no editable body
+    /// (image, file).
+    ///
+    /// Renaming those must not go through `apply`: its `attributed` parameter
+    /// would come from an editor bound to an empty string for these types, and
+    /// writing that back would blank out `textContent`, `preview` and
+    /// `contentHash` — the same fields that hold the actual image/file
+    /// identity. See the type gate in `ItemEditorView`.
+    static func applyLabel(to item: ClipboardItem, label: String?) {
+        let trimmed = label?.trimmingCharacters(in: .whitespacesAndNewlines)
+        item.label = (trimmed?.isEmpty ?? true) ? nil : trimmed
+
         item.createdAt = .now
         item.lastUsedAt = .now
 

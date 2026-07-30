@@ -73,12 +73,22 @@ struct ClipboardCardView: View {
     private func coloredHeader(baseColor: Color) -> some View {
         HStack(alignment: .top, spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(typeLabel)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
-                Text(relativeTime)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.white.opacity(0.85))
+                if let label = item.label {
+                    // Takes over the space of type + relative time rather than
+                    // competing with it — see design-refs/13-pinboard-links-uteis.png.
+                    Text(label)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                } else {
+                    Text(typeLabel)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                    Text(relativeTime)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.white.opacity(0.85))
+                }
             }
             Spacer(minLength: 0)
             if item.isPinned {

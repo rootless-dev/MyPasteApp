@@ -44,6 +44,13 @@ struct ItemEditorView: View {
         _label = State(initialValue: item.label ?? "")
     }
 
+    /// Whether this item has an editable text body.
+    ///
+    /// Image and file items have no body to show here — see `ItemEdit.applyLabel`.
+    private var hasEditableBody: Bool {
+        item.type == .text || item.type == .url
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             TextField("Label", text: $label)
@@ -51,10 +58,12 @@ struct ItemEditorView: View {
                 .focused($labelFocused)
                 .padding(12)
 
-            Divider()
+            if hasEditableBody {
+                Divider()
 
-            RichTextEditor(attributedText: $attributed)
-                .frame(minWidth: 480, minHeight: 280)
+                RichTextEditor(attributedText: $attributed)
+                    .frame(minWidth: 480, minHeight: 280)
+            }
 
             Divider()
 
@@ -71,10 +80,14 @@ struct ItemEditorView: View {
     }
 
     private func save() {
-        ItemEdit.apply(to: item,
-                       attributed: attributed,
-                       label: label,
-                       previewLength: previewTextLength)
+        if hasEditableBody {
+            ItemEdit.apply(to: item,
+                           attributed: attributed,
+                           label: label,
+                           previewLength: previewTextLength)
+        } else {
+            ItemEdit.applyLabel(to: item, label: label)
+        }
         onClose()
     }
 }

@@ -67,12 +67,19 @@ struct OverlayView: View {
             if a.isPinned != b.isPinned { return a.isPinned }
             return a.createdAt > b.createdAt
         }
-        guard !searchText.isEmpty else { return sorted }
-        let q = searchText.lowercased()
-        return sorted.filter { item in
-            item.preview.lowercased().contains(q)
-                || (item.textContent?.lowercased().contains(q) ?? false)
-        }
+        return sorted.filter { Self.matches(item: $0, query: searchText) }
+    }
+
+    /// Whether an item satisfies the search query.
+    ///
+    /// Static and pure so the rule is testable without rendering the overlay.
+    static func matches(item: ClipboardItem, query: String) -> Bool {
+        let q = query.lowercased()
+        guard !q.isEmpty else { return true }
+        if item.preview.lowercased().contains(q) { return true }
+        if item.textContent?.lowercased().contains(q) == true { return true }
+        if item.label?.lowercased().contains(q) == true { return true }
+        return false
     }
 
     var body: some View {
@@ -179,6 +186,16 @@ struct OverlayView: View {
                 return .ignored
             }
             itemActions.edit(item)
+            onDismiss()
+            return .handled
+        }
+        .onKeyPress(keys: ["r"]) { press in
+            guard press.modifiers.contains(.command) else { return .ignored }
+            // Unlike ⌘E, renaming applies to every type — no gate here.
+            guard let item = filtered.first(where: { $0.id == selectedID }) else {
+                return .ignored
+            }
+            itemActions.rename(item)
             onDismiss()
             return .handled
         }
