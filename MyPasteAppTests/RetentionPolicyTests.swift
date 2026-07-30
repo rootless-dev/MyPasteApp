@@ -70,12 +70,25 @@ final class RetentionPolicyTests {
         #expect(policy.retentionDays == 7)
     }
 
-    @Test("Non-positive limits fall back to the defaults", arguments: [0, -1])
-    func nonPositiveLimits(value: Int) {
+    @Test("Non-positive maxItems falls back to the default", arguments: [0, -1])
+    func nonPositiveMaxItems(value: Int) {
         // Zero would otherwise wipe the entire history on the next prune.
-        defaults.store.set(value, forKey: "maxItems")
-        defaults.store.set(value, forKey: "retentionDays")
+        defaults.store.set(value, forKey: PreferenceKeys.maxItems)
         #expect(policy.maxItems == 500)
+    }
+
+    @Test("A stored zero means keep forever")
+    func zeroRetentionMeansForever() {
+        // Deliberately the opposite of what maxItems does with zero. The
+        // retention slider's last stop writes 0, and reading it as "unset"
+        // would silently prune the history the user asked to keep.
+        defaults.store.set(0, forKey: PreferenceKeys.retentionDays)
+        #expect(policy.retentionDays == nil)
+    }
+
+    @Test("A negative retention is treated as unset")
+    func negativeRetentionFallsBack() {
+        defaults.store.set(-1, forKey: PreferenceKeys.retentionDays)
         #expect(policy.retentionDays == 30)
     }
 
@@ -112,6 +125,32 @@ final class RetentionPolicyTests {
         policy.prune()
 
         #expect(try remainingTags() == ["pinned-ancient"])
+    }
+
+    @Test("Keep forever skips the age pass entirely")
+    func keepForeverSkipsAgePruning() throws {
+        defaults.store.set(0, forKey: PreferenceKeys.retentionDays)
+        insert(tag: "ancient", daysAgo: 9000)
+        insert(tag: "fresh", daysAgo: 1)
+
+        policy.prune()
+
+        #expect(try remainingTags() == ["ancient", "fresh"])
+    }
+
+    @Test("Keep forever does not disable the maxItems cap")
+    func keepForeverStillRespectsTheCap() throws {
+        // Otherwise the store grows without bound: "forever" is about age, not
+        // about quantity. The Settings screen says this out loud.
+        defaults.store.set(0, forKey: PreferenceKeys.retentionDays)
+        defaults.store.set(2, forKey: PreferenceKeys.maxItems)
+        insert(tag: "newest", daysAgo: 0)
+        insert(tag: "second", daysAgo: 1)
+        insert(tag: "third", daysAgo: 2)
+
+        policy.prune()
+
+        #expect(try remainingTags() == ["newest", "second"])
     }
 
     // MARK: - Count based pruning
