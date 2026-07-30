@@ -17,6 +17,9 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
     private var globalMouseMonitor: Any?
     private var localMouseMonitor: Any?
     private var previousApp: NSRunningApplication?
+    // Task 19 spike: a second window of our own, so the click-outside
+    // monitors below need to know about it too. See ItemPreviewPanel.
+    private var previewPanel: NSPanel?
 
     init(modelContainer: ModelContainer,
          writer: ClipboardWriter,
@@ -91,7 +94,8 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
                 }
             },
             onDismiss: { [weak self] in self?.hide() },
-            destinationAppName: { [weak self] in self?.previousApp?.localizedName }
+            destinationAppName: { [weak self] in self?.previousApp?.localizedName },
+            onTogglePreview: { [weak self] in self?.togglePreviewPanel() }
         )
         .modelContainer(modelContainer)
 
@@ -122,6 +126,7 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
     /// private, so the AppDelegate can't do this itself.
     func applySharingPolicy() {
         window?.sharingType = WindowPrivacy.sharingType()
+        previewPanel?.sharingType = WindowPrivacy.sharingType()
     }
 
     func show() {
@@ -213,6 +218,10 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
 
     func hide() {
         removeClickOutsideMonitors()
+        // Spike rule for Step 3: a click outside both windows closes both.
+        // Unconditional (not gated on the overlay's own visibility) so this
+        // also covers the "preview open, overlay already gone" edge case.
+        previewPanel?.orderOut(nil)
         guard let panel = window, panel.isVisible else { return }
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.18
@@ -231,6 +240,7 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
     /// the text is landing in.
     func hideImmediately() {
         removeClickOutsideMonitors()
+        previewPanel?.orderOut(nil)
         guard let panel = window, panel.isVisible else { return }
         panel.alphaValue = 0
         panel.orderOut(nil)
@@ -244,11 +254,44 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         }
         localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] event in
             guard let self else { return event }
-            if event.window !== self.window {
+            // The preview panel is ours too: a click inside it must not read
+            // as a click outside the overlay.
+            if event.window !== self.window && event.window !== self.previewPanel {
                 self.hide()
             }
             return event
         }
+    }
+
+    /// Task 19 spike: opens/closes the disposable preview panel from the
+    /// overlay. Temporary trigger only — real invocation (hover, arrow focus,
+    /// whatever Task 20 decides) replaces this if the spike pans out.
+    private func togglePreviewPanel() {
+        if let panel = previewPanel, panel.isVisible {
+            panel.orderOut(nil)
+            return
+        }
+        showPreviewPanel()
+    }
+
+    private func showPreviewPanel() {
+        let panel = previewPanel ?? ItemPreviewPanel.make()
+        previewPanel = panel
+        panel.sharingType = WindowPrivacy.sharingType()
+        let size = ItemPreviewPanel.defaultSize
+        let screen = window?.screen ?? NSScreen.main
+        if let screen {
+            let frame = NSRect(
+                x: screen.frame.midX - size.width / 2,
+                y: screen.frame.midY - size.height / 2,
+                width: size.width,
+                height: size.height
+            )
+            panel.setFrame(frame, display: false)
+        }
+        // orderFrontRegardless, not makeKeyAndOrderFront: the panel must
+        // never take key status away from the overlay. See the brief's Step 3.
+        panel.orderFrontRegardless()
     }
 
     /// Resolves which `NSScreen` the overlay should appear on.

@@ -32,17 +32,22 @@ struct OverlayView: View {
     /// closure defers that read to whenever the context menu is actually
     /// assembled, so it always reflects the current opening.
     let destinationAppName: () -> String?
+    /// Task 19 spike only: opens/closes the disposable preview panel via
+    /// ⌘⇧K. Not a real feature — Task 20 replaces this trigger entirely.
+    let onTogglePreview: () -> Void
 
     init(writer: ClipboardWriter,
          itemEditor: ItemEditorWindowController,
          onPick: @escaping (ClipboardItem, Bool) -> Void,
          onDismiss: @escaping () -> Void,
-         destinationAppName: @escaping () -> String? = { nil }) {
+         destinationAppName: @escaping () -> String? = { nil },
+         onTogglePreview: @escaping () -> Void = {}) {
         self.writer = writer
         self.itemEditor = itemEditor
         self.onPick = onPick
         self.onDismiss = onDismiss
         self.destinationAppName = destinationAppName
+        self.onTogglePreview = onTogglePreview
     }
 
     /// Built fresh on every access: it only wraps references (the model
@@ -169,6 +174,19 @@ struct OverlayView: View {
                 return .handled
             }
             return .ignored
+        }
+        .onKeyPress(keys: ["k"]) { press in
+            // Task 19 spike only: ⌘⇧K opens/closes the disposable preview
+            // panel. Picked over ⌘⇧P/⌘⇧V because those are the app's default
+            // *global* hotkeys (pause, toggle overlay) registered through
+            // Carbon — they fire regardless of which window is key, so
+            // reusing either here would double-trigger. Gone once Task 20
+            // picks a real trigger.
+            guard press.modifiers.contains(.command), press.modifiers.contains(.shift) else {
+                return .ignored
+            }
+            onTogglePreview()
+            return .handled
         }
         .onKeyPress(.delete) {
             if let item = filtered.first(where: { $0.id == selectedID }) {
