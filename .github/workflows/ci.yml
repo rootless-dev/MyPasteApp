@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, develop]
+
+# A newer push to the same branch makes the running check obsolete, so drop it
+# instead of paying for a macOS runner to finish an answer nobody will read.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: build-test
+    runs-on: macos-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # MACOSX_DEPLOYMENT_TARGET is 26.2, so the image must carry a macOS 26
+      # SDK. Printing the toolchain makes an image change diagnosable from the
+      # log alone, without reproducing anything locally.
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          xcrun --show-sdk-version
+          xcodebuild -showsdks | grep -i macos
+
+      # `xcodebuild test` builds the app and the test bundle before running the
+      # suites, so a separate build step would only repeat the same work.
+      - name: Build and test
+        run: |
+          set -o pipefail
+          NSUnbufferedIO=YES xcodebuild test \
+            -project MyPasteApp.xcodeproj \
+            -scheme MyPasteApp \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            -resultBundlePath TestResults.xcresult
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results
+          path: TestResults.xcresult
+          retention-days: 7
