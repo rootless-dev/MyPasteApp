@@ -11,12 +11,20 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate {
     var modelContainer: ModelContainer!
     var monitor: ClipboardMonitor!
+    var pauseController: PauseController!
     var writer: ClipboardWriter!
     var hotkey: HotkeyManager!
+    var pauseHotkey: HotkeyManager!
     var overlay: OverlayWindowController!
     var retention: RetentionPolicy!
     var statusItem: NSStatusItem!
     private var prefsWindow: NSWindow?
+
+    /// Whether `pauseHotkey` is actually live right now. `false` while the two
+    /// shortcuts collide and `registerHotkeysCheckingConflict()` has left it
+    /// unregistered — the menu reads this so it never advertises a shortcut
+    /// that won't fire.
+    private var pauseHotkeyRegistered = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Unit tests launch this app as their test host. Skip the real setup so
@@ -32,7 +40,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let context = modelContainer.mainContext
+        pauseController = PauseController()
         monitor = ClipboardMonitor(modelContext: context)
+        monitor.pauseController = pauseController
+
+        // The pause used to live in UserDefaults. It doesn't survive a
+        // restart any more, so the leftover key is cleared instead of being
+        // read by nobody.
+        UserDefaults.standard.removeObject(forKey: "monitoringPaused")
+
         writer = ClipboardWriter(monitor: monitor)
         retention = RetentionPolicy(modelContext: context)
 
@@ -44,14 +60,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // during the open animation.
         overlay.prepare()
 
-        hotkey = HotkeyManager { [weak self] in
+        hotkey = HotkeyManager(id: .overlay,
+                               storageKey: KeyCombo.storageKey,
+                               fallback: .default) { [weak self] in
             self?.overlay.toggle()
+        }
+
+        pauseHotkey = HotkeyManager(id: .pause,
+                                    storageKey: KeyCombo.pauseStorageKey,
+                                    fallback: .pauseDefault) { [weak self] in
+            self?.pauseController.toggle()
         }
 
         setupStatusItem()
 
         monitor.start()
-        hotkey.register()
+        registerHotkeysCheckingConflict()
         retention.prune()
 
         NotificationCenter.default.addObserver(
@@ -60,8 +84,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.hotkey.register(combo: KeyCombo.stored)
+                // Whichever field changed, re-derive both from what's on disk
+                // and (re)register accordingly. That's the same check done at
+                // launch, and it's what re-registers the *other* shortcut when
+                // this edit is the one that resolved a collision between them
+                // — registering a single shortcut here left the other one
+                // dead until relaunch.
+                self?.registerHotkeysCheckingConflict()
             }
+        }
+
+        // The user flips this preference from inside the Preferences window
+        // itself; without this the change would only take effect the next time
+        // the window opened, which reads as "the toggle did nothing".
+        NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.applySharingPolicy() }
         }
     }
 
@@ -71,13 +112,70 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             || env["XCTestBundlePath"] != nil
     }
 
+    /// Registers both global shortcuts, unless they collide.
+    ///
+    /// `PreferencesView.applyHotkeyChange` refuses to save a colliding combo,
+    /// but that guard never runs on a combo that was already on disk before
+    /// this version existed — e.g. someone who'd bound the overlay shortcut
+    /// to ⌘⇧P upgrading into a `pauseHotkey` that, being unset, falls back to
+    /// `KeyCombo.pauseDefault`, which is also ⌘⇧P. Registering both anyway
+    /// would leave `RegisterEventHotKey` to fail for the second one with
+    /// nothing but an `NSLog` to show for it. The overlay shortcut is treated
+    /// as the pre-existing one and wins; the pause one is simply left
+    /// unregistered. Preferences re-derives this same comparison from what's
+    /// on disk every time it's opened (see `PreferencesView.refreshHotkeyState`),
+    /// so the user is told which shortcut is dead instead of only the log.
+    private func registerHotkeysCheckingConflict() {
+        hotkey.register()
+        guard !KeyCombo.conflicts(hotkey.storedCombo, with: pauseHotkey.storedCombo) else {
+            NSLog("Pause hotkey (\(pauseHotkey.storedCombo.displayString)) collides with the "
+                  + "overlay shortcut; leaving it unregistered until Preferences resolves it.")
+            pauseHotkeyRegistered = false
+            return
+        }
+        pauseHotkey.register()
+        pauseHotkeyRegistered = true
+    }
+
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "doc.on.clipboard", accessibilityDescription: "MyPasteApp")
             button.target = self
             button.action = #selector(statusItemClicked(_:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        }
+        refreshStatusIcon()
+
+        NotificationCenter.default.addObserver(
+            forName: PauseController.stateChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshStatusIcon() }
+        }
+    }
+
+    /// The icon has to say, unmistakably, that nothing is being collected.
+    /// Dimming the same glyph would be too easy to miss — and missing it here
+    /// costs hours of lost history.
+    private func refreshStatusIcon() {
+        guard let button = statusItem?.button else { return }
+        let paused = pauseController.isPaused
+        button.image = NSImage(
+            systemSymbolName: paused ? "pause.circle.fill" : "doc.on.clipboard",
+            accessibilityDescription: paused ? "MyPasteApp — paused" : "MyPasteApp"
+        )
+        button.toolTip = paused ? pauseStatusTitle : "MyPasteApp"
+    }
+
+    private var pauseStatusTitle: String {
+        switch pauseController.state {
+        case .active:
+            return "MyPasteApp"
+        case .pausedIndefinitely:
+            return "Paused indefinitely"
+        case .pausedUntil(let deadline):
+            return "Paused until \(deadline.formatted(.dateTime.hour().minute()))"
         }
     }
 
@@ -100,12 +198,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         show.target = self
         menu.addItem(show)
         menu.addItem(.separator())
-        let pause = NSMenuItem(title: "Pause clipboard monitoring",
-                               action: #selector(togglePauseAction),
-                               keyEquivalent: "")
-        pause.target = self
-        pause.state = ClipboardMonitor.isMonitoringPaused() ? .on : .off
-        menu.addItem(pause)
+        for item in pauseMenuItems() {
+            menu.addItem(item)
+        }
         menu.addItem(.separator())
         let prefs = NSMenuItem(title: "Preferences…",
                                action: #selector(openPreferences),
@@ -128,10 +223,60 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         overlay.toggle()
     }
 
+    /// Built fresh on every menu opening — `showStatusMenu` rebuilds the whole
+    /// NSMenu each time — so there is no state to keep in sync here.
+    private func pauseMenuItems() -> [NSMenuItem] {
+        // Only advertise the shortcut while it's actually registered — during
+        // a launch-time collision `registerHotkeysCheckingConflict` leaves it
+        // dead, and telling the user to press a combo that won't fire is
+        // worse than not mentioning one at all.
+        let comboSuffix = pauseHotkeyRegistered ? "  \(KeyCombo.storedPause.displayString)" : ""
+
+        guard !pauseController.isPaused else {
+            // No target and no action, so NSMenu's automatic enabling leaves
+            // this one greyed out as the status line it is.
+            let status = NSMenuItem(title: pauseStatusTitle,
+                                    action: nil,
+                                    keyEquivalent: "")
+            let resume = NSMenuItem(title: "Resume clipboard monitoring\(comboSuffix)",
+                                    action: #selector(togglePauseAction),
+                                    keyEquivalent: "")
+            resume.target = self
+            return [status, resume]
+        }
+
+        let pause = NSMenuItem(title: "Pause clipboard monitoring",
+                               action: nil,
+                               keyEquivalent: "")
+        let submenu = NSMenu()
+
+        let indefinite = NSMenuItem(title: "Pause\(comboSuffix)",
+                                    action: #selector(togglePauseAction),
+                                    keyEquivalent: "")
+        indefinite.target = self
+        submenu.addItem(indefinite)
+        submenu.addItem(.separator())
+
+        for duration in PauseDuration.offered {
+            let item = NSMenuItem(title: duration.title,
+                                  action: #selector(pauseForAction(_:)),
+                                  keyEquivalent: "")
+            item.target = self
+            item.representedObject = duration.seconds
+            submenu.addItem(item)
+        }
+
+        pause.submenu = submenu
+        return [pause]
+    }
+
+    @objc private func pauseForAction(_ sender: NSMenuItem) {
+        guard let seconds = sender.representedObject as? TimeInterval else { return }
+        pauseController.pause(for: PauseDuration(seconds: seconds))
+    }
+
     @objc private func togglePauseAction() {
-        let key = "monitoringPaused"
-        let current = UserDefaults.standard.bool(forKey: key)
-        UserDefaults.standard.set(!current, forKey: key)
+        pauseController.toggle()
     }
 
     @objc private func quitAction() {
@@ -145,17 +290,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let host = NSHostingController(rootView: view)
             let window = NSWindow(contentViewController: host)
             window.title = "Preferences"
-            window.styleMask = [.titled, .closable]
+            window.styleMask = [.titled, .closable, .resizable]
             window.isReleasedWhenClosed = false
             window.center()
             prefsWindow = window
         }
+        prefsWindow?.sharingType = WindowPrivacy.sharingType()
         NSApp.activate(ignoringOtherApps: true)
         prefsWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    private func applySharingPolicy() {
+        overlay?.applySharingPolicy()
+        prefsWindow?.sharingType = WindowPrivacy.sharingType()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         monitor?.stop()
         hotkey?.unregister()
+        pauseHotkey?.unregister()
     }
 }

@@ -20,6 +20,10 @@ final class ClipboardMonitor {
     /// to avoid recapturing items it just wrote back to the pasteboard).
     var ignoreNextChange = false
 
+    /// Set by the AppDelegate right after construction. Weak because the
+    /// delegate owns the controller.
+    weak var pauseController: PauseController?
+
     init(modelContext: ModelContext, defaults: UserDefaults = .standard) {
         self.modelContext = modelContext
         self.defaults = defaults
@@ -65,7 +69,16 @@ final class ClipboardMonitor {
             return
         }
 
-        if Self.isMonitoringPaused(from: defaults) {
+        // `lastChangeCount` above has to be updated before this runs, so
+        // resuming doesn't recapture whatever was copied during the pause;
+        // and nothing here reads off the pasteboard before this decision
+        // either, so a password never travels through the app for a result
+        // about to be discarded. Delegated to a pure function so both
+        // orderings are covered by a test that doesn't need a real
+        // NSPasteboard.
+        guard Self.shouldCapture(isPaused: pauseController?.isPaused == true,
+                                 types: pasteboard.types ?? [],
+                                 settings: .current(from: defaults)) else {
             return
         }
 
@@ -84,6 +97,24 @@ final class ClipboardMonitor {
            url.scheme?.hasPrefix("http") == true {
             fetchLinkMetadata(for: item, url: url)
         }
+    }
+
+    /// Whether a pasteboard change should turn into a capture, given the pause
+    /// state and the privacy markers on the pasteboard.
+    ///
+    /// Pure and static so it can be tested directly against `poll()`'s two
+    /// guards, in the order that matters: paused wins outright, then a
+    /// privacy marker, and only once both are clear does anything get read
+    /// off the pasteboard. `poll()` itself stays a thin caller of this —
+    /// updating `lastChangeCount` and consuming `ignoreNextChange` happen
+    /// before it and are deliberately not folded in here (see the comment at
+    /// the call site).
+    static func shouldCapture(isPaused: Bool,
+                              types: [NSPasteboard.PasteboardType],
+                              settings: PasteboardPrivacy.Settings) -> Bool {
+        if isPaused { return false }
+        if PasteboardPrivacy.shouldIgnore(types: types, settings: settings) { return false }
+        return true
     }
 
     // MARK: - Link metadata
@@ -189,11 +220,6 @@ final class ClipboardMonitor {
     // tests can pass an isolated suite instead of touching the user's
     // preferences. Views bind these same keys with @AppStorage, which always
     // talks to UserDefaults.standard.
-
-    /// Whether the user paused capture from the status menu.
-    static func isMonitoringPaused(from defaults: UserDefaults = .standard) -> Bool {
-        defaults.bool(forKey: "monitoringPaused")
-    }
 
     /// How many characters of a copied string to keep as the card preview.
     static func previewTextLength(from defaults: UserDefaults = .standard) -> Int {

@@ -44,7 +44,10 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         let height = Self.overlayHeight
         let initial = NSRect(x: 0, y: 0, width: 800, height: height)
 
-        let panel = NSPanel(
+        // OverlayPanel, not NSPanel: a plain borderless panel can't become key,
+        // so `makeKey()` below would be a no-op and the overlay would never
+        // receive a keystroke. See OverlayPanel for the full explanation.
+        let panel = OverlayPanel(
             contentRect: initial,
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
@@ -59,13 +62,19 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         panel.hidesOnDeactivate = false
         panel.delegate = self
         panel.alphaValue = 0
+        panel.sharingType = WindowPrivacy.sharingType()
 
         let root = OverlayView(
             onPick: { [weak self] item in
                 guard let self else { return }
                 self.onPick(item)
                 let target = self.previousApp
-                self.hide()
+                // Not `hide()`: its fade runs for 0.18s and only orders the
+                // panel out at the end, while the synthetic ⌘V is posted after
+                // `pasteDelayMs` (50ms by default). The panel would still be
+                // key and would receive the paste itself — the text landing in
+                // the search field instead of the target app.
+                self.hideImmediately()
                 let autoPaste = UserDefaults.standard.object(forKey: "autoPasteEnabled") as? Bool ?? true
                 if autoPaste {
                     let delayMs = UserDefaults.standard.object(forKey: "pasteDelayMs") as? Int ?? 50
@@ -99,6 +108,12 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         }
     }
 
+    /// Re-reads the screen-sharing preference and applies it. The panel is
+    /// private, so the AppDelegate can't do this itself.
+    func applySharingPolicy() {
+        window?.sharingType = WindowPrivacy.sharingType()
+    }
+
     func show() {
         let frontmost = NSWorkspace.shared.frontmostApplication
         if frontmost?.bundleIdentifier != Bundle.main.bundleIdentifier {
@@ -106,6 +121,7 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         }
         guard let screen = targetScreen(for: frontmost) else { return }
         prepare()
+        applySharingPolicy()
         guard let panel = window else { return }
 
         let height = Self.overlayHeight
@@ -194,6 +210,20 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         }, completionHandler: {
             panel.orderOut(nil)
         })
+    }
+
+    /// Hides without the fade, for when an item was picked.
+    ///
+    /// Ordering the panel out is the only reliable way to make it stop being
+    /// the key window, and that has to happen *before* the synthetic ⌘V is
+    /// posted — otherwise the overlay receives its own paste. The missing fade
+    /// costs nothing here: the user's attention has already moved to the app
+    /// the text is landing in.
+    func hideImmediately() {
+        removeClickOutsideMonitors()
+        guard let panel = window, panel.isVisible else { return }
+        panel.alphaValue = 0
+        panel.orderOut(nil)
     }
 
     private func installClickOutsideMonitors() {

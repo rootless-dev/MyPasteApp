@@ -9,6 +9,8 @@ import SwiftUI
 struct ClipboardCardView: View {
     let item: ClipboardItem
     let isSelected: Bool
+    /// Shown when this card is within reach of a ⌘1–⌘9 shortcut.
+    var quickPasteLabel: String? = nil
     var onDelete: () -> Void = {}
     @AppStorage("cardDensity") private var densityRaw: String = CardDensity.comfortable.rawValue
     @State private var isHoveringCard = false
@@ -157,6 +159,15 @@ struct ClipboardCardView: View {
         HStack(spacing: 0) {
             footerContent
             Spacer(minLength: 0)
+            if let quickPasteLabel {
+                Text(quickPasteLabel)
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(Color.primary.opacity(0.08)))
+                    .accessibilityLabel("Atalho \(quickPasteLabel)")
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
