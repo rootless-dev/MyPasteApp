@@ -37,64 +37,17 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
+  # Packaging lives in its own reusable workflow so the exact same steps can be
+  # started by hand from the Actions tab against any ref, instead of only ever
+  # running as a side effect of cutting a release.
   dmg:
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
-    runs-on: macos-latest
-    timeout-minutes: 30
+    uses: ./.github/workflows/dmg.yml
     permissions:
       contents: write
-
-    steps:
+    with:
       # Build the tag itself, so the artifact provably matches the release
       # rather than whatever main happened to look like afterwards.
-      - name: Checkout release tag
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ needs.release-please.outputs.tag_name }}
-
-      # The version is injected on the command line instead of being written
-      # into project.pbxproj: GENERATE_INFOPLIST_FILE is on, so this reaches the
-      # app's Info.plist without release-please having to edit a file whose
-      # format Xcode owns.
-      - name: Build Release configuration
-        run: |
-          set -o pipefail
-          NSUnbufferedIO=YES xcodebuild build \
-            -project MyPasteApp.xcodeproj \
-            -scheme MyPasteApp \
-            -configuration Release \
-            -destination 'platform=macOS' \
-            -derivedDataPath build \
-            MARKETING_VERSION=${{ needs.release-please.outputs.version }} \
-            CURRENT_PROJECT_VERSION=${{ github.run_number }}
-
-      - name: Package dmg
-        env:
-          VERSION: ${{ needs.release-please.outputs.version }}
-        run: |
-          set -euo pipefail
-          APP="build/Build/Products/Release/MyPasteApp.app"
-          test -d "$APP"
-
-          # A staging folder with an /Applications symlink gives the familiar
-          # drag-to-install window when the dmg is opened.
-          STAGING="$(mktemp -d)"
-          cp -R "$APP" "$STAGING/"
-          ln -s /Applications "$STAGING/Applications"
-
-          DMG="MyPasteApp-${VERSION}.dmg"
-          hdiutil create \
-            -volname "MyPasteApp ${VERSION}" \
-            -srcfolder "$STAGING" \
-            -ov -format UDZO \
-            "$DMG"
-          echo "DMG=$DMG" >> "$GITHUB_ENV"
-
-      - name: Attach dmg to the release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release upload \
-            "${{ needs.release-please.outputs.tag_name }}" \
-            "$DMG" --clobber
+      ref: ${{ needs.release-please.outputs.tag_name }}
+      release-tag: ${{ needs.release-please.outputs.tag_name }}

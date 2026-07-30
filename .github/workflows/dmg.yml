@@ -1,0 +1,106 @@
+name: Package dmg
+
+# Two ways in: the release workflow calls this once a release exists, and a
+# human can run it by hand from the Actions tab to get a dmg out of any ref
+# without cutting a release.
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref to build
+        type: string
+        required: true
+      release-tag:
+        description: Existing release to attach the dmg to; blank leaves it as a run artifact only
+        type: string
+        required: false
+        default: ''
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to build (blank uses the branch this was started from)
+        type: string
+        required: false
+        default: ''
+      release-tag:
+        description: Existing release tag to attach the dmg to (blank uploads a run artifact only)
+        type: string
+        required: false
+        default: ''
+
+jobs:
+  package:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      # The manifest is the single source of truth for the version, and a
+      # release tag points at the commit where release-please already bumped
+      # it. Reading it here therefore works for both entry points without the
+      # caller having to pass a version along.
+      - name: Resolve version
+        id: version
+        run: |
+          set -euo pipefail
+          VERSION="$(jq -r '.["."]' .release-please-manifest.json)"
+          test -n "$VERSION" && test "$VERSION" != "null"
+          echo "value=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Building version $VERSION"
+
+      # GENERATE_INFOPLIST_FILE is on, so passing the version on the command
+      # line reaches the app's Info.plist without editing project.pbxproj.
+      - name: Build Release configuration
+        run: |
+          set -o pipefail
+          NSUnbufferedIO=YES xcodebuild build \
+            -project MyPasteApp.xcodeproj \
+            -scheme MyPasteApp \
+            -configuration Release \
+            -destination 'platform=macOS' \
+            -derivedDataPath build \
+            MARKETING_VERSION=${{ steps.version.outputs.value }} \
+            CURRENT_PROJECT_VERSION=${{ github.run_number }}
+
+      - name: Package dmg
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          set -euo pipefail
+          APP="build/Build/Products/Release/MyPasteApp.app"
+          test -d "$APP"
+
+          # Staging with an /Applications symlink produces the familiar
+          # drag-to-install window when the dmg is opened.
+          STAGING="$(mktemp -d)"
+          cp -R "$APP" "$STAGING/"
+          ln -s /Applications "$STAGING/Applications"
+
+          DMG="MyPasteApp-${VERSION}.dmg"
+          hdiutil create \
+            -volname "MyPasteApp ${VERSION}" \
+            -srcfolder "$STAGING" \
+            -ov -format UDZO \
+            "$DMG"
+          echo "DMG=$DMG" >> "$GITHUB_ENV"
+
+      # Always kept as a run artifact, so a manual run is useful on its own and
+      # a release still leaves something downloadable if the upload below fails.
+      - name: Upload run artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: MyPasteApp-dmg-${{ steps.version.outputs.value }}
+          path: ${{ env.DMG }}
+          retention-days: 30
+
+      - name: Attach dmg to the release
+        if: inputs.release-tag != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ inputs.release-tag }}" "$DMG" --clobber
