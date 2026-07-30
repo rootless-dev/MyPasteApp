@@ -57,9 +57,9 @@ struct SettingsView: View {
     @ViewBuilder
     private var detail: some View {
         switch selection {
-        case .general:    Text("General")
-        case .history:    Text("History")
-        case .appearance: Text("Appearance")
+        case .general:    GeneralSettingsView()
+        case .history:    HistorySettingsView()
+        case .appearance: AppearanceSettingsView()
         case .shortcuts:  Text("Shortcuts")
         case .privacy:    Text("Privacy")
         }
