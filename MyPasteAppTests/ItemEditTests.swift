@@ -104,4 +104,53 @@ final class ItemEditTests {
         #expect(item.richTextData != nil)
         #expect(item.richTextFormat == .rtf)
     }
+
+    // MARK: - applyLabel
+
+    @Test("applyLabel stores the label")
+    func applyLabelStoresLabel() {
+        let item = makeItem(text: "before")
+        ItemEdit.applyLabel(to: item, label: "Deploy key")
+        #expect(item.label == "Deploy key")
+    }
+
+    @Test("applyLabel normalizes an empty label to nil")
+    func applyLabelEmptyBecomesNil() {
+        let item = makeItem(text: "before")
+        item.label = "old name"
+        ItemEdit.applyLabel(to: item, label: "   ")
+        #expect(item.label == nil)
+    }
+
+    @Test("applyLabel leaves content-derived fields untouched")
+    func applyLabelPreservesContent() {
+        // This is the test that guards the corruption bug applyLabel exists
+        // to prevent: renaming an image or file must never touch the fields
+        // that hold its actual identity. A test that only checks the label
+        // (like the two above) wouldn't catch a regression here — this one
+        // does. If a future refactor folds applyLabel back into apply, this
+        // fails instead of silently blanking every image and file that gets
+        // renamed.
+        let item = makeItem(text: "original text")
+        item.richTextData = "rtf-stand-in".data(using: .utf8)
+        let originalText = item.textContent
+        let originalPreview = item.preview
+        let originalHash = item.contentHash
+        let originalRichText = item.richTextData
+
+        ItemEdit.applyLabel(to: item, label: "My Image")
+
+        #expect(item.textContent == originalText)
+        #expect(item.preview == originalPreview)
+        #expect(item.contentHash == originalHash)
+        #expect(item.richTextData == originalRichText)
+    }
+
+    @Test("applyLabel promotes the item to the top")
+    func applyLabelPromotesToTop() {
+        let item = makeItem(text: "before")
+        item.createdAt = .distantPast
+        ItemEdit.applyLabel(to: item, label: "New name")
+        #expect(item.createdAt.timeIntervalSinceNow > -5)
+    }
 }
