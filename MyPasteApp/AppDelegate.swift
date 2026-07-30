@@ -20,6 +20,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem!
     private var prefsWindow: NSWindow?
 
+    /// Whether `pauseHotkey` is actually live right now. `false` while the two
+    /// shortcuts collide and `registerHotkeysCheckingConflict()` has left it
+    /// unregistered — the menu reads this so it never advertises a shortcut
+    /// that won't fire.
+    private var pauseHotkeyRegistered = false
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Unit tests launch this app as their test host. Skip the real setup so
         // they don't open the user's store, grab the global hotkey or start
@@ -76,16 +82,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             forName: .hotkeyChanged,
             object: nil,
             queue: .main
-        ) { [weak self] note in
+        ) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self else { return }
-                // Older posts carried no key; treat them as the overlay one.
-                let key = note.userInfo?["key"] as? String ?? KeyCombo.storageKey
-                switch key {
-                case KeyCombo.storageKey: self.hotkey.register()
-                case KeyCombo.pauseStorageKey: self.pauseHotkey.register()
-                default: break
-                }
+                // Whichever field changed, re-derive both from what's on disk
+                // and (re)register accordingly. That's the same check done at
+                // launch, and it's what re-registers the *other* shortcut when
+                // this edit is the one that resolved a collision between them
+                // — registering a single shortcut here left the other one
+                // dead until relaunch.
+                self?.registerHotkeysCheckingConflict()
             }
         }
 
@@ -125,9 +130,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard !KeyCombo.conflicts(hotkey.storedCombo, with: pauseHotkey.storedCombo) else {
             NSLog("Pause hotkey (\(pauseHotkey.storedCombo.displayString)) collides with the "
                   + "overlay shortcut; leaving it unregistered until Preferences resolves it.")
+            pauseHotkeyRegistered = false
             return
         }
         pauseHotkey.register()
+        pauseHotkeyRegistered = true
     }
 
     private func setupStatusItem() {
@@ -219,13 +226,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Built fresh on every menu opening — `showStatusMenu` rebuilds the whole
     /// NSMenu each time — so there is no state to keep in sync here.
     private func pauseMenuItems() -> [NSMenuItem] {
+        // Only advertise the shortcut while it's actually registered — during
+        // a launch-time collision `registerHotkeysCheckingConflict` leaves it
+        // dead, and telling the user to press a combo that won't fire is
+        // worse than not mentioning one at all.
+        let comboSuffix = pauseHotkeyRegistered ? "  \(KeyCombo.storedPause.displayString)" : ""
+
         guard !pauseController.isPaused else {
             // No target and no action, so NSMenu's automatic enabling leaves
             // this one greyed out as the status line it is.
             let status = NSMenuItem(title: pauseStatusTitle,
                                     action: nil,
                                     keyEquivalent: "")
-            let resume = NSMenuItem(title: "Resume clipboard monitoring  \(KeyCombo.storedPause.displayString)",
+            let resume = NSMenuItem(title: "Resume clipboard monitoring\(comboSuffix)",
                                     action: #selector(togglePauseAction),
                                     keyEquivalent: "")
             resume.target = self
@@ -237,7 +250,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                keyEquivalent: "")
         let submenu = NSMenu()
 
-        let indefinite = NSMenuItem(title: "Pause  \(KeyCombo.storedPause.displayString)",
+        let indefinite = NSMenuItem(title: "Pause\(comboSuffix)",
                                     action: #selector(togglePauseAction),
                                     keyEquivalent: "")
         indefinite.target = self
