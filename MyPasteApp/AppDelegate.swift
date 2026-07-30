@@ -199,7 +199,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showStatusMenu() {
         let menu = NSMenu()
-        let show = NSMenuItem(title: "Show history  \(KeyCombo.stored.displayString)",
+        // Only advertise the shortcut when it actually registered. Another app
+        // owning the combination leaves it dead, and a menu that still shows it
+        // sends the user looking for a bug in the wrong place.
+        let showSuffix = overlayHotkeyRegistered ? "  \(KeyCombo.stored.displayString)" : ""
+        let show = NSMenuItem(title: "Show history\(showSuffix)",
                               action: #selector(showHistoryAction),
                               keyEquivalent: "")
         show.target = self
