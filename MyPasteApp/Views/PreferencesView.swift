@@ -20,6 +20,7 @@ struct PreferencesView: View {
     @AppStorage("showLinkPreviews") private var showLinkPreviews: Bool = true
     @AppStorage("cardDensity") private var cardDensity: String = CardDensity.comfortable.rawValue
     @AppStorage("showQuickPasteNumbers") private var showQuickPasteNumbers: Bool = true
+    @AppStorage("showInScreenSharing") private var showInScreenSharing: Bool = false
     @State private var launchAtLogin: Bool = SMAppService.mainApp.status == .enabled
     @State private var hotkey: KeyCombo = KeyCombo.stored
     @State private var pauseHotkey: KeyCombo = KeyCombo.storedPause
@@ -103,6 +104,10 @@ struct PreferencesView: View {
                     .foregroundStyle(.secondary)
             }
             Section("Privacy") {
+                Toggle("Show during screen sharing", isOn: $showInScreenSharing)
+                Text("When off, the overlay and this window don't appear in screen sharing or recordings — including screenshots you take yourself.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Ignore content from these apps")
                     TextEditor(text: $ignoredAppsRaw)

@@ -59,6 +59,7 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         panel.hidesOnDeactivate = false
         panel.delegate = self
         panel.alphaValue = 0
+        panel.sharingType = WindowPrivacy.sharingType()
 
         let root = OverlayView(
             onPick: { [weak self] item in
@@ -99,6 +100,12 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         }
     }
 
+    /// Re-reads the screen-sharing preference and applies it. The panel is
+    /// private, so the AppDelegate can't do this itself.
+    func applySharingPolicy() {
+        window?.sharingType = WindowPrivacy.sharingType()
+    }
+
     func show() {
         let frontmost = NSWorkspace.shared.frontmostApplication
         if frontmost?.bundleIdentifier != Bundle.main.bundleIdentifier {
@@ -106,6 +113,7 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         }
         guard let screen = targetScreen(for: frontmost) else { return }
         prepare()
+        applySharingPolicy()
         guard let panel = window else { return }
 
         let height = Self.overlayHeight

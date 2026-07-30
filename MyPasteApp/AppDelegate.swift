@@ -89,6 +89,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
+
+        // The user flips this preference from inside the Preferences window
+        // itself; without this the change would only take effect the next time
+        // the window opened, which reads as "the toggle did nothing".
+        NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.applySharingPolicy() }
+        }
     }
 
     private static var isRunningUnitTests: Bool {
@@ -249,8 +260,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             window.center()
             prefsWindow = window
         }
+        prefsWindow?.sharingType = WindowPrivacy.sharingType()
         NSApp.activate(ignoringOtherApps: true)
         prefsWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    private func applySharingPolicy() {
+        overlay?.applySharingPolicy()
+        prefsWindow?.sharingType = WindowPrivacy.sharingType()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
