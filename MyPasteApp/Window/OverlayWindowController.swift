@@ -11,13 +11,17 @@ import SwiftUI
 final class OverlayWindowController: NSObject, NSWindowDelegate {
     private var window: NSPanel?
     private let modelContainer: ModelContainer
+    private let writer: ClipboardWriter
     private let onPick: (ClipboardItem, Bool) -> Void
     private var globalMouseMonitor: Any?
     private var localMouseMonitor: Any?
     private var previousApp: NSRunningApplication?
 
-    init(modelContainer: ModelContainer, onPick: @escaping (ClipboardItem, Bool) -> Void) {
+    init(modelContainer: ModelContainer,
+         writer: ClipboardWriter,
+         onPick: @escaping (ClipboardItem, Bool) -> Void) {
         self.modelContainer = modelContainer
+        self.writer = writer
         self.onPick = onPick
         super.init()
     }
@@ -65,6 +69,7 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         panel.sharingType = WindowPrivacy.sharingType()
 
         let root = OverlayView(
+            writer: writer,
             onPick: { [weak self] item, plainText in
                 guard let self else { return }
                 self.onPick(item, plainText)

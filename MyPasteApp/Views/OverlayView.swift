@@ -18,13 +18,23 @@ struct OverlayView: View {
     @AppStorage(PreferenceKeys.showQuickPasteNumbers) private var showQuickPasteNumbers = true
     @AppStorage(PreferenceKeys.alwaysPastePlainText) private var alwaysPastePlainText = false
 
+    let writer: ClipboardWriter
     let onPick: (ClipboardItem, Bool) -> Void
     let onDismiss: () -> Void
 
-    init(onPick: @escaping (ClipboardItem, Bool) -> Void,
+    init(writer: ClipboardWriter,
+         onPick: @escaping (ClipboardItem, Bool) -> Void,
          onDismiss: @escaping () -> Void) {
+        self.writer = writer
         self.onPick = onPick
         self.onDismiss = onDismiss
+    }
+
+    /// Built fresh on every access: it only wraps references (the model
+    /// context, the writer, the pick callback), so there's no state here that
+    /// needs to survive across view updates.
+    private var itemActions: ItemActions {
+        ItemActions(modelContext: modelContext, writer: writer, onPaste: onPick)
     }
 
     /// Whether this paste should hand over plain text.
@@ -128,8 +138,7 @@ struct OverlayView: View {
         .onKeyPress(keys: ["p"]) { press in
             guard press.modifiers.contains(.command) else { return .ignored }
             if let item = filtered.first(where: { $0.id == selectedID }) {
-                item.isPinned.toggle()
-                try? modelContext.save()
+                itemActions.togglePin(item)
                 return .handled
             }
             return .ignored
@@ -144,19 +153,24 @@ struct OverlayView: View {
     }
 
     private func pick(_ item: ClipboardItem, plainText: Bool? = nil) {
-        item.lastUsedAt = .now
-        try? modelContext.save()
-        onPick(item, plainText ?? pastesPlainText)
+        itemActions.paste(item, plainText: plainText ?? pastesPlainText)
     }
 
+    /// Deletes the item, then decides which card takes over the selection.
+    ///
+    /// The removal itself goes through `ItemActions`, but choosing the next
+    /// selected card is view state — `ItemActions` has no notion of
+    /// `selectedID` and shouldn't. This preserves the original card ordering
+    /// (`filtered`, captured before the delete) so the replacement is the
+    /// card that visually sat at the same spot, falling back to the first
+    /// card when the deleted one was the last.
     private func delete(_ item: ClipboardItem) {
         let deletedID = item.id
         let wasSelected = selectedID == deletedID
         let remaining = filtered.filter { $0.id != deletedID }
         let index = filtered.firstIndex { $0.id == deletedID }
 
-        modelContext.delete(item)
-        try? modelContext.save()
+        itemActions.delete(item)
 
         guard wasSelected else { return }
         if let index, !remaining.isEmpty {
