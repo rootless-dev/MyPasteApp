@@ -22,7 +22,8 @@ final class HotkeyManager {
         self.callback = callback
     }
 
-    func register() {
+    func register(combo: KeyCombo? = nil) {
+        let combo = combo ?? KeyCombo.stored
         unregister()
 
         let sig: UInt32 = 0x4D5053_56 // 'MPSV'
@@ -30,8 +31,8 @@ final class HotkeyManager {
         Self.instances[sig] = self
 
         let hotKeyID = EventHotKeyID(signature: sig, id: 1)
-        let modifiers: UInt32 = UInt32(cmdKey | shiftKey)
-        let keyCode: UInt32 = UInt32(kVK_ANSI_V)
+        let modifiers: UInt32 = combo.carbonModifiers
+        let keyCode: UInt32 = combo.keyCode
 
         var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard),
                                       eventKind: UInt32(kEventHotKeyPressed))

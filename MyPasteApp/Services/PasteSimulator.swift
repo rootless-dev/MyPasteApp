@@ -11,7 +11,7 @@ import Foundation
 enum PasteSimulator {
     private static let vKeyCode: CGKeyCode = 9
 
-    static func paste(activating app: NSRunningApplication?) {
+    static func paste(activating app: NSRunningApplication?, delay: TimeInterval = 0.05) {
         ensureAccessibilityPermission()
 
         if let app {
@@ -22,7 +22,7 @@ enum PasteSimulator {
             }
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + max(0, delay)) {
             postCommandV()
         }
     }

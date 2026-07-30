@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var overlay: OverlayWindowController!
     var retention: RetentionPolicy!
     var statusItem: NSStatusItem!
+    private var prefsWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         do {
@@ -48,6 +49,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotkey.register()
         retention.prune()
 
+        NotificationCenter.default.addObserver(
+            forName: .hotkeyChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.hotkey.register(combo: KeyCombo.stored)
+            }
+        }
     }
 
     private func setupStatusItem() {
@@ -73,11 +83,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showStatusMenu() {
         let menu = NSMenu()
-        let show = NSMenuItem(title: "Show history  ⌘⇧V",
+        let show = NSMenuItem(title: "Show history  \(KeyCombo.stored.displayString)",
                               action: #selector(showHistoryAction),
                               keyEquivalent: "")
         show.target = self
         menu.addItem(show)
+        menu.addItem(.separator())
+        let pause = NSMenuItem(title: "Pause clipboard monitoring",
+                               action: #selector(togglePauseAction),
+                               keyEquivalent: "")
+        pause.target = self
+        pause.state = UserDefaults.standard.bool(forKey: "monitoringPaused") ? .on : .off
+        menu.addItem(pause)
         menu.addItem(.separator())
         let prefs = NSMenuItem(title: "Preferences…",
                                action: #selector(openPreferences),
@@ -100,16 +117,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         overlay.toggle()
     }
 
+    @objc private func togglePauseAction() {
+        let key = "monitoringPaused"
+        let current = UserDefaults.standard.bool(forKey: key)
+        UserDefaults.standard.set(!current, forKey: key)
+    }
+
     @objc private func quitAction() {
         NSApp.terminate(nil)
     }
 
     @objc private func openPreferences() {
-        if #available(macOS 14, *) {
-            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-        } else {
-            NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
+        if prefsWindow == nil {
+            let view = PreferencesView()
+                .modelContainer(modelContainer)
+            let host = NSHostingController(rootView: view)
+            let window = NSWindow(contentViewController: host)
+            window.title = "Preferences"
+            window.styleMask = [.titled, .closable]
+            window.isReleasedWhenClosed = false
+            window.center()
+            prefsWindow = window
         }
+        NSApp.activate(ignoringOtherApps: true)
+        prefsWindow?.makeKeyAndOrderFront(nil)
     }
 
     func applicationWillTerminate(_ notification: Notification) {

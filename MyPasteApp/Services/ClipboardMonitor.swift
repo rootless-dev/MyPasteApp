@@ -63,7 +63,18 @@ final class ClipboardMonitor {
             return
         }
 
+        if UserDefaults.standard.bool(forKey: "monitoringPaused") {
+            return
+        }
+
         guard let item = readCurrentItem() else { return }
+
+        // Skip ignored source apps.
+        if let bundleID = item.sourceAppBundleID,
+           Self.ignoredBundleIDs().contains(bundleID) {
+            return
+        }
+
         insertIfNotDuplicate(item)
 
         if item.type == .url, let urlString = item.textContent,
@@ -76,6 +87,7 @@ final class ClipboardMonitor {
     // MARK: - Link metadata
 
     private func fetchLinkMetadata(for item: ClipboardItem, url: URL) {
+        guard Self.showLinkPreviews() else { return }
         Task { [weak self] in
             let metadata = await LinkMetadataService.fetch(from: url)
             await MainActor.run {
@@ -126,7 +138,7 @@ final class ClipboardMonitor {
             let isURL = URL(string: trimmed).map { $0.scheme != nil } ?? false
             return ClipboardItem(
                 type: isURL ? .url : .text,
-                preview: String(str.prefix(200)),
+                preview: String(str.prefix(Self.previewTextLength())),
                 contentHash: Self.hash(str),
                 textContent: str,
                 sourceAppBundleID: sourceApp
@@ -167,5 +179,22 @@ final class ClipboardMonitor {
 
     static func hash(_ data: Data) -> String {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Parses the user's ignored-apps list from UserDefaults.
+    /// Stored as a newline- or comma-separated string of bundle IDs.
+    static func previewTextLength() -> Int {
+        let v = UserDefaults.standard.integer(forKey: "previewTextLength")
+        return v > 0 ? v : 200
+    }
+
+    static func showLinkPreviews() -> Bool {
+        UserDefaults.standard.object(forKey: "showLinkPreviews") as? Bool ?? true
+    }
+
+    static func ignoredBundleIDs() -> Set<String> {
+        let raw = UserDefaults.standard.string(forKey: "ignoredAppsRaw") ?? ""
+        let parts = raw.split(whereSeparator: { $0 == "\n" || $0 == "," })
+        return Set(parts.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty })
     }
 }

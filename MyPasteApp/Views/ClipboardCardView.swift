@@ -9,16 +9,18 @@ import SwiftUI
 struct ClipboardCardView: View {
     let item: ClipboardItem
     let isSelected: Bool
+    @AppStorage("cardDensity") private var densityRaw: String = CardDensity.comfortable.rawValue
 
     var body: some View {
         let appColor = AppColorExtractor.color(for: item.sourceAppBundleID)
+        let density = CardDensity(rawValue: densityRaw) ?? .comfortable
 
         VStack(spacing: 0) {
             coloredHeader(baseColor: appColor)
             previewArea
             footer
         }
-        .frame(width: 200, height: 220)
+        .frame(width: density.width, height: density.height)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
