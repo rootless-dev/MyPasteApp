@@ -116,7 +116,13 @@ struct OverlayView: View {
                   let index = QuickPaste.index(for: press.key.character),
                   index < filtered.count
             else { return .ignored }
-            pick(filtered[index])
+            // Shift is ignored on purpose, not read via the default resolver:
+            // some layouts (e.g. French AZERTY) can't type a digit without
+            // holding Shift, so falling back to `pastesPlainText` here would
+            // read that as "paste plain" and permanently lock quick paste
+            // into plain text on those keyboards. Quick paste has no ⇧
+            // variant this phase — see task-12 brief, item 6.
+            pick(filtered[index], plainText: alwaysPastePlainText)
             return .handled
         }
         .onKeyPress(keys: ["p"]) { press in
