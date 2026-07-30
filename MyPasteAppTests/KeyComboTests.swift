@@ -166,4 +166,67 @@ struct KeyComboTests {
             KeyCombo.save(.default, to: defaults.store)
         }
     }
+
+    // MARK: - Multiple hotkeys
+
+    @Test("The pause default is ⌘⇧P")
+    func pauseDefaultCombo() {
+        #expect(KeyCombo.pauseDefault.keyCode == UInt32(kVK_ANSI_P))
+        #expect(KeyCombo.pauseDefault.carbonModifiers == UInt32(cmdKey | shiftKey))
+    }
+
+    @Test("Each storage key holds its own combo")
+    func keysAreIndependent() {
+        let overlay = KeyCombo(nsKeyCode: UInt16(kVK_ANSI_V), nsFlags: [.command, .shift])
+        let pause = KeyCombo(nsKeyCode: UInt16(kVK_ANSI_P), nsFlags: [.command, .option])
+        KeyCombo.save(overlay, to: defaults.store)
+        KeyCombo.save(pause, to: defaults.store, key: KeyCombo.pauseStorageKey)
+
+        #expect(KeyCombo.load(from: defaults.store) == overlay)
+        #expect(KeyCombo.load(from: defaults.store, key: KeyCombo.pauseStorageKey) == pause)
+    }
+
+    @Test("An empty store yields the fallback that was asked for")
+    func loadUsesGivenFallback() {
+        // Without a per-call fallback the pause hotkey would come back as ⌘⇧V,
+        // silently shadowing the overlay shortcut.
+        let loaded = KeyCombo.load(from: defaults.store,
+                                   key: KeyCombo.pauseStorageKey,
+                                   fallback: .pauseDefault)
+        #expect(loaded == .pauseDefault)
+    }
+
+    @Test("Identical combos conflict")
+    func conflictsWhenIdentical() {
+        let a = KeyCombo(nsKeyCode: UInt16(kVK_ANSI_V), nsFlags: [.command, .shift])
+        let b = KeyCombo(nsKeyCode: UInt16(kVK_ANSI_V), nsFlags: [.command, .shift])
+        #expect(KeyCombo.conflicts(a, with: b))
+    }
+
+    @Test("A different key or modifier is not a conflict")
+    func doesNotConflictWhenDifferent() {
+        let base = KeyCombo(nsKeyCode: UInt16(kVK_ANSI_V), nsFlags: [.command, .shift])
+        let otherKey = KeyCombo(nsKeyCode: UInt16(kVK_ANSI_P), nsFlags: [.command, .shift])
+        let otherMods = KeyCombo(nsKeyCode: UInt16(kVK_ANSI_V), nsFlags: [.command, .option])
+        #expect(!KeyCombo.conflicts(base, with: otherKey))
+        #expect(!KeyCombo.conflicts(base, with: otherMods))
+    }
+
+    @Test("Saving reports which key changed")
+    func savePostsChangedKey() async {
+        await confirmation("hotkeyChanged carried the pause key") { posted in
+            let token = NotificationCenter.default.addObserver(
+                forName: .hotkeyChanged,
+                object: nil,
+                queue: nil
+            ) { note in
+                if note.userInfo?["key"] as? String == KeyCombo.pauseStorageKey {
+                    posted()
+                }
+            }
+            defer { NotificationCenter.default.removeObserver(token) }
+
+            KeyCombo.save(.pauseDefault, to: defaults.store, key: KeyCombo.pauseStorageKey)
+        }
+    }
 }

@@ -104,29 +104,58 @@ struct KeyCombo: Codable, Equatable {
 // MARK: - Persistence
 
 extension KeyCombo {
+    /// Storage key of the show/hide-overlay shortcut.
     static let storageKey = "globalHotkey"
+    /// Storage key of the pause/resume-capture shortcut.
+    static let pauseStorageKey = "pauseHotkey"
 
-    /// Reads the persisted combo, falling back to `.default` when nothing is
-    /// stored or the stored data can't be decoded.
-    static func load(from defaults: UserDefaults = .standard) -> KeyCombo {
-        guard let data = defaults.data(forKey: storageKey),
+    static let pauseDefault = KeyCombo(
+        keyCode: UInt32(kVK_ANSI_P),
+        carbonModifiers: UInt32(cmdKey | shiftKey)
+    )
+
+    /// Reads the combo stored under `key`, falling back to `fallback` when
+    /// nothing is stored or the stored data can't be decoded.
+    ///
+    /// The fallback is a parameter rather than always `.default` because each
+    /// shortcut has its own: defaulting the pause shortcut to ⌘⇧V would
+    /// shadow the overlay one.
+    static func load(from defaults: UserDefaults = .standard,
+                     key: String = storageKey,
+                     fallback: KeyCombo = .default) -> KeyCombo {
+        guard let data = defaults.data(forKey: key),
               let combo = try? JSONDecoder().decode(KeyCombo.self, from: data)
-        else { return .default }
+        else { return fallback }
         return combo
     }
 
-    /// Persists `combo` and posts `.hotkeyChanged` so the hotkey is
-    /// re-registered with the new combination.
-    static func save(_ combo: KeyCombo, to defaults: UserDefaults = .standard) {
+    /// Persists `combo` under `key` and posts `.hotkeyChanged` carrying that
+    /// key, so only the affected shortcut gets re-registered.
+    static func save(_ combo: KeyCombo,
+                     to defaults: UserDefaults = .standard,
+                     key: String = storageKey) {
         if let data = try? JSONEncoder().encode(combo) {
-            defaults.set(data, forKey: storageKey)
+            defaults.set(data, forKey: key)
         }
-        NotificationCenter.default.post(name: .hotkeyChanged, object: nil)
+        NotificationCenter.default.post(name: .hotkeyChanged,
+                                        object: nil,
+                                        userInfo: ["key": key])
+    }
+
+    /// Two shortcuts can't share a combination: `RegisterEventHotKey` would
+    /// either refuse the second one or leave it silently dead.
+    static func conflicts(_ combo: KeyCombo, with other: KeyCombo) -> Bool {
+        combo == other
     }
 
     static var stored: KeyCombo {
         get { load() }
         set { save(newValue) }
+    }
+
+    static var storedPause: KeyCombo {
+        get { load(key: pauseStorageKey, fallback: pauseDefault) }
+        set { save(newValue, key: pauseStorageKey) }
     }
 }
 

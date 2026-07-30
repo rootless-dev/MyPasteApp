@@ -44,7 +44,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // during the open animation.
         overlay.prepare()
 
-        hotkey = HotkeyManager { [weak self] in
+        hotkey = HotkeyManager(id: .overlay,
+                               storageKey: KeyCombo.storageKey,
+                               fallback: .default) { [weak self] in
             self?.overlay.toggle()
         }
 
@@ -58,9 +60,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             forName: .hotkeyChanged,
             object: nil,
             queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] note in
             MainActor.assumeIsolated {
-                self?.hotkey.register(combo: KeyCombo.stored)
+                guard let self else { return }
+                // Older posts carried no key; treat them as the overlay one.
+                let key = note.userInfo?["key"] as? String ?? KeyCombo.storageKey
+                if key == KeyCombo.storageKey {
+                    self.hotkey.register()
+                }
             }
         }
     }
