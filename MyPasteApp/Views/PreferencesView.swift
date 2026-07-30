@@ -18,6 +18,7 @@ struct PreferencesView: View {
     @AppStorage("previewTextLength") private var previewTextLength: Int = 200
     @AppStorage("showLinkPreviews") private var showLinkPreviews: Bool = true
     @AppStorage("cardDensity") private var cardDensity: String = CardDensity.comfortable.rawValue
+    @AppStorage("showQuickPasteNumbers") private var showQuickPasteNumbers: Bool = true
     @State private var launchAtLogin: Bool = SMAppService.mainApp.status == .enabled
     @State private var hotkey: KeyCombo = KeyCombo.stored
 
@@ -59,6 +60,10 @@ struct PreferencesView: View {
                     }
                 }
                 Toggle("Show link previews", isOn: $showLinkPreviews)
+                Toggle("Show quick paste numbers", isOn: $showQuickPasteNumbers)
+                Text("⌘1–⌘9 paste the first nine visible cards. The shortcuts keep working with the numbers hidden.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             Section("Paste behavior") {
                 Toggle("Auto-paste on selection (simulate ⌘V)", isOn: $autoPasteEnabled)
@@ -92,7 +97,7 @@ struct PreferencesView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 460, height: 560)
+        .frame(width: 460, height: 640)
     }
 
     private func clearHistory() {

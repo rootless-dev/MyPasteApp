@@ -14,6 +14,7 @@ struct OverlayView: View {
     @State private var searchText = ""
     @State private var selectedID: UUID?
     @FocusState private var searchFocused: Bool
+    @AppStorage("showQuickPasteNumbers") private var showQuickPasteNumbers = true
 
     let onPick: (ClipboardItem) -> Void
     let onDismiss: () -> Void
@@ -48,10 +49,13 @@ struct OverlayView: View {
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(spacing: 12) {
-                        ForEach(filtered) { item in
+                        ForEach(Array(filtered.enumerated()), id: \.element.id) { index, item in
                             ClipboardCardView(
                                 item: item,
                                 isSelected: selectedID == item.id,
+                                quickPasteLabel: showQuickPasteNumbers
+                                    ? QuickPaste.label(forIndex: index)
+                                    : nil,
                                 onDelete: { delete(item) }
                             )
                             .id(item.id)
@@ -90,6 +94,16 @@ struct OverlayView: View {
         }
         .onKeyPress(.leftArrow) { moveSelection(-1); return .handled }
         .onKeyPress(.rightArrow) { moveSelection(1); return .handled }
+        .onKeyPress(keys: ["1", "2", "3", "4", "5", "6", "7", "8", "9"]) { press in
+            // The index follows `filtered`, not the full list: with a search
+            // active, ⌘3 has to paste the third card actually on screen.
+            guard press.modifiers.contains(.command),
+                  let index = QuickPaste.index(for: press.key.character),
+                  index < filtered.count
+            else { return .ignored }
+            pick(filtered[index])
+            return .handled
+        }
         .onKeyPress(keys: ["p"]) { press in
             guard press.modifiers.contains(.command) else { return .ignored }
             if let item = filtered.first(where: { $0.id == selectedID }) {
