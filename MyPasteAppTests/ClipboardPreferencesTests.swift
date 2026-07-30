@@ -58,17 +58,6 @@ struct ClipboardPreferencesTests {
         #expect(ClipboardMonitor.soundFeedbackEnabled(from: defaults.store) == enabled)
     }
 
-    @Test("Monitoring is running by default")
-    func monitoringNotPausedByDefault() {
-        #expect(ClipboardMonitor.isMonitoringPaused(from: defaults.store) == false)
-    }
-
-    @Test("Monitoring honours the pause flag", arguments: [true, false])
-    func monitoringPausedStored(paused: Bool) {
-        defaults.store.set(paused, forKey: "monitoringPaused")
-        #expect(ClipboardMonitor.isMonitoringPaused(from: defaults.store) == paused)
-    }
-
     // MARK: - Ignored apps
 
     @Test("No ignore list means nothing is ignored")

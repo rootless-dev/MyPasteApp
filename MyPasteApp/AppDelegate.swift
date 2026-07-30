@@ -11,6 +11,7 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate {
     var modelContainer: ModelContainer!
     var monitor: ClipboardMonitor!
+    var pauseController: PauseController!
     var writer: ClipboardWriter!
     var hotkey: HotkeyManager!
     var overlay: OverlayWindowController!
@@ -32,7 +33,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let context = modelContainer.mainContext
+        pauseController = PauseController()
         monitor = ClipboardMonitor(modelContext: context)
+        monitor.pauseController = pauseController
+
+        // The pause used to live in UserDefaults. It doesn't survive a
+        // restart any more, so the leftover key is cleared instead of being
+        // read by nobody.
+        UserDefaults.standard.removeObject(forKey: "monitoringPaused")
+
         writer = ClipboardWriter(monitor: monitor)
         retention = RetentionPolicy(modelContext: context)
 
@@ -107,11 +116,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         show.target = self
         menu.addItem(show)
         menu.addItem(.separator())
-        let pause = NSMenuItem(title: "Pause clipboard monitoring",
+        let pause = NSMenuItem(title: pauseController.isPaused
+                                ? "Resume clipboard monitoring"
+                                : "Pause clipboard monitoring",
                                action: #selector(togglePauseAction),
                                keyEquivalent: "")
         pause.target = self
-        pause.state = ClipboardMonitor.isMonitoringPaused() ? .on : .off
         menu.addItem(pause)
         menu.addItem(.separator())
         let prefs = NSMenuItem(title: "Preferences…",
@@ -136,9 +146,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func togglePauseAction() {
-        let key = "monitoringPaused"
-        let current = UserDefaults.standard.bool(forKey: key)
-        UserDefaults.standard.set(!current, forKey: key)
+        pauseController.toggle()
     }
 
     @objc private func quitAction() {

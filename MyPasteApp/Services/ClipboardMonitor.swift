@@ -20,6 +20,10 @@ final class ClipboardMonitor {
     /// to avoid recapturing items it just wrote back to the pasteboard).
     var ignoreNextChange = false
 
+    /// Set by the AppDelegate right after construction. Weak because the
+    /// delegate owns the controller.
+    weak var pauseController: PauseController?
+
     init(modelContext: ModelContext, defaults: UserDefaults = .standard) {
         self.modelContext = modelContext
         self.defaults = defaults
@@ -65,7 +69,9 @@ final class ClipboardMonitor {
             return
         }
 
-        if Self.isMonitoringPaused(from: defaults) {
+        // Checked *after* lastChangeCount was updated above, so resuming
+        // doesn't capture whatever was copied during the pause.
+        if pauseController?.isPaused == true {
             return
         }
 
@@ -189,11 +195,6 @@ final class ClipboardMonitor {
     // tests can pass an isolated suite instead of touching the user's
     // preferences. Views bind these same keys with @AppStorage, which always
     // talks to UserDefaults.standard.
-
-    /// Whether the user paused capture from the status menu.
-    static func isMonitoringPaused(from defaults: UserDefaults = .standard) -> Bool {
-        defaults.bool(forKey: "monitoringPaused")
-    }
 
     /// How many characters of a copied string to keep as the card preview.
     static func previewTextLength(from defaults: UserDefaults = .standard) -> Int {
