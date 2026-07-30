@@ -3,6 +3,7 @@
 //  MyPasteApp
 //
 
+import AppKit
 import ServiceManagement
 import SwiftData
 import SwiftUI
@@ -21,6 +22,10 @@ struct PreferencesView: View {
     @AppStorage("showQuickPasteNumbers") private var showQuickPasteNumbers: Bool = true
     @State private var launchAtLogin: Bool = SMAppService.mainApp.status == .enabled
     @State private var hotkey: KeyCombo = KeyCombo.stored
+    @State private var pauseHotkey: KeyCombo = KeyCombo.storedPause
+    @State private var hotkeyConflict = false
+    /// Guards the reassignment inside `onChange` from re-entering it.
+    @State private var isRevertingHotkey = false
 
     var body: some View {
         Form {
@@ -36,7 +41,7 @@ struct PreferencesView: View {
                     clearHistory()
                 }
             }
-            Section("Global shortcut") {
+            Section("Global shortcuts") {
                 HStack {
                     Text("Show/hide overlay")
                     Spacer()
@@ -46,12 +51,35 @@ struct PreferencesView: View {
                         hotkey = .default
                     }
                 }
+                HStack {
+                    Text("Pause/resume capture")
+                    Spacer()
+                    HotkeyRecorderView(combo: $pauseHotkey)
+                        .frame(width: 160, height: 24)
+                    Button("Reset") {
+                        pauseHotkey = .pauseDefault
+                    }
+                }
+                if hotkeyConflict {
+                    Text("Both shortcuts can't use the same combination.")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
                 Text("Click the field and press a new shortcut. Esc cancels.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            .onChange(of: hotkey) { _, newValue in
-                KeyCombo.stored = newValue
+            .onChange(of: hotkey) { oldValue, newValue in
+                applyHotkeyChange(new: newValue,
+                                  old: oldValue,
+                                  other: pauseHotkey,
+                                  key: KeyCombo.storageKey) { hotkey = $0 }
+            }
+            .onChange(of: pauseHotkey) { oldValue, newValue in
+                applyHotkeyChange(new: newValue,
+                                  old: oldValue,
+                                  other: hotkey,
+                                  key: KeyCombo.pauseStorageKey) { pauseHotkey = $0 }
             }
             Section("Appearance") {
                 Picker("Card density", selection: $cardDensity) {
@@ -120,5 +148,28 @@ struct PreferencesView: View {
         } catch {
             NSLog("Failed to toggle launch at login: \(error)")
         }
+    }
+
+    /// Saves a re-recorded shortcut, or refuses it when it would collide with
+    /// the other one — `RegisterEventHotKey` would otherwise leave one of them
+    /// silently dead.
+    private func applyHotkeyChange(new: KeyCombo,
+                                   old: KeyCombo,
+                                   other: KeyCombo,
+                                   key: String,
+                                   revert: (KeyCombo) -> Void) {
+        guard !isRevertingHotkey else {
+            isRevertingHotkey = false
+            return
+        }
+        if KeyCombo.conflicts(new, with: other) {
+            NSSound.beep()
+            hotkeyConflict = true
+            isRevertingHotkey = true
+            revert(old)
+            return
+        }
+        hotkeyConflict = false
+        KeyCombo.save(new, key: key)
     }
 }

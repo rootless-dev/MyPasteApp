@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var pauseController: PauseController!
     var writer: ClipboardWriter!
     var hotkey: HotkeyManager!
+    var pauseHotkey: HotkeyManager!
     var overlay: OverlayWindowController!
     var retention: RetentionPolicy!
     var statusItem: NSStatusItem!
@@ -59,10 +60,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.overlay.toggle()
         }
 
+        pauseHotkey = HotkeyManager(id: .pause,
+                                    storageKey: KeyCombo.pauseStorageKey,
+                                    fallback: .pauseDefault) { [weak self] in
+            self?.pauseController.toggle()
+        }
+
         setupStatusItem()
 
         monitor.start()
         hotkey.register()
+        pauseHotkey.register()
         retention.prune()
 
         NotificationCenter.default.addObserver(
@@ -74,8 +82,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self else { return }
                 // Older posts carried no key; treat them as the overlay one.
                 let key = note.userInfo?["key"] as? String ?? KeyCombo.storageKey
-                if key == KeyCombo.storageKey {
-                    self.hotkey.register()
+                switch key {
+                case KeyCombo.storageKey: self.hotkey.register()
+                case KeyCombo.pauseStorageKey: self.pauseHotkey.register()
+                default: break
                 }
             }
         }
@@ -90,10 +100,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "doc.on.clipboard", accessibilityDescription: "MyPasteApp")
             button.target = self
             button.action = #selector(statusItemClicked(_:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        }
+        refreshStatusIcon()
+
+        NotificationCenter.default.addObserver(
+            forName: PauseController.stateChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshStatusIcon() }
+        }
+    }
+
+    /// The icon has to say, unmistakably, that nothing is being collected.
+    /// Dimming the same glyph would be too easy to miss — and missing it here
+    /// costs hours of lost history.
+    private func refreshStatusIcon() {
+        guard let button = statusItem?.button else { return }
+        let paused = pauseController.isPaused
+        button.image = NSImage(
+            systemSymbolName: paused ? "pause.circle.fill" : "doc.on.clipboard",
+            accessibilityDescription: paused ? "MyPasteApp — paused" : "MyPasteApp"
+        )
+        button.toolTip = paused ? pauseStatusTitle : "MyPasteApp"
+    }
+
+    private var pauseStatusTitle: String {
+        switch pauseController.state {
+        case .active:
+            return "MyPasteApp"
+        case .pausedIndefinitely:
+            return "Paused"
+        case .pausedUntil(let deadline):
+            return "Paused until \(deadline.formatted(.dateTime.hour().minute()))"
         }
     }
 
@@ -116,13 +158,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         show.target = self
         menu.addItem(show)
         menu.addItem(.separator())
-        let pause = NSMenuItem(title: pauseController.isPaused
-                                ? "Resume clipboard monitoring"
-                                : "Pause clipboard monitoring",
-                               action: #selector(togglePauseAction),
-                               keyEquivalent: "")
-        pause.target = self
-        menu.addItem(pause)
+        for item in pauseMenuItems() {
+            menu.addItem(item)
+        }
         menu.addItem(.separator())
         let prefs = NSMenuItem(title: "Preferences…",
                                action: #selector(openPreferences),
@@ -143,6 +181,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func showHistoryAction() {
         overlay.toggle()
+    }
+
+    /// Built fresh on every menu opening — `showStatusMenu` rebuilds the whole
+    /// NSMenu each time — so there is no state to keep in sync here.
+    private func pauseMenuItems() -> [NSMenuItem] {
+        guard !pauseController.isPaused else {
+            // No target and no action, so NSMenu's automatic enabling leaves
+            // this one greyed out as the status line it is.
+            let status = NSMenuItem(title: pauseStatusTitle,
+                                    action: nil,
+                                    keyEquivalent: "")
+            let resume = NSMenuItem(title: "Resume clipboard monitoring",
+                                    action: #selector(togglePauseAction),
+                                    keyEquivalent: "")
+            resume.target = self
+            return [status, resume]
+        }
+
+        let pause = NSMenuItem(title: "Pause clipboard monitoring",
+                               action: nil,
+                               keyEquivalent: "")
+        let submenu = NSMenu()
+
+        let indefinite = NSMenuItem(title: "Pause",
+                                    action: #selector(togglePauseAction),
+                                    keyEquivalent: "")
+        indefinite.target = self
+        submenu.addItem(indefinite)
+        submenu.addItem(.separator())
+
+        for duration in PauseDuration.offered {
+            let item = NSMenuItem(title: duration.title,
+                                  action: #selector(pauseForAction(_:)),
+                                  keyEquivalent: "")
+            item.target = self
+            item.representedObject = duration.seconds
+            submenu.addItem(item)
+        }
+
+        pause.submenu = submenu
+        return [pause]
+    }
+
+    @objc private func pauseForAction(_ sender: NSMenuItem) {
+        guard let seconds = sender.representedObject as? TimeInterval else { return }
+        pauseController.pause(for: PauseDuration(seconds: seconds))
     }
 
     @objc private func togglePauseAction() {
@@ -172,5 +256,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         monitor?.stop()
         hotkey?.unregister()
+        pauseHotkey?.unregister()
     }
 }
