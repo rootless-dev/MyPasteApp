@@ -69,8 +69,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupStatusItem()
 
         monitor.start()
-        hotkey.register()
-        pauseHotkey.register()
+        registerHotkeysCheckingConflict()
         retention.prune()
 
         NotificationCenter.default.addObserver(
@@ -106,6 +105,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let env = ProcessInfo.processInfo.environment
         return env["XCTestConfigurationFilePath"] != nil
             || env["XCTestBundlePath"] != nil
+    }
+
+    /// Registers both global shortcuts, unless they collide.
+    ///
+    /// `PreferencesView.applyHotkeyChange` refuses to save a colliding combo,
+    /// but that guard never runs on a combo that was already on disk before
+    /// this version existed — e.g. someone who'd bound the overlay shortcut
+    /// to ⌘⇧P upgrading into a `pauseHotkey` that, being unset, falls back to
+    /// `KeyCombo.pauseDefault`, which is also ⌘⇧P. Registering both anyway
+    /// would leave `RegisterEventHotKey` to fail for the second one with
+    /// nothing but an `NSLog` to show for it. The overlay shortcut is treated
+    /// as the pre-existing one and wins; the pause one is simply left
+    /// unregistered. Preferences re-derives this same comparison from what's
+    /// on disk every time it's opened (see `PreferencesView.refreshHotkeyState`),
+    /// so the user is told which shortcut is dead instead of only the log.
+    private func registerHotkeysCheckingConflict() {
+        hotkey.register()
+        guard !KeyCombo.conflicts(hotkey.storedCombo, with: pauseHotkey.storedCombo) else {
+            NSLog("Pause hotkey (\(pauseHotkey.storedCombo.displayString)) collides with the "
+                  + "overlay shortcut; leaving it unregistered until Preferences resolves it.")
+            return
+        }
+        pauseHotkey.register()
     }
 
     private func setupStatusItem() {
@@ -144,7 +166,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .active:
             return "MyPasteApp"
         case .pausedIndefinitely:
-            return "Paused"
+            return "Paused indefinitely"
         case .pausedUntil(let deadline):
             return "Paused until \(deadline.formatted(.dateTime.hour().minute()))"
         }
@@ -203,7 +225,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let status = NSMenuItem(title: pauseStatusTitle,
                                     action: nil,
                                     keyEquivalent: "")
-            let resume = NSMenuItem(title: "Resume clipboard monitoring",
+            let resume = NSMenuItem(title: "Resume clipboard monitoring  \(KeyCombo.storedPause.displayString)",
                                     action: #selector(togglePauseAction),
                                     keyEquivalent: "")
             resume.target = self
@@ -215,7 +237,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                keyEquivalent: "")
         let submenu = NSMenu()
 
-        let indefinite = NSMenuItem(title: "Pause",
+        let indefinite = NSMenuItem(title: "Pause  \(KeyCombo.storedPause.displayString)",
                                     action: #selector(togglePauseAction),
                                     keyEquivalent: "")
         indefinite.target = self
@@ -255,7 +277,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let host = NSHostingController(rootView: view)
             let window = NSWindow(contentViewController: host)
             window.title = "Preferences"
-            window.styleMask = [.titled, .closable]
+            window.styleMask = [.titled, .closable, .resizable]
             window.isReleasedWhenClosed = false
             window.center()
             prefsWindow = window
