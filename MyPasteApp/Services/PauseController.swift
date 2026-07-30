@@ -79,8 +79,8 @@ final class PauseController {
     func pause(for duration: PauseDuration) {
         transition(to: .pausedUntil(Date.now.addingTimeInterval(duration.seconds)))
         let timer = Timer.scheduledTimer(withTimeInterval: duration.seconds,
-                                         repeats: false) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.resume() }
+                                         repeats: false) { [weak self] firedTimer in
+            Task { @MainActor [weak self] in self?.resumeIfStillCurrent(firedTimer) }
         }
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
@@ -93,6 +93,18 @@ final class PauseController {
     /// Used by the global shortcut, which has no way to pick a duration.
     func toggle() {
         isPaused ? resume() : pauseIndefinitely()
+    }
+
+    /// The timer's own callback fires synchronously on the run loop, but the
+    /// `resume()` it wants is deferred behind a `Task` hop onto MainActor.
+    /// `transition(to:)` invalidating `self.timer` does nothing to a Task an
+    /// already-fired timer has already enqueued — so if the user pauses
+    /// again in that window, the stale Task must not undo it. Do not delete
+    /// this guard as redundant: without it, a privacy pause can silently
+    /// flip back to active.
+    func resumeIfStillCurrent(_ firedTimer: Timer) {
+        guard timer === firedTimer else { return }
+        resume()
     }
 
     private func transition(to newState: PauseState) {

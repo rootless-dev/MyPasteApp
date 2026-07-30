@@ -64,3 +64,51 @@ struct PauseDurationTests {
         #expect(PauseDuration(seconds: seconds).title == expected)
     }
 }
+
+@MainActor
+@Suite("Pause controller")
+struct PauseControllerTests {
+    // MARK: - Stale-timer regression
+
+    // `resumeIfStillCurrent` is the guard added after review: a Timer's
+    // callback fires synchronously, but the `resume()` it wants runs behind
+    // a `Task` hop onto MainActor. `transition(to:)` invalidating the old
+    // Timer does nothing to a Task an already-fired Timer already enqueued,
+    // so a stale one must not be allowed to undo a newer pause. These tests
+    // call it directly with a Timer that stands in for that stale one,
+    // rather than racing a real Timer's fire against a Task hop, which
+    // can't be made to interleave deterministically.
+
+    @Test("A stale timer's resume is ignored once an indefinite pause replaced it")
+    func staleTimerIgnoredAfterIndefinitePause() {
+        let controller = PauseController()
+        controller.pauseIndefinitely()
+
+        let staleTimer = Timer(timeInterval: 1, repeats: false) { _ in }
+        controller.resumeIfStillCurrent(staleTimer)
+
+        #expect(controller.state == .pausedIndefinitely)
+    }
+
+    @Test("A stale timer's resume is ignored once a newer timed pause replaced it")
+    func staleTimerIgnoredAfterNewerTimedPause() {
+        let controller = PauseController()
+        controller.pause(for: PauseDuration(seconds: 900))
+
+        let staleTimer = Timer(timeInterval: 1, repeats: false) { _ in }
+        controller.pause(for: PauseDuration(seconds: 1_800))
+        controller.resumeIfStillCurrent(staleTimer)
+
+        #expect(controller.isPaused)
+    }
+
+    @Test("A pause still resumes on its own once its own timer elapses")
+    func timedPauseResumesAutomatically() async throws {
+        let controller = PauseController()
+        controller.pause(for: PauseDuration(seconds: 0.05))
+
+        try await Task.sleep(for: .seconds(0.3))
+
+        #expect(controller.state == .active)
+    }
+}
