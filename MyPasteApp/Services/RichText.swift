@@ -37,4 +37,19 @@ enum RichText {
         if types.contains(.html) { return .html }
         return nil
     }
+
+    /// What to put on the pasteboard for a text item, in order of preference.
+    ///
+    /// Plain text is always included, even alongside a rich representation: a
+    /// pasteboard carrying only RTF breaks pasting into any plain text field.
+    /// The order matters — the first type declared is the one a destination
+    /// app prefers.
+    static func payload(text: String,
+                        richTextData: Data?,
+                        format: RichTextFormat?,
+                        plainOnly: Bool) -> [(type: NSPasteboard.PasteboardType, data: Data)] {
+        let plain = (type: NSPasteboard.PasteboardType.string, data: Data(text.utf8))
+        guard !plainOnly, let richTextData, let format else { return [plain] }
+        return [(type: format.pasteboardType, data: richTextData), plain]
+    }
 }
