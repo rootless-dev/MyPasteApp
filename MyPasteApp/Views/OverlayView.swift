@@ -19,6 +19,7 @@ struct OverlayView: View {
     @AppStorage(PreferenceKeys.alwaysPastePlainText) private var alwaysPastePlainText = false
 
     let writer: ClipboardWriter
+    let itemEditor: ItemEditorWindowController
     let onPick: (ClipboardItem, Bool) -> Void
     let onDismiss: () -> Void
     /// Resolves the name of the app a paste would land in, read fresh at menu
@@ -33,10 +34,12 @@ struct OverlayView: View {
     let destinationAppName: () -> String?
 
     init(writer: ClipboardWriter,
+         itemEditor: ItemEditorWindowController,
          onPick: @escaping (ClipboardItem, Bool) -> Void,
          onDismiss: @escaping () -> Void,
          destinationAppName: @escaping () -> String? = { nil }) {
         self.writer = writer
+        self.itemEditor = itemEditor
         self.onPick = onPick
         self.onDismiss = onDismiss
         self.destinationAppName = destinationAppName
@@ -46,7 +49,7 @@ struct OverlayView: View {
     /// context, the writer, the pick callback), so there's no state here that
     /// needs to survive across view updates.
     private var itemActions: ItemActions {
-        ItemActions(modelContext: modelContext, writer: writer, onPaste: onPick)
+        ItemActions(modelContext: modelContext, writer: writer, onPaste: onPick, editorWindow: itemEditor)
     }
 
     /// Whether this paste should hand over plain text.
@@ -166,6 +169,18 @@ struct OverlayView: View {
                 return .handled
             }
             return .ignored
+        }
+        .onKeyPress(keys: ["e"]) { press in
+            guard press.modifiers.contains(.command) else { return .ignored }
+            // Image and file items aren't editable as text — same gate as
+            // `ItemContextMenu`'s "Edit" entry.
+            guard let item = filtered.first(where: { $0.id == selectedID }),
+                  item.type == .text || item.type == .url else {
+                return .ignored
+            }
+            itemActions.edit(item)
+            onDismiss()
+            return .handled
         }
     }
 

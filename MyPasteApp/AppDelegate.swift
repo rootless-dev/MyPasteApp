@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var hotkey: HotkeyManager!
     var pauseHotkey: HotkeyManager!
     var overlay: OverlayWindowController!
+    var itemEditor: ItemEditorWindowController!
     var retention: RetentionPolicy!
     var statusItem: NSStatusItem!
     private var prefsWindow: NSWindow?
@@ -59,8 +60,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         writer = ClipboardWriter(monitor: monitor)
         retention = RetentionPolicy(modelContext: context)
+        itemEditor = ItemEditorWindowController(modelContainer: modelContainer)
 
-        overlay = OverlayWindowController(modelContainer: modelContainer, writer: writer) { [weak self] item, plainText in
+        overlay = OverlayWindowController(modelContainer: modelContainer,
+                                          writer: writer,
+                                          itemEditor: itemEditor) { [weak self] item, plainText in
             self?.writer.write(item, plainText: plainText)
         }
         // Pre-warm the panel: create the window and force SwiftUI's initial

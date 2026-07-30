@@ -26,6 +26,13 @@ struct ItemContextMenu: View {
         }
         Button("Copy") { actions.copy(item) }
 
+        if item.type == .text || item.type == .url {
+            Divider()
+            // Image and file items aren't editable as text — task 20 gives
+            // images a different kind of editing in Phase 6.
+            Button("Edit") { actions.edit(item) }
+        }
+
         Divider()
 
         Button("Delete") { actions.delete(item) }

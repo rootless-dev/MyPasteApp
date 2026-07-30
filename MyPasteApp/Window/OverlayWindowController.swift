@@ -13,15 +13,18 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
     private let modelContainer: ModelContainer
     private let writer: ClipboardWriter
     private let onPick: (ClipboardItem, Bool) -> Void
+    private let itemEditor: ItemEditorWindowController
     private var globalMouseMonitor: Any?
     private var localMouseMonitor: Any?
     private var previousApp: NSRunningApplication?
 
     init(modelContainer: ModelContainer,
          writer: ClipboardWriter,
+         itemEditor: ItemEditorWindowController,
          onPick: @escaping (ClipboardItem, Bool) -> Void) {
         self.modelContainer = modelContainer
         self.writer = writer
+        self.itemEditor = itemEditor
         self.onPick = onPick
         super.init()
     }
@@ -70,6 +73,7 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
 
         let root = OverlayView(
             writer: writer,
+            itemEditor: itemEditor,
             onPick: { [weak self] item, plainText in
                 guard let self else { return }
                 self.onPick(item, plainText)

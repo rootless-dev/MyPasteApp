@@ -37,6 +37,9 @@ final class ClipboardItem {
     var isPinned: Bool
     /// Hash of the raw content, used for deduplication.
     var contentHash: String
+    /// A user-given name for the item. Only written by `ItemEdit.apply` for
+    /// now — the card and search UI arrive in Task 17.
+    var label: String?
 
     var type: ClipboardItemType {
         get { ClipboardItemType(rawValue: typeRaw) ?? .text }
@@ -64,7 +67,8 @@ final class ClipboardItem {
         linkFaviconData: Data? = nil,
         linkBackgroundHex: String? = nil,
         sourceAppBundleID: String? = nil,
-        isPinned: Bool = false
+        isPinned: Bool = false,
+        label: String? = nil
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -82,5 +86,6 @@ final class ClipboardItem {
         self.linkBackgroundHex = linkBackgroundHex
         self.sourceAppBundleID = sourceAppBundleID
         self.isPinned = isPinned
+        self.label = label
     }
 }
