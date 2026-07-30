@@ -9,19 +9,21 @@ import SwiftData
 @MainActor
 final class RetentionPolicy {
     private let modelContext: ModelContext
+    private let defaults: UserDefaults
 
     var maxItems: Int {
-        let v = UserDefaults.standard.integer(forKey: "maxItems")
+        let v = defaults.integer(forKey: "maxItems")
         return v > 0 ? v : 500
     }
 
     var retentionDays: Int {
-        let v = UserDefaults.standard.integer(forKey: "retentionDays")
+        let v = defaults.integer(forKey: "retentionDays")
         return v > 0 ? v : 30
     }
 
-    init(modelContext: ModelContext) {
+    init(modelContext: ModelContext, defaults: UserDefaults = .standard) {
         self.modelContext = modelContext
+        self.defaults = defaults
     }
 
     func prune() {

@@ -1,0 +1,176 @@
+//
+//  ClipboardPreferencesTests.swift
+//  MyPasteAppTests
+//
+
+import Foundation
+import Testing
+
+@testable import MyPasteApp
+
+@MainActor
+@Suite("Clipboard preferences")
+struct ClipboardPreferencesTests {
+    private let defaults = TestDefaults("clipboard-preferences")
+
+    // MARK: - Preview text length
+
+    @Test("Preview length falls back to 200 when unset")
+    func previewLengthDefault() {
+        #expect(ClipboardMonitor.previewTextLength(from: defaults.store) == 200)
+    }
+
+    @Test("A stored preview length is used as-is", arguments: [80, 200, 320, 500])
+    func previewLengthStored(length: Int) {
+        defaults.store.set(length, forKey: "previewTextLength")
+        #expect(ClipboardMonitor.previewTextLength(from: defaults.store) == length)
+    }
+
+    @Test("A non-positive preview length falls back to 200", arguments: [0, -1, -200])
+    func previewLengthNonPositive(length: Int) {
+        // A zero would truncate every preview to an empty string, so it has to
+        // be treated as "unset" rather than honoured.
+        defaults.store.set(length, forKey: "previewTextLength")
+        #expect(ClipboardMonitor.previewTextLength(from: defaults.store) == 200)
+    }
+
+    // MARK: - Boolean toggles
+
+    @Test("Link previews are on by default")
+    func linkPreviewsDefault() {
+        #expect(ClipboardMonitor.showLinkPreviews(from: defaults.store))
+    }
+
+    @Test("Link previews honour the stored flag", arguments: [true, false])
+    func linkPreviewsStored(enabled: Bool) {
+        defaults.store.set(enabled, forKey: "showLinkPreviews")
+        #expect(ClipboardMonitor.showLinkPreviews(from: defaults.store) == enabled)
+    }
+
+    @Test("Sound feedback is on by default")
+    func soundFeedbackDefault() {
+        #expect(ClipboardMonitor.soundFeedbackEnabled(from: defaults.store))
+    }
+
+    @Test("Sound feedback honours the stored flag", arguments: [true, false])
+    func soundFeedbackStored(enabled: Bool) {
+        defaults.store.set(enabled, forKey: "enableSoundFeedback")
+        #expect(ClipboardMonitor.soundFeedbackEnabled(from: defaults.store) == enabled)
+    }
+
+    @Test("Monitoring is running by default")
+    func monitoringNotPausedByDefault() {
+        #expect(ClipboardMonitor.isMonitoringPaused(from: defaults.store) == false)
+    }
+
+    @Test("Monitoring honours the pause flag", arguments: [true, false])
+    func monitoringPausedStored(paused: Bool) {
+        defaults.store.set(paused, forKey: "monitoringPaused")
+        #expect(ClipboardMonitor.isMonitoringPaused(from: defaults.store) == paused)
+    }
+
+    // MARK: - Ignored apps
+
+    @Test("No ignore list means nothing is ignored")
+    func ignoredAppsUnset() {
+        #expect(ClipboardMonitor.ignoredBundleIDs(from: defaults.store).isEmpty)
+    }
+
+    @Test("Blank input yields no bundle IDs", arguments: ["", "   ", "\n", "\n\n  \n", ",", ",,"])
+    func ignoredAppsBlank(raw: String) {
+        defaults.store.set(raw, forKey: "ignoredAppsRaw")
+        #expect(ClipboardMonitor.ignoredBundleIDs(from: defaults.store).isEmpty)
+    }
+
+    @Test("A single bundle ID is parsed")
+    func ignoredAppsSingle() {
+        defaults.store.set("com.agilebits.onepassword7", forKey: "ignoredAppsRaw")
+        #expect(ClipboardMonitor.ignoredBundleIDs(from: defaults.store)
+                == ["com.agilebits.onepassword7"])
+    }
+
+    @Test("Newline-separated IDs are parsed")
+    func ignoredAppsNewlines() {
+        defaults.store.set("com.apple.keychainaccess\ncom.1password.1password",
+                           forKey: "ignoredAppsRaw")
+        #expect(ClipboardMonitor.ignoredBundleIDs(from: defaults.store)
+                == ["com.apple.keychainaccess", "com.1password.1password"])
+    }
+
+    @Test("Comma-separated IDs are parsed")
+    func ignoredAppsCommas() {
+        defaults.store.set("com.apple.keychainaccess,com.1password.1password",
+                           forKey: "ignoredAppsRaw")
+        #expect(ClipboardMonitor.ignoredBundleIDs(from: defaults.store)
+                == ["com.apple.keychainaccess", "com.1password.1password"])
+    }
+
+    @Test("Separators can be mixed and surrounding spaces are trimmed")
+    func ignoredAppsMixedAndTrimmed() {
+        defaults.store.set("  com.a  ,\n  com.b\n\ncom.c ,, ", forKey: "ignoredAppsRaw")
+        #expect(ClipboardMonitor.ignoredBundleIDs(from: defaults.store)
+                == ["com.a", "com.b", "com.c"])
+    }
+
+    @Test("A list pasted from a CRLF file has no stray carriage returns")
+    func ignoredAppsCRLF() {
+        // Regression guard: splitting on "\n" alone left a trailing "\r" glued
+        // to each ID, so no bundle ID ever matched.
+        defaults.store.set("com.a\r\ncom.b\r\n", forKey: "ignoredAppsRaw")
+        #expect(ClipboardMonitor.ignoredBundleIDs(from: defaults.store) == ["com.a", "com.b"])
+    }
+
+    @Test("Repeating an ID doesn't duplicate it")
+    func ignoredAppsDeduplicates() {
+        defaults.store.set("com.a\ncom.a\ncom.a", forKey: "ignoredAppsRaw")
+        #expect(ClipboardMonitor.ignoredBundleIDs(from: defaults.store) == ["com.a"])
+    }
+
+    @Test("Matching is exact, so a prefix doesn't ignore a different app")
+    func ignoredAppsExactMatch() {
+        defaults.store.set("com.apple.Safari", forKey: "ignoredAppsRaw")
+        let ignored = ClipboardMonitor.ignoredBundleIDs(from: defaults.store)
+        #expect(ignored.contains("com.apple.Safari"))
+        #expect(!ignored.contains("com.apple.SafariTechnologyPreview"))
+    }
+}
+
+@Suite("Content hash")
+struct ContentHashTests {
+    @Test("Hashes a known string to its SHA-256 digest")
+    func knownVector() {
+        #expect(ClipboardMonitor.hash("abc")
+                == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+    }
+
+    @Test("Hashes empty input to the SHA-256 digest of nothing")
+    func emptyInput() {
+        #expect(ClipboardMonitor.hash("")
+                == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+    }
+
+    @Test("The String and Data overloads agree for the same bytes")
+    func overloadsAgree() {
+        let text = "clipboard contents 🧷"
+        #expect(ClipboardMonitor.hash(text) == ClipboardMonitor.hash(Data(text.utf8)))
+    }
+
+    @Test("A digest is always 64 lowercase hex characters")
+    func digestFormat() {
+        // Deduplication compares these strings directly, so the formatting has
+        // to be stable — an uppercase or zero-trimmed byte would break it.
+        let digest = ClipboardMonitor.hash("ff\u{0}\u{1}")
+        #expect(digest.count == 64)
+        #expect(digest.allSatisfy { $0.isHexDigit && !$0.isUppercase })
+    }
+
+    @Test("Different content hashes differently")
+    func distinctInputs() {
+        #expect(ClipboardMonitor.hash("a") != ClipboardMonitor.hash("b"))
+    }
+
+    @Test("The same content always hashes the same way")
+    func isStable() {
+        #expect(ClipboardMonitor.hash("same") == ClipboardMonitor.hash("same"))
+    }
+}

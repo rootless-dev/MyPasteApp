@@ -11,6 +11,7 @@ import SwiftData
 @MainActor
 final class ClipboardMonitor {
     private let modelContext: ModelContext
+    private let defaults: UserDefaults
     private let pasteboard = NSPasteboard.general
     private var lastChangeCount: Int
     private var timer: Timer?
@@ -19,8 +20,9 @@ final class ClipboardMonitor {
     /// to avoid recapturing items it just wrote back to the pasteboard).
     var ignoreNextChange = false
 
-    init(modelContext: ModelContext) {
+    init(modelContext: ModelContext, defaults: UserDefaults = .standard) {
         self.modelContext = modelContext
+        self.defaults = defaults
         self.lastChangeCount = NSPasteboard.general.changeCount
     }
 
@@ -63,7 +65,18 @@ final class ClipboardMonitor {
             return
         }
 
+        if Self.isMonitoringPaused(from: defaults) {
+            return
+        }
+
         guard let item = readCurrentItem() else { return }
+
+        // Skip ignored source apps.
+        if let bundleID = item.sourceAppBundleID,
+           Self.ignoredBundleIDs(from: defaults).contains(bundleID) {
+            return
+        }
+
         insertIfNotDuplicate(item)
 
         if item.type == .url, let urlString = item.textContent,
@@ -76,6 +89,7 @@ final class ClipboardMonitor {
     // MARK: - Link metadata
 
     private func fetchLinkMetadata(for item: ClipboardItem, url: URL) {
+        guard Self.showLinkPreviews(from: defaults) else { return }
         Task { [weak self] in
             let metadata = await LinkMetadataService.fetch(from: url)
             await MainActor.run {
@@ -126,7 +140,7 @@ final class ClipboardMonitor {
             let isURL = URL(string: trimmed).map { $0.scheme != nil } ?? false
             return ClipboardItem(
                 type: isURL ? .url : .text,
-                preview: String(str.prefix(200)),
+                preview: String(str.prefix(Self.previewTextLength(from: defaults))),
                 contentHash: Self.hash(str),
                 textContent: str,
                 sourceAppBundleID: sourceApp
@@ -154,7 +168,7 @@ final class ClipboardMonitor {
         modelContext.insert(item)
         try? modelContext.save()
 
-        if UserDefaults.standard.object(forKey: "enableSoundFeedback") as? Bool ?? true {
+        if Self.soundFeedbackEnabled(from: defaults) {
             NSSound(named: "Tink")?.play()
         }
     }
@@ -167,5 +181,46 @@ final class ClipboardMonitor {
 
     static func hash(_ data: Data) -> String {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    // MARK: - Preferences
+    //
+    // Each reader takes its store explicitly (defaulting to the real one) so
+    // tests can pass an isolated suite instead of touching the user's
+    // preferences. Views bind these same keys with @AppStorage, which always
+    // talks to UserDefaults.standard.
+
+    /// Whether the user paused capture from the status menu.
+    static func isMonitoringPaused(from defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: "monitoringPaused")
+    }
+
+    /// How many characters of a copied string to keep as the card preview.
+    static func previewTextLength(from defaults: UserDefaults = .standard) -> Int {
+        let v = defaults.integer(forKey: "previewTextLength")
+        return v > 0 ? v : 200
+    }
+
+    static func showLinkPreviews(from defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: "showLinkPreviews") as? Bool ?? true
+    }
+
+    static func soundFeedbackEnabled(from defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: "enableSoundFeedback") as? Bool ?? true
+    }
+
+    /// Parses the user's ignored-apps list, stored as a string of bundle IDs
+    /// separated by newlines or commas.
+    static func ignoredBundleIDs(from defaults: UserDefaults = .standard) -> Set<String> {
+        let raw = defaults.string(forKey: "ignoredAppsRaw") ?? ""
+        // isNewline rather than == "\n": a CRLF pair is a single Character in
+        // Swift, so comparing against "\n" would miss a list pasted out of a
+        // Windows file and leave the separator glued to each bundle ID.
+        let parts = raw.split(whereSeparator: { $0.isNewline || $0 == "," })
+        return Set(
+            parts
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+        )
     }
 }

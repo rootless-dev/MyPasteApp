@@ -9,23 +9,61 @@ import SwiftUI
 struct ClipboardCardView: View {
     let item: ClipboardItem
     let isSelected: Bool
+    var onDelete: () -> Void = {}
+    @AppStorage("cardDensity") private var densityRaw: String = CardDensity.comfortable.rawValue
+    @State private var isHoveringCard = false
+    @State private var isHoveringDelete = false
 
     var body: some View {
         let appColor = AppColorExtractor.color(for: item.sourceAppBundleID)
+        let density = CardDensity(rawValue: densityRaw) ?? .comfortable
 
         VStack(spacing: 0) {
             coloredHeader(baseColor: appColor)
             previewArea
             footer
         }
-        .frame(width: 200, height: 220)
+        .frame(width: density.width, height: density.height)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(alignment: .topTrailing) { deleteButton }
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .strokeBorder(isSelected ? Color.accentColor : Color.black.opacity(0.08),
                               lineWidth: isSelected ? 2.5 : 1)
         )
         .shadow(color: .black.opacity(0.10), radius: 6, y: 3)
+        .onHover { hovering in
+            isHoveringCard = hovering
+            if !hovering { isHoveringDelete = false }
+        }
+    }
+
+    // MARK: - Delete button
+
+    private var deleteButton: some View {
+        Button(action: onDelete) {
+            Image(systemName: "xmark")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 20, height: 20)
+                .background(
+                    Circle().fill(isHoveringDelete ? Color.red : Color.black.opacity(0.55))
+                )
+                .overlay(
+                    Circle().strokeBorder(.white.opacity(isHoveringDelete ? 0.9 : 0.55),
+                                          lineWidth: 1)
+                )
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help("Excluir item do histórico")
+        .onHover { isHoveringDelete = $0 }
+        .opacity(isHoveringCard ? 1 : 0)
+        .allowsHitTesting(isHoveringCard)
+        .animation(.easeOut(duration: 0.12), value: isHoveringCard)
+        .animation(.easeOut(duration: 0.12), value: isHoveringDelete)
+        .padding(6)
+        .zIndex(2)
     }
 
     // MARK: - Header

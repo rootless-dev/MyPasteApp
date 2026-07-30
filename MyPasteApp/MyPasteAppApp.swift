@@ -13,13 +13,9 @@ struct MyPasteAppApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {
-        Settings {
-            if let container = appDelegate.modelContainer {
-                PreferencesView()
-                    .modelContainer(container)
-            } else {
-                Text("Loading…").padding()
-            }
-        }
+        // Empty Settings scene: Preferences is opened from AppDelegate via a
+        // dedicated NSWindow because SwiftUI's Settings scene cannot be opened
+        // programmatically from AppKit on macOS 14+ (requires SettingsLink).
+        Settings { EmptyView() }
     }
 }

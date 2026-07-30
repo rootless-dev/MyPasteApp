@@ -62,7 +62,15 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
 
         let root = OverlayView(
             onPick: { [weak self] item in
-                self?.onPick(item)
+                guard let self else { return }
+                self.onPick(item)
+                let target = self.previousApp
+                self.hide()
+                let autoPaste = UserDefaults.standard.object(forKey: "autoPasteEnabled") as? Bool ?? true
+                if autoPaste {
+                    let delayMs = UserDefaults.standard.object(forKey: "pasteDelayMs") as? Int ?? 50
+                    PasteSimulator.paste(activating: target, delay: Double(delayMs) / 1000.0)
+                }
             },
             onDismiss: { [weak self] in self?.hide() }
         )

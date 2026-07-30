@@ -51,7 +51,8 @@ struct OverlayView: View {
                         ForEach(filtered) { item in
                             ClipboardCardView(
                                 item: item,
-                                isSelected: selectedID == item.id
+                                isSelected: selectedID == item.id,
+                                onDelete: { delete(item) }
                             )
                             .id(item.id)
                             .onTapGesture { pick(item) }
@@ -100,8 +101,7 @@ struct OverlayView: View {
         }
         .onKeyPress(.delete) {
             if let item = filtered.first(where: { $0.id == selectedID }) {
-                modelContext.delete(item)
-                try? modelContext.save()
+                delete(item)
                 return .handled
             }
             return .ignored
@@ -112,6 +112,23 @@ struct OverlayView: View {
         item.lastUsedAt = .now
         try? modelContext.save()
         onPick(item)
+    }
+
+    private func delete(_ item: ClipboardItem) {
+        let deletedID = item.id
+        let wasSelected = selectedID == deletedID
+        let remaining = filtered.filter { $0.id != deletedID }
+        let index = filtered.firstIndex { $0.id == deletedID }
+
+        modelContext.delete(item)
+        try? modelContext.save()
+
+        guard wasSelected else { return }
+        if let index, !remaining.isEmpty {
+            selectedID = remaining[min(index, remaining.count - 1)].id
+        } else {
+            selectedID = remaining.first?.id
+        }
     }
 
     private func moveSelection(_ delta: Int) {

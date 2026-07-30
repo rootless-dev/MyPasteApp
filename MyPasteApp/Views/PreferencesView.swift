@@ -12,7 +12,14 @@ struct PreferencesView: View {
     @AppStorage("maxItems") private var maxItems: Int = 500
     @AppStorage("retentionDays") private var retentionDays: Int = 30
     @AppStorage("enableSoundFeedback") private var enableSoundFeedback: Bool = true
+    @AppStorage("ignoredAppsRaw") private var ignoredAppsRaw: String = ""
+    @AppStorage("autoPasteEnabled") private var autoPasteEnabled: Bool = true
+    @AppStorage("pasteDelayMs") private var pasteDelayMs: Int = 50
+    @AppStorage("previewTextLength") private var previewTextLength: Int = 200
+    @AppStorage("showLinkPreviews") private var showLinkPreviews: Bool = true
+    @AppStorage("cardDensity") private var cardDensity: String = CardDensity.comfortable.rawValue
     @State private var launchAtLogin: Bool = SMAppService.mainApp.status == .enabled
+    @State private var hotkey: KeyCombo = KeyCombo.stored
 
     var body: some View {
         Form {
@@ -21,14 +28,61 @@ struct PreferencesView: View {
                         value: $maxItems, in: 50...5000, step: 50)
                 Stepper("Retain for: \(retentionDays) days",
                         value: $retentionDays, in: 1...365)
+                Stepper("Preview text length: \(previewTextLength)",
+                        value: $previewTextLength, in: 80...500, step: 20)
                 Toggle("Sound on copy", isOn: $enableSoundFeedback)
                 Button("Clear non-pinned history") {
                     clearHistory()
                 }
             }
             Section("Global shortcut") {
-                Text("⌘⇧V — Show/hide overlay")
+                HStack {
+                    Text("Show/hide overlay")
+                    Spacer()
+                    HotkeyRecorderView(combo: $hotkey)
+                        .frame(width: 160, height: 24)
+                    Button("Reset") {
+                        hotkey = .default
+                    }
+                }
+                Text("Click the field and press a new shortcut. Esc cancels.")
+                    .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+            .onChange(of: hotkey) { _, newValue in
+                KeyCombo.stored = newValue
+            }
+            Section("Appearance") {
+                Picker("Card density", selection: $cardDensity) {
+                    ForEach(CardDensity.allCases) { d in
+                        Text(d.label).tag(d.rawValue)
+                    }
+                }
+                Toggle("Show link previews", isOn: $showLinkPreviews)
+            }
+            Section("Paste behavior") {
+                Toggle("Auto-paste on selection (simulate ⌘V)", isOn: $autoPasteEnabled)
+                Stepper("Paste delay: \(pasteDelayMs) ms",
+                        value: $pasteDelayMs, in: 0...500, step: 10)
+                    .disabled(!autoPasteEnabled)
+                Text("Increase the delay if some apps drop the simulated ⌘V.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Section("Privacy") {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Ignore content from these apps")
+                    TextEditor(text: $ignoredAppsRaw)
+                        .font(.system(.body, design: .monospaced))
+                        .frame(minHeight: 60, maxHeight: 100)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4)
+                                .stroke(Color.secondary.opacity(0.3))
+                        )
+                    Text("One bundle ID per line (e.g. com.agilebits.onepassword7).")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
             Section("Startup") {
                 Toggle("Launch at login", isOn: $launchAtLogin)
@@ -38,7 +92,7 @@ struct PreferencesView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 420, height: 360)
+        .frame(width: 460, height: 560)
     }
 
     private func clearHistory() {
