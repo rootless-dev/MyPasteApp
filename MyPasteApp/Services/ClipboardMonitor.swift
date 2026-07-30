@@ -69,11 +69,13 @@ final class ClipboardMonitor {
             return
         }
 
-        // Both this and `lastChangeCount`/`ignoreNextChange` above have to run
-        // before `readCurrentItem()` — discarding the string afterwards would
-        // have let it (a password, in the worst case) travel through the app
-        // for no reason. Delegated to a pure function so this ordering is
-        // covered by a test that doesn't need a real NSPasteboard.
+        // `lastChangeCount` above has to be updated before this runs, so
+        // resuming doesn't recapture whatever was copied during the pause;
+        // and nothing here reads off the pasteboard before this decision
+        // either, so a password never travels through the app for a result
+        // about to be discarded. Delegated to a pure function so both
+        // orderings are covered by a test that doesn't need a real
+        // NSPasteboard.
         guard Self.shouldCapture(isPaused: pauseController?.isPaused == true,
                                  types: pasteboard.types ?? [],
                                  settings: .current(from: defaults)) else {
