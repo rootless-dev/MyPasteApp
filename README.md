@@ -52,6 +52,18 @@ MyPasteApp/
 - Xcode 26+
 - Swift 5.9+
 
+## Install
+
+Each release attaches a `.dmg` to the [Releases](https://github.com/rootless-dev/MyPasteApp/releases) page. Open it and drag the app to Applications.
+
+The build is signed ad-hoc, not with an Apple Developer ID, and is therefore not notarized. macOS quarantines anything downloaded from a browser, so the first launch is refused — often with the misleading *"the app is damaged and can't be opened"*. Clear the quarantine attribute once:
+
+```bash
+xattr -d com.apple.quarantine /Applications/MyPasteApp.app
+```
+
+The app also needs Accessibility permission (System Settings › Privacy & Security › Accessibility) to send `⌘V` to the frontmost app.
+
 ## Build
 
 ```bash
@@ -59,6 +71,8 @@ open MyPasteApp.xcodeproj
 ```
 
 Build and run from Xcode (`⌘R`). There are no external dependencies — only system frameworks (AppKit, SwiftUI, SwiftData, Carbon, QuickLook).
+
+Continuous integration runs `xcodebuild test` on every push and pull request; releases are cut by [release-please](https://github.com/googleapis/release-please) from Conventional Commit messages.
 
 ## Usage
 
