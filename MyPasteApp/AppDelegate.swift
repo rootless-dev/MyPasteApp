@@ -296,7 +296,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openPreferences() {
         if prefsWindow == nil {
-            let view = PreferencesView()
+            let view = SettingsView()
                 .modelContainer(modelContainer)
             let host = NSHostingController(rootView: view)
             let window = NSWindow(contentViewController: host)
