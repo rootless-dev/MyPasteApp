@@ -23,9 +23,22 @@ final class ItemEditorWindowController: NSObject {
     }
 
     func open(item: ClipboardItem, focus: ItemEditorFocus) {
+        show(mode: .existing(item), focus: focus, title: item.label ?? "Edit Item")
+    }
+
+    /// Opens the editor with no item loaded, to write one from scratch.
+    ///
+    /// The `ClipboardItem` doesn't exist yet — `ItemEditorView.save()` only
+    /// creates it (via `ItemActions.makeManualItem`) when Save runs, so
+    /// cancelling leaves no trace in the history.
+    func openForNewItem() {
+        show(mode: .new, focus: .body, title: "New Item")
+    }
+
+    private func show(mode: ItemEditorMode, focus: ItemEditorFocus, title: String) {
         close()
 
-        let root = ItemEditorView(item: item, initialFocus: focus) { [weak self] in
+        let root = ItemEditorView(mode: mode, initialFocus: focus) { [weak self] in
             self?.close()
         }
         .modelContainer(modelContainer)
@@ -36,7 +49,7 @@ final class ItemEditorWindowController: NSObject {
             backing: .buffered,
             defer: false
         )
-        window.title = item.label ?? "Edit Item"
+        window.title = title
         window.contentView = NSHostingView(rootView: root)
         window.center()
         window.isReleasedWhenClosed = false

@@ -217,6 +217,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(item)
         }
         menu.addItem(.separator())
+        // A plain NSMenuItem keyEquivalent, unlike `hotkey`/`pauseHotkey`: it
+        // only needs to fire while this menu is open, so there's no global
+        // registration to fail and nothing to gate on here — see
+        // `overlayHotkeyRegistered` above for the shortcut that does need it.
+        let newItem = NSMenuItem(title: "New Text Item",
+                                 action: #selector(newItemAction),
+                                 keyEquivalent: "n")
+        newItem.target = self
+        menu.addItem(newItem)
         let prefs = NSMenuItem(title: "Preferences…",
                                action: #selector(openPreferences),
                                keyEquivalent: ",")
@@ -236,6 +245,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func showHistoryAction() {
         overlay.toggle()
+    }
+
+    @objc private func newItemAction() {
+        itemEditor.openForNewItem()
     }
 
     /// Built fresh on every menu opening — `showStatusMenu` rebuilds the whole

@@ -70,6 +70,39 @@ final class ItemActions {
     func rename(_ item: ClipboardItem) {
         editorWindow.open(item: item, focus: .label)
     }
+
+    /// Opens the item editor with nothing loaded, to write an item from
+    /// scratch.
+    ///
+    /// No `ClipboardItem` exists yet at this point — `ItemEditorView` only
+    /// calls `makeManualItem(text:)` and inserts the result when its Save
+    /// button runs. Dismissing the editor without saving is "nothing
+    /// happened": no half-written item is left behind in the history.
+    func newItem() {
+        editorWindow.openForNewItem()
+    }
+}
+
+/// Builds an item the user wrote by hand.
+///
+/// Pinned on creation because `isPinned` is the only thing
+/// `RetentionPolicy.prune()` protects today, in both passes. Roadmap item
+/// 17 (`expiresAt`) is the proper answer and replaces this when it exists.
+extension ItemActions {
+    static func makeManualItem(text: String) -> ClipboardItem {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isURL = URL(string: trimmed).map { $0.scheme != nil } ?? false
+        return ClipboardItem(
+            type: isURL ? .url : .text,
+            preview: String(text.prefix(ClipboardMonitor.previewTextLength())),
+            contentHash: ClipboardMonitor.hash(text),
+            textContent: text,
+            // This app really is where the item came from, which is also what
+            // gives the card its colour and icon with no extra code.
+            sourceAppBundleID: Bundle.main.bundleIdentifier,
+            isPinned: true
+        )
+    }
 }
 
 /// Applies an edit to an item, recomputing everything derived from its text.

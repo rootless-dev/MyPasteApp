@@ -199,6 +199,14 @@ struct OverlayView: View {
             onDismiss()
             return .handled
         }
+        .onKeyPress(keys: ["n"]) { press in
+            guard press.modifiers.contains(.command) else { return .ignored }
+            // Unlike ⌘E/⌘R, this needs no selected card — it opens an empty
+            // editor. The item itself isn't created until Save runs.
+            itemActions.newItem()
+            onDismiss()
+            return .handled
+        }
     }
 
     private func pick(_ item: ClipboardItem, plainText: Bool? = nil) {
