@@ -69,16 +69,14 @@ final class ClipboardMonitor {
             return
         }
 
-        // Checked *after* lastChangeCount was updated above, so resuming
-        // doesn't capture whatever was copied during the pause.
-        if pauseController?.isPaused == true {
-            return
-        }
-
-        // Checked before reading anything: discarding the string afterwards
-        // would have let the password travel through the app for no reason.
-        if PasteboardPrivacy.shouldIgnore(types: pasteboard.types ?? [],
-                                          settings: .current(from: defaults)) {
+        // Both this and `lastChangeCount`/`ignoreNextChange` above have to run
+        // before `readCurrentItem()` — discarding the string afterwards would
+        // have let it (a password, in the worst case) travel through the app
+        // for no reason. Delegated to a pure function so this ordering is
+        // covered by a test that doesn't need a real NSPasteboard.
+        guard Self.shouldCapture(isPaused: pauseController?.isPaused == true,
+                                 types: pasteboard.types ?? [],
+                                 settings: .current(from: defaults)) else {
             return
         }
 
@@ -97,6 +95,24 @@ final class ClipboardMonitor {
            url.scheme?.hasPrefix("http") == true {
             fetchLinkMetadata(for: item, url: url)
         }
+    }
+
+    /// Whether a pasteboard change should turn into a capture, given the pause
+    /// state and the privacy markers on the pasteboard.
+    ///
+    /// Pure and static so it can be tested directly against `poll()`'s two
+    /// guards, in the order that matters: paused wins outright, then a
+    /// privacy marker, and only once both are clear does anything get read
+    /// off the pasteboard. `poll()` itself stays a thin caller of this —
+    /// updating `lastChangeCount` and consuming `ignoreNextChange` happen
+    /// before it and are deliberately not folded in here (see the comment at
+    /// the call site).
+    static func shouldCapture(isPaused: Bool,
+                              types: [NSPasteboard.PasteboardType],
+                              settings: PasteboardPrivacy.Settings) -> Bool {
+        if isPaused { return false }
+        if PasteboardPrivacy.shouldIgnore(types: types, settings: settings) { return false }
+        return true
     }
 
     // MARK: - Link metadata
