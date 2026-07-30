@@ -14,7 +14,7 @@ struct OverlayView: View {
     @State private var searchText = ""
     @State private var selectedID: UUID?
     @FocusState private var searchFocused: Bool
-    @AppStorage("showQuickPasteNumbers") private var showQuickPasteNumbers = true
+    @AppStorage(PreferenceKeys.showQuickPasteNumbers) private var showQuickPasteNumbers = true
 
     let onPick: (ClipboardItem) -> Void
     let onDismiss: () -> Void

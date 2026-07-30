@@ -12,7 +12,7 @@ enum WindowPrivacy {
     /// Off by default: the history shouldn't show up in a meeting just
     /// because the user never opened Preferences.
     static func showInScreenSharing(from defaults: UserDefaults = .standard) -> Bool {
-        defaults.object(forKey: "showInScreenSharing") as? Bool ?? false
+        defaults.object(forKey: PreferenceKeys.showInScreenSharing) as? Bool ?? false
     }
 
     /// `.readWrite` is the system default for windows, so turning the

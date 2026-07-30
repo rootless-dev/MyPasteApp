@@ -12,12 +12,12 @@ final class RetentionPolicy {
     private let defaults: UserDefaults
 
     var maxItems: Int {
-        let v = defaults.integer(forKey: "maxItems")
+        let v = defaults.integer(forKey: PreferenceKeys.maxItems)
         return v > 0 ? v : 500
     }
 
     var retentionDays: Int {
-        let v = defaults.integer(forKey: "retentionDays")
+        let v = defaults.integer(forKey: PreferenceKeys.retentionDays)
         return v > 0 ? v : 30
     }
 

@@ -223,22 +223,22 @@ final class ClipboardMonitor {
 
     /// How many characters of a copied string to keep as the card preview.
     static func previewTextLength(from defaults: UserDefaults = .standard) -> Int {
-        let v = defaults.integer(forKey: "previewTextLength")
+        let v = defaults.integer(forKey: PreferenceKeys.previewTextLength)
         return v > 0 ? v : 200
     }
 
     static func showLinkPreviews(from defaults: UserDefaults = .standard) -> Bool {
-        defaults.object(forKey: "showLinkPreviews") as? Bool ?? true
+        defaults.object(forKey: PreferenceKeys.showLinkPreviews) as? Bool ?? true
     }
 
     static func soundFeedbackEnabled(from defaults: UserDefaults = .standard) -> Bool {
-        defaults.object(forKey: "enableSoundFeedback") as? Bool ?? true
+        defaults.object(forKey: PreferenceKeys.enableSoundFeedback) as? Bool ?? true
     }
 
     /// Parses the user's ignored-apps list, stored as a string of bundle IDs
     /// separated by newlines or commas.
     static func ignoredBundleIDs(from defaults: UserDefaults = .standard) -> Set<String> {
-        let raw = defaults.string(forKey: "ignoredAppsRaw") ?? ""
+        let raw = defaults.string(forKey: PreferenceKeys.ignoredAppsRaw) ?? ""
         // isNewline rather than == "\n": a CRLF pair is a single Character in
         // Swift, so comparing against "\n" would miss a list pasted out of a
         // Windows file and leave the separator glued to each bundle ID.

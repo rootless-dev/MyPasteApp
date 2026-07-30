@@ -75,9 +75,9 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
                 // key and would receive the paste itself — the text landing in
                 // the search field instead of the target app.
                 self.hideImmediately()
-                let autoPaste = UserDefaults.standard.object(forKey: "autoPasteEnabled") as? Bool ?? true
+                let autoPaste = UserDefaults.standard.object(forKey: PreferenceKeys.autoPasteEnabled) as? Bool ?? true
                 if autoPaste {
-                    let delayMs = UserDefaults.standard.object(forKey: "pasteDelayMs") as? Int ?? 50
+                    let delayMs = UserDefaults.standard.object(forKey: PreferenceKeys.pasteDelayMs) as? Int ?? 50
                     PasteSimulator.paste(activating: target, delay: Double(delayMs) / 1000.0)
                 }
             },

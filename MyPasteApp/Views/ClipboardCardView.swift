@@ -12,7 +12,7 @@ struct ClipboardCardView: View {
     /// Shown when this card is within reach of a ⌘1–⌘9 shortcut.
     var quickPasteLabel: String? = nil
     var onDelete: () -> Void = {}
-    @AppStorage("cardDensity") private var densityRaw: String = CardDensity.comfortable.rawValue
+    @AppStorage(PreferenceKeys.cardDensity) private var densityRaw: String = CardDensity.comfortable.rawValue
     @State private var isHoveringCard = false
     @State private var isHoveringDelete = false
 
