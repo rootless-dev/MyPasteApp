@@ -21,6 +21,12 @@ final class ClipboardItem {
     var typeRaw: String
     var preview: String
     var textContent: String?
+    /// The formatted representation of a text item, when the source app
+    /// offered one. Kept out of the store like `imageData`, since RTF from a
+    /// long document isn't small.
+    @Attribute(.externalStorage) var richTextData: Data?
+    /// Which format `richTextData` holds. See `RichTextFormat`.
+    var richTextTypeRaw: String?
     @Attribute(.externalStorage) var imageData: Data?
     var fileURLStrings: [String]?
     var linkTitle: String?
@@ -37,6 +43,11 @@ final class ClipboardItem {
         set { typeRaw = newValue.rawValue }
     }
 
+    var richTextFormat: RichTextFormat? {
+        get { richTextTypeRaw.flatMap(RichTextFormat.init(rawValue:)) }
+        set { richTextTypeRaw = newValue?.rawValue }
+    }
+
     init(
         id: UUID = UUID(),
         createdAt: Date = .now,
@@ -44,6 +55,8 @@ final class ClipboardItem {
         preview: String,
         contentHash: String,
         textContent: String? = nil,
+        richTextData: Data? = nil,
+        richTextFormat: RichTextFormat? = nil,
         imageData: Data? = nil,
         fileURLStrings: [String]? = nil,
         linkTitle: String? = nil,
@@ -59,6 +72,8 @@ final class ClipboardItem {
         self.preview = preview
         self.contentHash = contentHash
         self.textContent = textContent
+        self.richTextData = richTextData
+        self.richTextTypeRaw = richTextFormat?.rawValue
         self.imageData = imageData
         self.fileURLStrings = fileURLStrings
         self.linkTitle = linkTitle

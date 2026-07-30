@@ -169,11 +169,19 @@ final class ClipboardMonitor {
         if let str = pasteboard.string(forType: .string) {
             let trimmed = str.trimmingCharacters(in: .whitespacesAndNewlines)
             let isURL = URL(string: trimmed).map { $0.scheme != nil } ?? false
+            let format = RichText.preferredFormat(in: pasteboard.types ?? [])
             return ClipboardItem(
                 type: isURL ? .url : .text,
+                // Both derived from the plain string, deliberately. Hashing the
+                // RTF instead would break deduplication: the same text copied
+                // from two apps carries different formatting bytes and would
+                // come back as a new item every time. A preview with markup in
+                // it would also be unreadable on the card.
                 preview: String(str.prefix(Self.previewTextLength(from: defaults))),
                 contentHash: Self.hash(str),
                 textContent: str,
+                richTextData: format.flatMap { pasteboard.data(forType: $0.pasteboardType) },
+                richTextFormat: format,
                 sourceAppBundleID: sourceApp
             )
         }
