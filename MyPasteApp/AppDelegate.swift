@@ -19,6 +19,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var prefsWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Unit tests launch this app as their test host. Skip the real setup so
+        // they don't open the user's store, grab the global hotkey or start
+        // polling the pasteboard.
+        if Self.isRunningUnitTests { return }
+
         do {
             modelContainer = try ModelContainer(for: ClipboardItem.self)
         } catch {
@@ -60,6 +65,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private static var isRunningUnitTests: Bool {
+        let env = ProcessInfo.processInfo.environment
+        return env["XCTestConfigurationFilePath"] != nil
+            || env["XCTestBundlePath"] != nil
+    }
+
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
@@ -93,7 +104,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                action: #selector(togglePauseAction),
                                keyEquivalent: "")
         pause.target = self
-        pause.state = UserDefaults.standard.bool(forKey: "monitoringPaused") ? .on : .off
+        pause.state = ClipboardMonitor.isMonitoringPaused() ? .on : .off
         menu.addItem(pause)
         menu.addItem(.separator())
         let prefs = NSMenuItem(title: "Preferences…",

@@ -104,21 +104,29 @@ struct KeyCombo: Codable, Equatable {
 // MARK: - Persistence
 
 extension KeyCombo {
-    private static let storageKey = "globalHotkey"
+    static let storageKey = "globalHotkey"
+
+    /// Reads the persisted combo, falling back to `.default` when nothing is
+    /// stored or the stored data can't be decoded.
+    static func load(from defaults: UserDefaults = .standard) -> KeyCombo {
+        guard let data = defaults.data(forKey: storageKey),
+              let combo = try? JSONDecoder().decode(KeyCombo.self, from: data)
+        else { return .default }
+        return combo
+    }
+
+    /// Persists `combo` and posts `.hotkeyChanged` so the hotkey is
+    /// re-registered with the new combination.
+    static func save(_ combo: KeyCombo, to defaults: UserDefaults = .standard) {
+        if let data = try? JSONEncoder().encode(combo) {
+            defaults.set(data, forKey: storageKey)
+        }
+        NotificationCenter.default.post(name: .hotkeyChanged, object: nil)
+    }
 
     static var stored: KeyCombo {
-        get {
-            guard let data = UserDefaults.standard.data(forKey: storageKey),
-                  let combo = try? JSONDecoder().decode(KeyCombo.self, from: data)
-            else { return .default }
-            return combo
-        }
-        set {
-            if let data = try? JSONEncoder().encode(newValue) {
-                UserDefaults.standard.set(data, forKey: storageKey)
-            }
-            NotificationCenter.default.post(name: .hotkeyChanged, object: nil)
-        }
+        get { load() }
+        set { save(newValue) }
     }
 }
 
