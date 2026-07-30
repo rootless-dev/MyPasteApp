@@ -11,12 +11,12 @@ import SwiftUI
 final class OverlayWindowController: NSObject, NSWindowDelegate {
     private var window: NSPanel?
     private let modelContainer: ModelContainer
-    private let onPick: (ClipboardItem) -> Void
+    private let onPick: (ClipboardItem, Bool) -> Void
     private var globalMouseMonitor: Any?
     private var localMouseMonitor: Any?
     private var previousApp: NSRunningApplication?
 
-    init(modelContainer: ModelContainer, onPick: @escaping (ClipboardItem) -> Void) {
+    init(modelContainer: ModelContainer, onPick: @escaping (ClipboardItem, Bool) -> Void) {
         self.modelContainer = modelContainer
         self.onPick = onPick
         super.init()
@@ -65,9 +65,9 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         panel.sharingType = WindowPrivacy.sharingType()
 
         let root = OverlayView(
-            onPick: { [weak self] item in
+            onPick: { [weak self] item, plainText in
                 guard let self else { return }
-                self.onPick(item)
+                self.onPick(item, plainText)
                 let target = self.previousApp
                 // Not `hide()`: its fade runs for 0.18s and only orders the
                 // panel out at the end, while the synthetic ⌘V is posted after

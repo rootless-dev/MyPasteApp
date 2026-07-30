@@ -3,6 +3,7 @@
 //  MyPasteApp
 //
 
+import AppKit
 import SwiftData
 import SwiftUI
 
@@ -15,14 +16,25 @@ struct OverlayView: View {
     @State private var selectedID: UUID?
     @FocusState private var searchFocused: Bool
     @AppStorage(PreferenceKeys.showQuickPasteNumbers) private var showQuickPasteNumbers = true
+    @AppStorage(PreferenceKeys.alwaysPastePlainText) private var alwaysPastePlainText = false
 
-    let onPick: (ClipboardItem) -> Void
+    let onPick: (ClipboardItem, Bool) -> Void
     let onDismiss: () -> Void
 
-    init(onPick: @escaping (ClipboardItem) -> Void,
+    init(onPick: @escaping (ClipboardItem, Bool) -> Void,
          onDismiss: @escaping () -> Void) {
         self.onPick = onPick
         self.onDismiss = onDismiss
+    }
+
+    /// Whether this paste should hand over plain text.
+    ///
+    /// `onTapGesture` doesn't report modifiers, so ⇧ is read from the current
+    /// event at the moment of the click. With the preference on, ⇧ changes
+    /// nothing: it always means "plain", never "the opposite of my default".
+    private var pastesPlainText: Bool {
+        alwaysPastePlainText
+            || NSEvent.modifierFlags.contains(.shift)
     }
 
     private var filtered: [ClipboardItem] {
@@ -85,12 +97,15 @@ struct OverlayView: View {
             selectedID = newID
         }
         .onKeyPress(.escape) { onDismiss(); return .handled }
-        .onKeyPress(.return) {
-            if let item = filtered.first(where: { $0.id == selectedID }) {
-                pick(item)
-                return .handled
+        // `phases: .down` is required here: the single-key `onKeyPress(_:action:)`
+        // overload only exposes a no-argument closure, so reading
+        // `press.modifiers` (for ⇧↵) needs the `phases:` overload instead.
+        .onKeyPress(.return, phases: .down) { press in
+            guard let item = filtered.first(where: { $0.id == selectedID }) else {
+                return .ignored
             }
-            return .ignored
+            pick(item, plainText: alwaysPastePlainText || press.modifiers.contains(.shift))
+            return .handled
         }
         .onKeyPress(.leftArrow) { moveSelection(-1); return .handled }
         .onKeyPress(.rightArrow) { moveSelection(1); return .handled }
@@ -122,10 +137,10 @@ struct OverlayView: View {
         }
     }
 
-    private func pick(_ item: ClipboardItem) {
+    private func pick(_ item: ClipboardItem, plainText: Bool? = nil) {
         item.lastUsedAt = .now
         try? modelContext.save()
-        onPick(item)
+        onPick(item, plainText ?? pastesPlainText)
     }
 
     private func delete(_ item: ClipboardItem) {

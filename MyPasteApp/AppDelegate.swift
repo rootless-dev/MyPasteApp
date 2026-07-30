@@ -60,8 +60,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         writer = ClipboardWriter(monitor: monitor)
         retention = RetentionPolicy(modelContext: context)
 
-        overlay = OverlayWindowController(modelContainer: modelContainer) { [weak self] item in
-            self?.writer.write(item)
+        overlay = OverlayWindowController(modelContainer: modelContainer) { [weak self] item, plainText in
+            self?.writer.write(item, plainText: plainText)
         }
         // Pre-warm the panel: create the window and force SwiftUI's initial
         // layout now, so that the first hotkey press doesn't pay that cost
