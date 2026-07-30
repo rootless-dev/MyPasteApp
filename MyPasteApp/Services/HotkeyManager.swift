@@ -53,7 +53,14 @@ final class HotkeyManager {
         KeyCombo.load(key: storageKey, fallback: fallback)
     }
 
-    func register(combo: KeyCombo? = nil) {
+    /// Registers the shortcut, returning whether it actually took effect.
+    ///
+    /// The result matters to the caller: when another app already owns the
+    /// combination, `RegisterEventHotKey` fails and the shortcut simply never
+    /// fires. Advertising it in a menu at that point tells the user about a
+    /// key that does nothing.
+    @discardableResult
+    func register(combo: KeyCombo? = nil) -> Bool {
         let combo = combo ?? storedCombo
         unregister()
 
@@ -67,12 +74,13 @@ final class HotkeyManager {
                                          GetApplicationEventTarget(),
                                          0,
                                          &hotKeyRef)
-        if status != noErr {
-            // Most often another app already owns the combination. Silence
-            // here would leave a shortcut that simply never fires, with
-            // nothing to diagnose it by.
+        guard status == noErr else {
+            // Most often another app already owns the combination.
             NSLog("Failed to register hotkey \(id) (\(combo.displayString)): OSStatus \(status)")
+            Self.instances.removeValue(forKey: id.rawValue)
+            return false
         }
+        return true
     }
 
     func unregister() {

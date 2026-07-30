@@ -20,10 +20,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem!
     private var prefsWindow: NSWindow?
 
-    /// Whether `pauseHotkey` is actually live right now. `false` while the two
-    /// shortcuts collide and `registerHotkeysCheckingConflict()` has left it
-    /// unregistered — the menu reads this so it never advertises a shortcut
-    /// that won't fire.
+    /// Whether `overlay`'s hotkey is actually live right now. `false` when
+    /// `HotkeyManager.register()` reports that `RegisterEventHotKey` failed —
+    /// most often because another app already owns the combination — so the
+    /// menu never advertises a shortcut that won't fire.
+    private var overlayHotkeyRegistered = false
+
+    /// Whether `pauseHotkey` is actually live right now. `false` covers two
+    /// distinct cases: the two shortcuts collide and
+    /// `registerHotkeysCheckingConflict()` left it unregistered on purpose,
+    /// or `RegisterEventHotKey` itself failed (e.g. some other app already
+    /// owns the combination). Either way the shortcut won't fire, so the menu
+    /// reads this single flag to decide whether to advertise it.
     private var pauseHotkeyRegistered = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -126,15 +134,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// on disk every time it's opened (see `PreferencesView.refreshHotkeyState`),
     /// so the user is told which shortcut is dead instead of only the log.
     private func registerHotkeysCheckingConflict() {
-        hotkey.register()
+        overlayHotkeyRegistered = hotkey.register()
         guard !KeyCombo.conflicts(hotkey.storedCombo, with: pauseHotkey.storedCombo) else {
             NSLog("Pause hotkey (\(pauseHotkey.storedCombo.displayString)) collides with the "
                   + "overlay shortcut; leaving it unregistered until Preferences resolves it.")
             pauseHotkeyRegistered = false
             return
         }
-        pauseHotkey.register()
-        pauseHotkeyRegistered = true
+        pauseHotkeyRegistered = pauseHotkey.register()
     }
 
     private func setupStatusItem() {
