@@ -2,37 +2,99 @@
 //  HotkeyManager.swift
 //  MyPasteApp
 //
-//  Registra ⌘⇧V global usando Carbon RegisterEventHotKey.
+//  Registers a global shortcut through Carbon's RegisterEventHotKey.
 //
 
+import AppKit
 import Carbon.HIToolbox
 import Foundation
 
 @MainActor
 final class HotkeyManager {
-    private var hotKeyRef: EventHotKeyRef?
-    private var eventHandlerRef: EventHandlerRef?
-    private let callback: () -> Void
+    /// Identifies each shortcut inside the shared Carbon event handler.
+    ///
+    /// The Carbon signature is the same for every shortcut of this app; what
+    /// tells them apart is this id. Indexing by signature — as an earlier
+    /// version did — meant a second shortcut resolved to the first one's
+    /// callback.
+    enum ID: UInt32 {
+        case overlay = 1
+        case pause = 2
+    }
 
-    /// keep a strong reference for the C callback bridge
+    private static let signature: UInt32 = 0x4D5053_56 // 'MPSV'
+
+    /// Installed once for the whole process. Installing one handler per
+    /// `register()` call would deliver every hotkey press to every handler,
+    /// firing each callback as many times as there are handlers.
+    private static var sharedHandler: EventHandlerRef?
+
+    /// Keeps a strong reference for the C callback bridge, keyed by `ID`.
     private static var instances: [UInt32: HotkeyManager] = [:]
-    private var signature: UInt32 = 0
 
-    init(callback: @escaping () -> Void) {
+    private let id: ID
+    private let storageKey: String
+    private let fallback: KeyCombo
+    private let callback: () -> Void
+    private var hotKeyRef: EventHotKeyRef?
+
+    init(id: ID,
+         storageKey: String,
+         fallback: KeyCombo,
+         callback: @escaping () -> Void) {
+        self.id = id
+        self.storageKey = storageKey
+        self.fallback = fallback
         self.callback = callback
     }
 
-    func register(combo: KeyCombo? = nil) {
-        let combo = combo ?? KeyCombo.stored
+    /// The combination this manager is configured with.
+    var storedCombo: KeyCombo {
+        KeyCombo.load(key: storageKey, fallback: fallback)
+    }
+
+    /// Registers the shortcut, returning whether it actually took effect.
+    ///
+    /// The result matters to the caller: when another app already owns the
+    /// combination, `RegisterEventHotKey` fails and the shortcut simply never
+    /// fires. Advertising it in a menu at that point tells the user about a
+    /// key that does nothing.
+    @discardableResult
+    func register(combo: KeyCombo? = nil) -> Bool {
+        let combo = combo ?? storedCombo
         unregister()
 
-        let sig: UInt32 = 0x4D5053_56 // 'MPSV'
-        signature = sig
-        Self.instances[sig] = self
+        Self.installSharedHandlerIfNeeded()
+        Self.instances[id.rawValue] = self
 
-        let hotKeyID = EventHotKeyID(signature: sig, id: 1)
-        let modifiers: UInt32 = combo.carbonModifiers
-        let keyCode: UInt32 = combo.keyCode
+        let hotKeyID = EventHotKeyID(signature: Self.signature, id: id.rawValue)
+        let status = RegisterEventHotKey(combo.keyCode,
+                                         combo.carbonModifiers,
+                                         hotKeyID,
+                                         GetApplicationEventTarget(),
+                                         0,
+                                         &hotKeyRef)
+        guard status == noErr else {
+            // Most often another app already owns the combination.
+            NSLog("Failed to register hotkey \(id) (\(combo.displayString)): OSStatus \(status)")
+            Self.instances.removeValue(forKey: id.rawValue)
+            return false
+        }
+        return true
+    }
+
+    func unregister() {
+        if let ref = hotKeyRef {
+            UnregisterEventHotKey(ref)
+            hotKeyRef = nil
+        }
+        Self.instances.removeValue(forKey: id.rawValue)
+    }
+
+    /// Installs the process-wide Carbon handler on first use. Idempotent, and
+    /// deliberately never removed: it is shared by every hotkey.
+    private static func installSharedHandlerIfNeeded() {
+        guard sharedHandler == nil else { return }
 
         var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard),
                                       eventKind: UInt32(kEventHotKeyPressed))
@@ -46,34 +108,15 @@ final class HotkeyManager {
                               MemoryLayout<EventHotKeyID>.size,
                               nil,
                               &hkID)
-            let sig = hkID.signature
+            let pressedID = hkID.id
             DispatchQueue.main.async {
-                HotkeyManager.instances[sig]?.callback()
+                HotkeyManager.instances[pressedID]?.callback()
             }
             return noErr
-        }, 1, &eventType, nil, &eventHandlerRef)
-
-        RegisterEventHotKey(keyCode, modifiers, hotKeyID,
-                            GetApplicationEventTarget(), 0, &hotKeyRef)
-    }
-
-    func unregister() {
-        if let ref = hotKeyRef {
-            UnregisterEventHotKey(ref)
-            hotKeyRef = nil
-        }
-        if let ref = eventHandlerRef {
-            RemoveEventHandler(ref)
-            eventHandlerRef = nil
-        }
-        if signature != 0 {
-            Self.instances.removeValue(forKey: signature)
-            signature = 0
-        }
+        }, 1, &eventType, nil, &sharedHandler)
     }
 
     deinit {
         if let ref = hotKeyRef { UnregisterEventHotKey(ref) }
-        if let ref = eventHandlerRef { RemoveEventHandler(ref) }
     }
 }

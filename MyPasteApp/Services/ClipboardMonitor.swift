@@ -20,6 +20,10 @@ final class ClipboardMonitor {
     /// to avoid recapturing items it just wrote back to the pasteboard).
     var ignoreNextChange = false
 
+    /// Set by the AppDelegate right after construction. Weak because the
+    /// delegate owns the controller.
+    weak var pauseController: PauseController?
+
     init(modelContext: ModelContext, defaults: UserDefaults = .standard) {
         self.modelContext = modelContext
         self.defaults = defaults
@@ -65,7 +69,16 @@ final class ClipboardMonitor {
             return
         }
 
-        if Self.isMonitoringPaused(from: defaults) {
+        // `lastChangeCount` above has to be updated before this runs, so
+        // resuming doesn't recapture whatever was copied during the pause;
+        // and nothing here reads off the pasteboard before this decision
+        // either, so a password never travels through the app for a result
+        // about to be discarded. Delegated to a pure function so both
+        // orderings are covered by a test that doesn't need a real
+        // NSPasteboard.
+        guard Self.shouldCapture(isPaused: pauseController?.isPaused == true,
+                                 types: pasteboard.types ?? [],
+                                 settings: .current(from: defaults)) else {
             return
         }
 
@@ -84,6 +97,24 @@ final class ClipboardMonitor {
            url.scheme?.hasPrefix("http") == true {
             fetchLinkMetadata(for: item, url: url)
         }
+    }
+
+    /// Whether a pasteboard change should turn into a capture, given the pause
+    /// state and the privacy markers on the pasteboard.
+    ///
+    /// Pure and static so it can be tested directly against `poll()`'s two
+    /// guards, in the order that matters: paused wins outright, then a
+    /// privacy marker, and only once both are clear does anything get read
+    /// off the pasteboard. `poll()` itself stays a thin caller of this —
+    /// updating `lastChangeCount` and consuming `ignoreNextChange` happen
+    /// before it and are deliberately not folded in here (see the comment at
+    /// the call site).
+    static func shouldCapture(isPaused: Bool,
+                              types: [NSPasteboard.PasteboardType],
+                              settings: PasteboardPrivacy.Settings) -> Bool {
+        if isPaused { return false }
+        if PasteboardPrivacy.shouldIgnore(types: types, settings: settings) { return false }
+        return true
     }
 
     // MARK: - Link metadata
@@ -138,11 +169,19 @@ final class ClipboardMonitor {
         if let str = pasteboard.string(forType: .string) {
             let trimmed = str.trimmingCharacters(in: .whitespacesAndNewlines)
             let isURL = URL(string: trimmed).map { $0.scheme != nil } ?? false
+            let format = RichText.preferredFormat(in: pasteboard.types ?? [])
             return ClipboardItem(
                 type: isURL ? .url : .text,
+                // Both derived from the plain string, deliberately. Hashing the
+                // RTF instead would break deduplication: the same text copied
+                // from two apps carries different formatting bytes and would
+                // come back as a new item every time. A preview with markup in
+                // it would also be unreadable on the card.
                 preview: String(str.prefix(Self.previewTextLength(from: defaults))),
                 contentHash: Self.hash(str),
                 textContent: str,
+                richTextData: format.flatMap { pasteboard.data(forType: $0.pasteboardType) },
+                richTextFormat: format,
                 sourceAppBundleID: sourceApp
             )
         }
@@ -190,29 +229,24 @@ final class ClipboardMonitor {
     // preferences. Views bind these same keys with @AppStorage, which always
     // talks to UserDefaults.standard.
 
-    /// Whether the user paused capture from the status menu.
-    static func isMonitoringPaused(from defaults: UserDefaults = .standard) -> Bool {
-        defaults.bool(forKey: "monitoringPaused")
-    }
-
     /// How many characters of a copied string to keep as the card preview.
     static func previewTextLength(from defaults: UserDefaults = .standard) -> Int {
-        let v = defaults.integer(forKey: "previewTextLength")
+        let v = defaults.integer(forKey: PreferenceKeys.previewTextLength)
         return v > 0 ? v : 200
     }
 
     static func showLinkPreviews(from defaults: UserDefaults = .standard) -> Bool {
-        defaults.object(forKey: "showLinkPreviews") as? Bool ?? true
+        defaults.object(forKey: PreferenceKeys.showLinkPreviews) as? Bool ?? true
     }
 
     static func soundFeedbackEnabled(from defaults: UserDefaults = .standard) -> Bool {
-        defaults.object(forKey: "enableSoundFeedback") as? Bool ?? true
+        defaults.object(forKey: PreferenceKeys.enableSoundFeedback) as? Bool ?? true
     }
 
     /// Parses the user's ignored-apps list, stored as a string of bundle IDs
     /// separated by newlines or commas.
     static func ignoredBundleIDs(from defaults: UserDefaults = .standard) -> Set<String> {
-        let raw = defaults.string(forKey: "ignoredAppsRaw") ?? ""
+        let raw = defaults.string(forKey: PreferenceKeys.ignoredAppsRaw) ?? ""
         // isNewline rather than == "\n": a CRLF pair is a single Character in
         // Swift, so comparing against "\n" would miss a list pasted out of a
         // Windows file and leave the separator glued to each bundle ID.

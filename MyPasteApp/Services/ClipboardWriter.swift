@@ -15,7 +15,12 @@ final class ClipboardWriter {
         self.monitor = monitor
     }
 
-    func write(_ item: ClipboardItem) {
+    /// Writes the item to the pasteboard.
+    ///
+    /// `plainText` drops any formatting for this paste only; the item keeps
+    /// what it captured. The caller resolves it from the preference and the ⇧
+    /// modifier together.
+    func write(_ item: ClipboardItem, plainText: Bool = false) {
         let pb = NSPasteboard.general
         monitor?.ignoreNextChange = true
         pb.clearContents()
@@ -26,8 +31,12 @@ final class ClipboardWriter {
 
         switch item.type {
         case .text, .url:
-            if let text = item.textContent {
-                pb.setString(text, forType: .string)
+            guard let text = item.textContent else { break }
+            for entry in RichText.payload(text: text,
+                                          richTextData: item.richTextData,
+                                          format: item.richTextFormat,
+                                          plainOnly: plainText) {
+                pb.setData(entry.data, forType: entry.type)
             }
         case .image:
             if let data = item.imageData, let img = NSImage(data: data) {
