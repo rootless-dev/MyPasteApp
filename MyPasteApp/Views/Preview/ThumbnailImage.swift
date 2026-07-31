@@ -9,7 +9,8 @@ import SwiftUI
 /// An image from a clipboard item, decoded at the size it's drawn at.
 ///
 /// The one place that knows the cache-then-load dance, so the card, the link
-/// banner and the preview panel don't each grow their own copy of it.
+/// banner, the favicon badge and the preview panel don't each grow their own
+/// copy of it.
 ///
 /// `fallback` is shown only once a decode has actually been attempted and has
 /// failed — never while the load is still in flight, since a placeholder
@@ -18,11 +19,30 @@ import SwiftUI
 /// inside another one's `fallback` reproduces a multi-step chain — see
 /// `LinkPreviewView`, which falls from banner to favicon to plain text.
 struct ThumbnailImage<Fallback: View>: View {
+    /// Styling applied to the decoded image only — never to `fallback`,
+    /// never to the still-loading state. There are exactly two shapes in the
+    /// app: the card, the preview panel and the link banner draw the image
+    /// plain; the link favicon adds a fixed 64x64 frame and a shadow.
+    ///
+    /// This exists as a switch inside `body` rather than as a modifier
+    /// applied to `ThumbnailImage` from outside because `body` renders the
+    /// decoded image and `fallback()` as alternatives of the same `Group` —
+    /// a `.frame`/`.shadow` applied from outside would land on whichever
+    /// branch is showing, including `fallback`. That clipped a full-size
+    /// `textFallback` into a 64x64 shadowed box whenever a favicon was
+    /// present but failed to decode, instead of letting the fallback chain
+    /// reach its last link at full size.
+    enum Chrome {
+        case plain
+        case favicon
+    }
+
     let data: Data?
     let id: UUID
     /// Longest side, in pixels. Use `ImageThumbnailCache.pixels(for:)`.
     let maxPixel: Int
     var contentMode: ContentMode = .fit
+    var chrome: Chrome = .plain
     @ViewBuilder var fallback: () -> Fallback
 
     /// The image this view decoded for `currentKey`, held as a strong
@@ -60,9 +80,17 @@ struct ThumbnailImage<Fallback: View>: View {
         let key = currentKey
         Group {
             if let image {
-                Image(nsImage: image)
+                let base = Image(nsImage: image)
                     .resizable()
                     .aspectRatio(contentMode: contentMode)
+                switch chrome {
+                case .plain:
+                    base
+                case .favicon:
+                    base
+                        .frame(width: 64, height: 64)
+                        .shadow(color: .black.opacity(0.25), radius: 4, y: 2)
+                }
             } else if failed == key {
                 fallback()
             } else {
