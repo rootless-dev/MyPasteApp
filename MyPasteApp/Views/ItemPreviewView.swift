@@ -65,7 +65,9 @@ struct ItemPreviewView: View {
                     data: data,
                     id: item.id,
                     maxPixel: ImageThumbnailCache.pixels(for: ItemPreviewPanel.defaultSize)
-                )
+                ) {
+                    Text(item.preview).font(.caption)
+                }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(CheckerboardBackground())
                 .padding(12)

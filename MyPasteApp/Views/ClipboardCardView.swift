@@ -154,7 +154,9 @@ struct ClipboardCardView: View {
                     maxPixel: ImageThumbnailCache.pixels(
                         for: CGSize(width: density.width, height: density.height)
                     )
-                )
+                ) {
+                    Text(item.preview).font(.caption)
+                }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 Text(item.preview).font(.caption)
