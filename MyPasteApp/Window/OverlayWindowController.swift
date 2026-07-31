@@ -244,7 +244,7 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         // Spike rule for Step 3: a click outside both windows closes both.
         // Unconditional (not gated on the overlay's own visibility) so this
         // also covers the "preview open, overlay already gone" edge case.
-        previewPanel?.orderOut(nil)
+        hidePreviewPanel()
         guard let panel = window, panel.isVisible else { return }
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.18
@@ -263,7 +263,7 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
     /// the text is landing in.
     func hideImmediately() {
         removeClickOutsideMonitors()
-        previewPanel?.orderOut(nil)
+        hidePreviewPanel()
         guard let panel = window, panel.isVisible else { return }
         panel.alphaValue = 0
         panel.orderOut(nil)
@@ -313,10 +313,23 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
     /// Closes just the preview panel, leaving the overlay itself open.
     ///
     /// Used by Escape's "dismiss what's on top" rule (see
-    /// `OverlayView.escapeClosesPreview`) and by `ItemPreviewView`'s own
-    /// close button.
+    /// `OverlayView.escapeClosesPreview`), by `ItemPreviewView`'s own close
+    /// button, and by every other path that hides the panel — this is the only
+    /// place that does it.
+    ///
+    /// Dropping `contentView` is not housekeeping: `orderOut` alone leaves the
+    /// `NSHostingView` and every Core Animation layer behind it alive, and a
+    /// long text preview measured 240 MB of CoreAnimation that never came back
+    /// until the app quit. Clearing `previewDisplayedItemID` is what makes the
+    /// next open rebuild the content — `showPreviewPanel()` skips the rebuild
+    /// when the id already matches.
     private func hidePreviewPanel() {
-        previewPanel?.orderOut(nil)
+        guard let panel = previewPanel else { return }
+        panel.orderOut(nil)
+        panel.contentView = NSView(
+            frame: NSRect(origin: .zero, size: ItemPreviewPanel.defaultSize)
+        )
+        previewDisplayedItemID = nil
     }
 
     /// Keeps the preview panel in sync with the overlay's selection.
@@ -335,8 +348,7 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
             // search filtered everything out) — closing is the least
             // surprising option, matching what happens when the overlay
             // itself runs out of cards to select.
-            panel.orderOut(nil)
-            previewDisplayedItemID = nil
+            hidePreviewPanel()
             return
         }
         // Only rebuild the panel's content when the selection actually
