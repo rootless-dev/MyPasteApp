@@ -103,6 +103,18 @@ final class ItemActions {
 /// `RetentionPolicy.prune()` protects today, in both passes. Roadmap item
 /// 17 (`expiresAt`) is the proper answer and replaces this when it exists.
 extension ItemActions {
+    /// Resolves whether a paste should hand over plain text.
+    ///
+    /// Pure so the rule — "⇧ means plain, and the preference never inverts,
+    /// only forces" — is a single, testable place instead of being copied at
+    /// every call site. Shared by `OverlayView`'s click/`↵` paths and
+    /// `ItemContextMenu`'s "Paste" entry. Quick paste (⌘1–⌘9) is the one path
+    /// that never calls this: it discards ⇧ on purpose, for keyboard-layout
+    /// reasons — see the comment at that call site in `OverlayView`.
+    static func resolvePastePlainText(alwaysPlainText: Bool, shiftHeld: Bool) -> Bool {
+        alwaysPlainText || shiftHeld
+    }
+
     static func makeManualItem(text: String) -> ClipboardItem {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let isURL = URL(string: trimmed).map { $0.scheme != nil } ?? false

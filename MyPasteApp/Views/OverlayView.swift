@@ -97,9 +97,10 @@ struct OverlayView: View {
     /// `onTapGesture` doesn't report modifiers, so ⇧ is read from the current
     /// event at the moment of the click. With the preference on, ⇧ changes
     /// nothing: it always means "plain", never "the opposite of my default".
+    /// See `ItemActions.resolvePastePlainText` for the shared rule.
     private var pastesPlainText: Bool {
-        alwaysPastePlainText
-            || NSEvent.modifierFlags.contains(.shift)
+        ItemActions.resolvePastePlainText(alwaysPlainText: alwaysPastePlainText,
+                                           shiftHeld: NSEvent.modifierFlags.contains(.shift))
     }
 
     private var filtered: [ClipboardItem] {
@@ -228,7 +229,10 @@ struct OverlayView: View {
             guard let item = filtered.first(where: { $0.id == selectedID }) else {
                 return .ignored
             }
-            pick(item, plainText: alwaysPastePlainText || press.modifiers.contains(.shift))
+            pick(item, plainText: ItemActions.resolvePastePlainText(
+                alwaysPlainText: alwaysPastePlainText,
+                shiftHeld: press.modifiers.contains(.shift)
+            ))
             return .handled
         }
         .onKeyPress(.leftArrow) { moveSelection(-1); return .handled }

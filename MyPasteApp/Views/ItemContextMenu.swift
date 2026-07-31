@@ -3,6 +3,7 @@
 //  MyPasteApp
 //
 
+import AppKit
 import SwiftUI
 
 /// The right-click menu of a card.
@@ -19,11 +20,29 @@ struct ItemContextMenu: View {
     /// Name of the app the paste would land in, when it's known.
     let destinationAppName: String?
 
+    @AppStorage(PreferenceKeys.alwaysPastePlainText) private var alwaysPastePlainText = false
+
     var body: some View {
-        Button(pasteTitle) { actions.paste(item, plainText: false) }
+        // Resolves "Always paste as plain text" the same way every other
+        // paste path does (see `ItemActions.resolvePastePlainText`) — this
+        // entry used to hardcode `false`, so turning the preference on still
+        // pasted formatting from here, contradicting its own description
+        // ("every paste hands over plain text").
+        Button(pasteTitle) {
+            actions.paste(item, plainText: ItemActions.resolvePastePlainText(
+                alwaysPlainText: alwaysPastePlainText,
+                shiftHeld: NSEvent.modifierFlags.contains(.shift)
+            ))
+        }
         if item.type == .text || item.type == .url {
             Button("Paste as Plain Text") { actions.paste(item, plainText: true) }
         }
+        // "Copy" deliberately ignores `alwaysPastePlainText`: the preference
+        // is scoped to pasting (its own label and description in Settings
+        // both say "paste"), and copying the formatted representation to the
+        // system pasteboard doesn't hand anything to a destination app the
+        // way a paste does. "Paste as Plain Text" above remains the explicit
+        // way to get plain text out of this menu.
         Button("Copy") { actions.copy(item) }
 
         Divider()
