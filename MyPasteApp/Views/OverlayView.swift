@@ -178,7 +178,8 @@ struct OverlayView: View {
             // defaults when a function is used as a value.
             OverlayTopBar(state: search,
                           focusTarget: $focusTarget,
-                          onActivate: { activateSearch() })
+                          onActivate: { activateSearch() },
+                          onOpenFilters: { search.isFilterPanelOpen.toggle() })
 
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -263,6 +264,18 @@ struct OverlayView: View {
         // also what registers this body's dependency on it.
         .onChange(of: search.isActive) { _, isActive in
             if !isActive { focusTarget = .list }
+        }
+        // `onAppear` runs exactly once, at pre-warm. If anything clears the
+        // first responder while the drawer is hidden, the next opening would
+        // have focus nowhere and the drawer would ignore every key — no error,
+        // no log, nothing on screen. `close()` alone can't cover that: it only
+        // moves focus when there was an active search to close.
+        //
+        // Unconditional on purpose: the drawer reopens with the keyboard
+        // pointed at the cards even when nothing about the search changed
+        // since last time.
+        .onChange(of: search.openCount) { _, _ in
+            focusTarget = .list
         }
         .onKeyPress(.escape) {
             switch SearchState.escapeAction(isFilterPanelOpen: search.isFilterPanelOpen,
@@ -407,8 +420,30 @@ struct OverlayView: View {
         // key goes on to whichever handler wants it.
         .onKeyPress(characters: .alphanumerics.union(.punctuationCharacters).union(.symbols),
                     phases: .down) { press in
-            guard let character = press.characters.first,
-                  let seed = SearchState.activationCharacter(character,
+            guard let character = press.characters.first else { return .ignored }
+            // The search already open with the focus outside the field: it
+            // happens on a click on the drawer chrome, or in the one-turn
+            // window between `activate` and the deferred focus write. Without
+            // this the key is swallowed in silence — `activationCharacter`
+            // returns nil because `isActive` is already true — which is
+            // exactly what this phase exists not to do.
+            //
+            // The `isActive: false` argument is deliberate: what's being asked
+            // here is not "is the search open" but "is this a key that types
+            // into the field", and that's the same rule — no ⌘/⌃/⌥, letters,
+            // digits, punctuation and symbols only. Skipping it would make an
+            // open search with the focus on the cards read ⌘C as the letter
+            // "c" and swallow the shortcut, and chain order is no defence
+            // against that, for the reason spelled out just above.
+            if search.isActive, focusTarget != .search,
+               SearchState.activationCharacter(character,
+                                               modifiers: press.modifiers,
+                                               isActive: false) != nil {
+                search.text.append(character)
+                focusTarget = .search
+                return .handled
+            }
+            guard let seed = SearchState.activationCharacter(character,
                                                              modifiers: press.modifiers,
                                                              isActive: search.isActive)
             else { return .ignored }

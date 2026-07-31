@@ -14,17 +14,20 @@ import SwiftUI
 /// to redraw this layout.
 struct OverlayTopBar: View {
     @Bindable var state: SearchState
-    /// Passed in rather than declared here: `.focused` has to land on the text
-    /// field itself. Applying it to a container that merely *contains* a field
-    /// doesn't move the keyboard into it.
+    /// Passed in rather than declared here, and forwarded straight to
+    /// `SearchFieldView`, which puts `.focused` on the `TextField` itself.
+    /// Applying it to a container that merely *contains* a field doesn't move
+    /// the keyboard into it.
     @FocusState.Binding var focusTarget: OverlayFocusTarget?
     var onActivate: () -> Void
+    var onOpenFilters: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
             if state.isActive {
-                SearchBar(text: $state.text)
-                    .focused($focusTarget, equals: .search)
+                SearchFieldView(state: state,
+                                focusTarget: $focusTarget,
+                                onOpenFilters: onOpenFilters)
                     .frame(maxWidth: 470)
             } else {
                 Button(action: onActivate) {

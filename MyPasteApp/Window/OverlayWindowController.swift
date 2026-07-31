@@ -180,6 +180,12 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         // (`hideImmediately`) and a click outside — none of which run any
         // teardown inside `OverlayView`.
         searchState.close()
+        // Separate from `close()` on purpose: `close()` only changes anything
+        // when there was a search to close, so it can't be what tells the view
+        // to re-take the keyboard on an opening that follows an untouched one.
+        // `openCount` changes every time, and `OverlayView` re-focuses the
+        // card strip off it.
+        searchState.markOpened()
 
         let height = Self.overlayHeight
         let frame = NSRect(

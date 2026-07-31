@@ -20,6 +20,11 @@ final class SearchState {
     var filter = SearchFilter()
     var isFilterPanelOpen = false
 
+    /// Bumped on every opening of the drawer. Exists only to give the view an
+    /// observable value that changes **every** time, including when `close()`
+    /// has nothing to clear — it's the trigger for the unconditional re-focus.
+    private(set) var openCount = 0
+
     /// Whether there's anything to let go of before closing the overlay.
     var hasContent: Bool { !text.isEmpty || !filter.isEmpty }
 
@@ -33,6 +38,10 @@ final class SearchState {
         isFilterPanelOpen = false
         text = ""
         filter = SearchFilter()
+    }
+
+    func markOpened() {
+        openCount += 1
     }
 }
 
