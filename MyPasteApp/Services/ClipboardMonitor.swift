@@ -15,6 +15,14 @@ final class ClipboardMonitor {
     private let pasteboard = NSPasteboard.general
     private var lastChangeCount: Int
     private var timer: Timer?
+    private lazy var ocrQueue = OCRQueue(modelContext: modelContext, defaults: defaults)
+
+    /// Last seen value of the OCR preference, so a flip from off to on can
+    /// repopulate the queue. `OCRQueue.drain()` discards everything pending
+    /// when it finds the preference off, and only `enqueueBacklog()` puts it
+    /// back — without this, turning OCR back on would recognise new captures
+    /// while the existing history stayed permanently blank until a relaunch.
+    private var lastSeenOCREnabled = OCRQueue.isEnabled()
 
     /// When true, ignores the next detected change (used by ClipboardWriter
     /// to avoid recapturing items it just wrote back to the pasteboard).
@@ -37,6 +45,7 @@ final class ClipboardMonitor {
         }
         RunLoop.main.add(timer!, forMode: .common)
         backfillLinkMetadata()
+        ocrQueue.enqueueBacklog()
     }
 
     /// For URL-type items saved before visual metadata support existed,
@@ -60,6 +69,10 @@ final class ClipboardMonitor {
     }
 
     private func poll() {
+        let ocrEnabled = OCRQueue.isEnabled(from: defaults)
+        if ocrEnabled, !lastSeenOCREnabled { ocrQueue.enqueueBacklog() }
+        lastSeenOCREnabled = ocrEnabled
+
         let current = pasteboard.changeCount
         guard current != lastChangeCount else { return }
         lastChangeCount = current
@@ -90,7 +103,13 @@ final class ClipboardMonitor {
             return
         }
 
-        insertIfNotDuplicate(item)
+        let stored = insertIfNotDuplicate(item)
+
+        if OCRScheduler.needsOCR(type: stored.type,
+                                 ocrProcessedAt: stored.ocrProcessedAt,
+                                 enabled: OCRQueue.isEnabled(from: defaults)) {
+            ocrQueue.enqueue(stored.id)
+        }
 
         if item.type == .url, let urlString = item.textContent,
            let url = URL(string: urlString.trimmingCharacters(in: .whitespacesAndNewlines)),
@@ -191,7 +210,8 @@ final class ClipboardMonitor {
 
     // MARK: - Persist
 
-    private func insertIfNotDuplicate(_ item: ClipboardItem) {
+    @discardableResult
+    private func insertIfNotDuplicate(_ item: ClipboardItem) -> ClipboardItem {
         let hash = item.contentHash
         var descriptor = FetchDescriptor<ClipboardItem>(
             predicate: #Predicate { $0.contentHash == hash },
@@ -201,7 +221,7 @@ final class ClipboardMonitor {
 
         if let existing = try? modelContext.fetch(descriptor).first {
             existing.createdAt = .now
-            return
+            return existing
         }
 
         modelContext.insert(item)
@@ -210,6 +230,7 @@ final class ClipboardMonitor {
         if Self.soundFeedbackEnabled(from: defaults) {
             NSSound(named: "Tink")?.play()
         }
+        return item
     }
 
     // MARK: - Hash helpers
