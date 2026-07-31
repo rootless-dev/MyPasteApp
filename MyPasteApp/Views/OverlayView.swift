@@ -253,6 +253,21 @@ struct OverlayView: View {
             pick(filtered[index], plainText: alwaysPastePlainText)
             return .handled
         }
+        .onKeyPress(keys: ["c"]) { press in
+            guard press.modifiers.contains(.command) else { return .ignored }
+            guard let item = filtered.first(where: { $0.id == selectedID }) else {
+                return .ignored
+            }
+            // Ignores `alwaysPastePlainText` on purpose, matching
+            // `ItemContextMenu`'s "Copy" entry: the preference is scoped to
+            // pasting (its label and description in Settings both say
+            // "paste"), and writing the formatted representation to the
+            // system pasteboard isn't handing anything to a destination app
+            // the way a paste is. `⇧↵` ("Paste as Plain Text") remains the
+            // explicit way to get plain text out of the overlay.
+            itemActions.copy(item)
+            return .handled
+        }
         .onKeyPress(keys: ["p"]) { press in
             guard press.modifiers.contains(.command) else { return .ignored }
             if let item = filtered.first(where: { $0.id == selectedID }) {
