@@ -43,6 +43,13 @@ final class ClipboardItem {
     /// Text recognised inside an image, filled in asynchronously by
     /// `OCRQueue`. Never part of `contentHash` or `preview` — see Task 2.
     var ocrText: String?
+    /// When this item was last put through OCR, whatever the result.
+    ///
+    /// Separate from `ocrText` on purpose: a nil `ocrText` can't tell "there
+    /// was no text in this image" apart from "nobody has looked yet", and
+    /// without that distinction every image without text would be reprocessed
+    /// on every launch, forever.
+    var ocrProcessedAt: Date?
 
     var type: ClipboardItemType {
         get { ClipboardItemType(rawValue: typeRaw) ?? .text }
