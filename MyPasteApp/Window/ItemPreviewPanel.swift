@@ -2,16 +2,17 @@
 //  ItemPreviewPanel.swift
 //  MyPasteApp
 //
-//  Task 19 spike scaffolding — NOT the real preview panel (that's Task 20).
-//
-//  The only question this file exists to help answer: can a second floating
-//  window coexist with the overlay without stealing its keyboard focus and
-//  without being read as a "click outside" by
-//  OverlayWindowController.installClickOutsideMonitors()? So the panel here
-//  is deliberately bare: no real content, no chrome beyond what's needed to
-//  open and close it by hand. If the spike succeeds this file is replaced by
-//  the real preview panel; if it fails, it's deleted along with the wiring
-//  in OverlayWindowController.
+//  The floating panel that shows the full contents of the selected item.
+//  Started as a disposable Task 19 spike to answer one question — can a
+//  second floating window coexist with the overlay without stealing its
+//  keyboard focus or being read as a "click outside" by
+//  OverlayWindowController.installClickOutsideMonitors()? Confirmed by hand:
+//  the panel opens with the overlay staying open, the arrow keys keep
+//  navigating cards, clicking inside the panel closes nothing, and clicking
+//  outside both closes both. This file is now that panel's shell — the real
+//  content is ItemPreviewView, and OverlayWindowController owns showing it,
+//  keeping it positioned, and keeping it in sync with the overlay's
+//  selection.
 //
 
 import AppKit
@@ -20,14 +21,19 @@ import SwiftUI
 enum ItemPreviewPanel {
     static let defaultSize = NSSize(width: 520, height: 380)
 
-    /// Builds the minimal panel described in the Task 19 brief.
+    /// Builds the panel shell. `contentView` is left unset on purpose:
+    /// `OverlayWindowController.applyPreviewContent(to:item:)` is the only
+    /// place that builds the `NSHostingView` and assigns it, so the rule
+    /// below only has to be followed in one spot instead of two.
     static func make() -> NSPanel {
         let panel = NSPanel(
             contentRect: NSRect(origin: .zero, size: defaultSize),
             // Not .borderless: unlike the overlay, this panel doesn't need to
             // become key — the overlay keeps the keyboard. See
             // OverlayWindowController.installClickOutsideMonitors().
-            styleMask: [.nonactivatingPanel, .titled, .closable],
+            // .fullSizeContentView lets ItemPreviewView's own header sit at
+            // the very top in place of a native titlebar — see below.
+            styleMask: [.nonactivatingPanel, .titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
@@ -41,22 +47,20 @@ enum ItemPreviewPanel {
         // app — by itself it does NOT stop the panel from becoming key, and
         // a panel that becomes key sends windowDidResignKey to whichever
         // panel was key before it (the overlay), which is wired to call
-        // hide(). Since this content is a static Text with nothing that
-        // needs keyboard input, becomesKeyOnlyIfNeeded tells AppKit a plain
-        // click has no reason to hand this panel key status at all, so the
-        // overlay should keep it. Unconfirmed without running the app — see
-        // the Task 19 report.
+        // hide(). ItemPreviewView has nothing that needs keyboard input (its
+        // close button is clicked, not typed to), so becomesKeyOnlyIfNeeded
+        // tells AppKit a plain click has no reason to hand this panel key
+        // status at all — confirmed by hand in the Task 19 spike.
         panel.becomesKeyOnlyIfNeeded = true
-        panel.title = "Preview spike"
-        // Give the hosting view an explicit frame and autoresizing mask, the
-        // same way OverlayWindowController.prepare() does. Handing NSHostingView
-        // straight to contentView lets it drive the window from its content's
-        // intrinsic size instead — which shrank this panel to the width of the
-        // Text, ignoring the 520x380 setFrame applied moments earlier.
-        let host = NSHostingView(rootView: Text("preview spike"))
-        host.frame = NSRect(origin: .zero, size: defaultSize)
-        host.autoresizingMask = [NSView.AutoresizingMask.width, NSView.AutoresizingMask.height]
-        panel.contentView = host
+        // ItemPreviewView draws its own header (close button, type label,
+        // footnote) — a native titlebar on top of that would just duplicate
+        // it, so it's hidden. Purely cosmetic: none of this touches the
+        // key/activation behaviour validated above.
+        panel.titleVisibility = .hidden
+        panel.titlebarAppearsTransparent = true
+        panel.standardWindowButton(.closeButton)?.isHidden = true
+        panel.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        panel.standardWindowButton(.zoomButton)?.isHidden = true
         return panel
     }
 }

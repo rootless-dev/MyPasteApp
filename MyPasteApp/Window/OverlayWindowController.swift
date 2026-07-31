@@ -20,6 +20,12 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
     // Task 19 spike: a second window of our own, so the click-outside
     // monitors below need to know about it too. See ItemPreviewPanel.
     private var previewPanel: NSPanel?
+    /// The item the preview panel would show right now, and where it sits
+    /// on screen — kept up to date by `OverlayView.onPreviewSelectionChange`
+    /// on every selection or layout change, whether or not the panel is
+    /// actually open. See `updatePreviewSelection(item:anchor:)`.
+    private var previewItem: ClipboardItem?
+    private var previewAnchorFrame: CGRect?
 
     init(modelContainer: ModelContainer,
          writer: ClipboardWriter,
@@ -95,7 +101,11 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
             },
             onDismiss: { [weak self] in self?.hide() },
             destinationAppName: { [weak self] in self?.previousApp?.localizedName },
-            onTogglePreview: { [weak self] in self?.togglePreviewPanel() }
+            onTogglePreview: { [weak self] in self?.togglePreviewPanel() },
+            onPreviewSelectionChange: { [weak self] item, anchor in
+                self?.updatePreviewSelection(item: item, anchor: anchor)
+            },
+            onShowPreview: { [weak self] in self?.showPreviewPanel() }
         )
         .modelContainer(modelContainer)
 
@@ -263,9 +273,9 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         }
     }
 
-    /// Task 19 spike: opens/closes the disposable preview panel from the
-    /// overlay. Temporary trigger only — real invocation (hover, arrow focus,
-    /// whatever Task 20 decides) replaces this if the spike pans out.
+    /// ⌘⇧K spike trigger: opens/closes the preview panel from the overlay.
+    /// Temporary — Task 21 replaces this with ␣ over the selected card and
+    /// removes this method, `onTogglePreview`, and `SpikeLog`.
     private func togglePreviewPanel() {
         if let panel = previewPanel, panel.isVisible {
             panel.orderOut(nil)
@@ -274,26 +284,117 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         showPreviewPanel()
     }
 
+    /// Shows the preview panel with whatever `previewItem` currently holds.
+    ///
+    /// A no-op when there's nothing selected to show (e.g. the history is
+    /// empty) — there's nothing meaningful to open the panel onto. Reused by
+    /// both `togglePreviewPanel()` (⌘⇧K) and `onShowPreview` (the "Preview"
+    /// context menu entry), which is why it never closes the panel itself:
+    /// that decision belongs to the caller.
     private func showPreviewPanel() {
+        guard let item = previewItem else { return }
         let panel = previewPanel ?? ItemPreviewPanel.make()
         previewPanel = panel
         panel.sharingType = WindowPrivacy.sharingType()
+        applyPreviewContent(to: panel, item: item)
+        positionPreviewPanel(panel)
+        // orderFrontRegardless, not makeKeyAndOrderFront: the panel must
+        // never take key status away from the overlay. See the brief's Step 3.
+        panel.orderFrontRegardless()
+        SpikeLog.write("showPreviewPanel: frame=\(panel.frame) visible=\(panel.isVisible) "
+                       + "item=\(item.id)")
+    }
+
+    /// Keeps the preview panel in sync with the overlay's selection.
+    ///
+    /// Called on every selection or layout change reported by `OverlayView`,
+    /// whether or not the panel is currently open — see the doc comment on
+    /// `previewItem`. Only rebuilds/repositions the visible panel; while it's
+    /// closed, this just records the latest values so the next `show`
+    /// reflects whatever is selected right now, with no stale first frame.
+    private func updatePreviewSelection(item: ClipboardItem?, anchor: CGRect?) {
+        previewItem = item
+        previewAnchorFrame = anchor
+        guard let panel = previewPanel, panel.isVisible else { return }
+        guard let item else {
+            // Nothing left to preview (e.g. the last item was deleted, or a
+            // search filtered everything out) — closing is the least
+            // surprising option, matching what happens when the overlay
+            // itself runs out of cards to select.
+            panel.orderOut(nil)
+            return
+        }
+        applyPreviewContent(to: panel, item: item)
+        positionPreviewPanel(panel)
+    }
+
+    /// Builds `ItemPreviewView` for `item` and assigns it as the panel's
+    /// content.
+    ///
+    /// The one place in this file that hands a hosting view to
+    /// `contentView` — see the comment on `ItemPreviewPanel.make()` for why
+    /// the explicit `frame`/`autoresizingMask` here matters: without them,
+    /// the window would be resized to the content's intrinsic size instead
+    /// of the frame `positionPreviewPanel(_:)` sets, the same bug the Task 19
+    /// spike ran into.
+    private func applyPreviewContent(to panel: NSPanel, item: ClipboardItem) {
+        let host = NSHostingView(rootView: ItemPreviewView(item: item, onClose: { [weak self] in
+            self?.previewPanel?.orderOut(nil)
+        }))
+        host.frame = NSRect(origin: .zero, size: ItemPreviewPanel.defaultSize)
+        host.autoresizingMask = [NSView.AutoresizingMask.width, NSView.AutoresizingMask.height]
+        panel.contentView = host
+    }
+
+    /// Positions the panel above the selected card, horizontally centered on
+    /// it.
+    ///
+    /// `previewAnchorFrame` arrives from `OverlayView` in the `.global`
+    /// coordinate space of its SwiftUI tree, which — since `OverlayView` is
+    /// the direct `rootView` of the overlay's own `NSHostingView` (see
+    /// `prepare()`) — is equivalent to that hosting view's bounds.
+    /// `NSView.convert(_:to:)` turns that into window coordinates (handling
+    /// the flip from SwiftUI's top-left origin automatically), and
+    /// `convertToScreen` turns those into what `setFrame` needs. Falls back
+    /// to centering on screen when there's no anchor yet (the panel was
+    /// asked to open before any card reported its frame) or no overlay
+    /// window to convert against.
+    ///
+    /// Deliberately does not draw a pointer/beak connecting the panel to the
+    /// card (design-refs/03-preview-web.png) — see the Task 20 report.
+    private func positionPreviewPanel(_ panel: NSPanel) {
         let size = ItemPreviewPanel.defaultSize
-        let screen = window?.screen ?? NSScreen.main
-        if let screen {
-            let frame = NSRect(
+        guard let screen = window?.screen ?? NSScreen.main else { return }
+        guard let anchor = previewAnchorFrame,
+              let overlayWindow = window,
+              let contentView = overlayWindow.contentView else {
+            let centered = NSRect(
                 x: screen.frame.midX - size.width / 2,
                 y: screen.frame.midY - size.height / 2,
                 width: size.width,
                 height: size.height
             )
-            panel.setFrame(frame, display: false)
+            panel.setFrame(centered, display: false)
+            return
         }
-        // orderFrontRegardless, not makeKeyAndOrderFront: the panel must
-        // never take key status away from the overlay. See the brief's Step 3.
-        panel.orderFrontRegardless()
-        SpikeLog.write("showPreviewPanel: frame=\(panel.frame) visible=\(panel.isVisible) "
-                       + "screen=\(String(describing: screen?.frame)) level=\(panel.level.rawValue)")
+        let windowRect = contentView.convert(anchor, to: nil)
+        let screenRect = overlayWindow.convertToScreen(windowRect)
+
+        let margin: CGFloat = 12
+        let edgeInset: CGFloat = 8
+        var x = screenRect.midX - size.width / 2
+        var y = screenRect.maxY + margin
+
+        x = max(screen.visibleFrame.minX + edgeInset,
+                min(x, screen.visibleFrame.maxX - size.width - edgeInset))
+        if y + size.height > screen.visibleFrame.maxY - edgeInset {
+            y = screen.visibleFrame.maxY - size.height - edgeInset
+        }
+        if y < screen.visibleFrame.minY + edgeInset {
+            y = screen.visibleFrame.minY + edgeInset
+        }
+
+        panel.setFrame(NSRect(x: x, y: y, width: size.width, height: size.height), display: false)
     }
 
     /// Resolves which `NSScreen` the overlay should appear on.

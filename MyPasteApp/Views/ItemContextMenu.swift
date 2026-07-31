@@ -41,6 +41,11 @@ struct ItemContextMenu: View {
 
         Divider()
 
+        // ␣ matches Finder's Quick Look convention, which this panel is
+        // modeled after. The real ␣ trigger over the card list itself is
+        // roadmap item 21 — this is just the menu entry, always available.
+        Button("Preview") { actions.preview(item) }
+            .keyboardShortcut(.space, modifiers: [])
         Button(item.isPinned ? "Unpin" : "Pin") { actions.togglePin(item) }
     }
 

@@ -18,15 +18,18 @@ final class ItemActions {
     private let writer: ClipboardWriter
     private let onPaste: (ClipboardItem, Bool) -> Void
     private let editorWindow: ItemEditorWindowController
+    private let onPreview: (ClipboardItem) -> Void
 
     init(modelContext: ModelContext,
          writer: ClipboardWriter,
          onPaste: @escaping (ClipboardItem, Bool) -> Void,
-         editorWindow: ItemEditorWindowController) {
+         editorWindow: ItemEditorWindowController,
+         onPreview: @escaping (ClipboardItem) -> Void = { _ in }) {
         self.modelContext = modelContext
         self.writer = writer
         self.onPaste = onPaste
         self.editorWindow = editorWindow
+        self.onPreview = onPreview
     }
 
     func paste(_ item: ClipboardItem, plainText: Bool) {
@@ -80,6 +83,17 @@ final class ItemActions {
     /// happened": no half-written item is left behind in the history.
     func newItem() {
         editorWindow.openForNewItem()
+    }
+
+    /// Opens the item in the preview panel — the "Preview" context menu
+    /// entry, mirroring Finder's Quick Look (␣) convention.
+    ///
+    /// Just forwards to whatever `OverlayWindowController` wired in: the
+    /// panel itself is an imperative `NSPanel` this class has no reference
+    /// to, so it can't open it directly. See `OverlayView.preview(_:)` for
+    /// why the selection is updated synchronously before this fires.
+    func preview(_ item: ClipboardItem) {
+        onPreview(item)
     }
 }
 

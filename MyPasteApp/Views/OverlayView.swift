@@ -14,6 +14,11 @@ struct OverlayView: View {
 
     @State private var searchText = ""
     @State private var selectedID: UUID?
+    /// Each visible card's frame, keyed by item id, refreshed continuously by
+    /// `CardFramePreferenceKey` as cards appear, scroll, or the window
+    /// resizes. Read by `notifyPreviewSelection()` to tell
+    /// `OverlayWindowController` where to anchor the preview panel.
+    @State private var cardFrames: [UUID: CGRect] = [:]
     @FocusState private var searchFocused: Bool
     @AppStorage(PreferenceKeys.showQuickPasteNumbers) private var showQuickPasteNumbers = true
     @AppStorage(PreferenceKeys.alwaysPastePlainText) private var alwaysPastePlainText = false
@@ -33,28 +38,49 @@ struct OverlayView: View {
     /// assembled, so it always reflects the current opening.
     let destinationAppName: () -> String?
     /// Task 19 spike only: opens/closes the disposable preview panel via
-    /// ⌘⇧K. Not a real feature — Task 20 replaces this trigger entirely.
+    /// ⌘⇧K. Not a real feature — Task 21 replaces this trigger entirely.
     let onTogglePreview: () -> Void
+    /// Reports the selected item and its on-screen frame every time either
+    /// changes, whether or not the preview panel is open.
+    ///
+    /// The panel is an imperative `NSPanel` owned by
+    /// `OverlayWindowController`, built from a `ClipboardItem` — a
+    /// `@Model` reference type, not a value the panel can just poll. This
+    /// closure is the bridge: `OverlayWindowController` keeps the last
+    /// values it received so that whenever the panel is (re)shown, it
+    /// already knows what to display and where, instead of only finding out
+    /// the moment `onTogglePreview`/`onShowPreview` fires.
+    let onPreviewSelectionChange: (ClipboardItem?, CGRect?) -> Void
+    /// Opens the preview panel unconditionally — used by the "Preview"
+    /// context menu entry, where the intent is always "show", never
+    /// "toggle closed". `onTogglePreview` stays a toggle because ⌘⇧K needs
+    /// to also be able to close the panel.
+    let onShowPreview: () -> Void
 
     init(writer: ClipboardWriter,
          itemEditor: ItemEditorWindowController,
          onPick: @escaping (ClipboardItem, Bool) -> Void,
          onDismiss: @escaping () -> Void,
          destinationAppName: @escaping () -> String? = { nil },
-         onTogglePreview: @escaping () -> Void = {}) {
+         onTogglePreview: @escaping () -> Void = {},
+         onPreviewSelectionChange: @escaping (ClipboardItem?, CGRect?) -> Void = { _, _ in },
+         onShowPreview: @escaping () -> Void = {}) {
         self.writer = writer
         self.itemEditor = itemEditor
         self.onPick = onPick
         self.onDismiss = onDismiss
         self.destinationAppName = destinationAppName
         self.onTogglePreview = onTogglePreview
+        self.onPreviewSelectionChange = onPreviewSelectionChange
+        self.onShowPreview = onShowPreview
     }
 
     /// Built fresh on every access: it only wraps references (the model
     /// context, the writer, the pick callback), so there's no state here that
     /// needs to survive across view updates.
     private var itemActions: ItemActions {
-        ItemActions(modelContext: modelContext, writer: writer, onPaste: onPick, editorWindow: itemEditor)
+        ItemActions(modelContext: modelContext, writer: writer, onPaste: onPick,
+                    editorWindow: itemEditor, onPreview: preview)
     }
 
     /// Whether this paste should hand over plain text.
@@ -108,6 +134,18 @@ struct OverlayView: View {
                                 onDelete: { delete(item) }
                             )
                             .id(item.id)
+                            .background(
+                                // Reports this card's on-screen frame so the
+                                // preview panel can anchor above it. Color.clear
+                                // keeps this purely observational — it doesn't
+                                // intercept the tap/context-menu gestures below.
+                                GeometryReader { proxy in
+                                    Color.clear.preference(
+                                        key: CardFramePreferenceKey.self,
+                                        value: [item.id: proxy.frame(in: .global)]
+                                    )
+                                }
+                            )
                             .onTapGesture { pick(item) }
                             .contextMenu {
                                 ItemContextMenu(item: item,
@@ -124,6 +162,11 @@ struct OverlayView: View {
                     if let id = newID {
                         withAnimation { proxy.scrollTo(id, anchor: .center) }
                     }
+                    notifyPreviewSelection()
+                }
+                .onPreferenceChange(CardFramePreferenceKey.self) { frames in
+                    cardFrames = frames
+                    notifyPreviewSelection()
                 }
             }
         }
@@ -182,8 +225,8 @@ struct OverlayView: View {
             // panel. Picked over ⌘⇧P/⌘⇧V because those are the app's default
             // *global* hotkeys (pause, toggle overlay) registered through
             // Carbon — they fire regardless of which window is key, so
-            // reusing either here would double-trigger. Gone once Task 20
-            // picks a real trigger.
+            // reusing either here would double-trigger. Gone once Task 21
+            // picks the real trigger (␣).
             SpikeLog.write("keyPress k/K: char=\(press.key.character) modifiers=\(press.modifiers)")
             guard press.modifiers.contains(.command), press.modifiers.contains(.shift) else {
                 SpikeLog.write("  -> ignored (modifiers did not match)")
@@ -236,6 +279,37 @@ struct OverlayView: View {
         itemActions.paste(item, plainText: plainText ?? pastesPlainText)
     }
 
+    /// Selects the item and opens the preview panel for it.
+    ///
+    /// Used by the "Preview" context menu entry, where the click can land on
+    /// a card that isn't the one arrow-key selection currently points to.
+    /// `onPreviewSelectionChange` is called here directly, with `item` and
+    /// its already-known frame, instead of relying on the `selectedID`
+    /// mutation below to reach `OverlayWindowController` on its own: SwiftUI
+    /// delivers `onChange(of: selectedID)` on the next view update, not
+    /// synchronously, and `onShowPreview()` — called right after — must not
+    /// race that and open the panel on the *previous* selection.
+    private func preview(_ item: ClipboardItem) {
+        selectedID = item.id
+        onPreviewSelectionChange(item, cardFrames[item.id])
+        onShowPreview()
+    }
+
+    /// Tells `OverlayWindowController` what's selected right now and where
+    /// it is on screen.
+    ///
+    /// Called on every selection change and every card-layout change (a card
+    /// appearing, scrolling into a new position, the window resizing) — see
+    /// the two call sites above, in `body`. Firing unconditionally, even
+    /// while the preview panel is closed, means the controller always has an
+    /// up-to-date answer for "what would I show if asked to open right now",
+    /// instead of only finding out at the moment it's asked.
+    private func notifyPreviewSelection() {
+        let item = filtered.first { $0.id == selectedID }
+        let anchor = selectedID.flatMap { cardFrames[$0] }
+        onPreviewSelectionChange(item, anchor)
+    }
+
     /// Deletes the item, then decides which card takes over the selection.
     ///
     /// The removal itself goes through `ItemActions`, but choosing the next
@@ -269,6 +343,20 @@ struct OverlayView: View {
         } else {
             selectedID = list.first?.id
         }
+    }
+}
+
+/// Collects each card's on-screen frame, keyed by item id.
+///
+/// Reported in the `.global` coordinate space — for SwiftUI content hosted
+/// directly by an `NSHostingView` (as `OverlayView` is, in
+/// `OverlayWindowController.prepare()`), that's equivalent to the hosting
+/// view's own bounds. `OverlayWindowController.positionPreviewPanel(_:)`
+/// converts it to window, then screen, coordinates from there.
+struct CardFramePreferenceKey: PreferenceKey {
+    static var defaultValue: [UUID: CGRect] = [:]
+    static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
+        value.merge(nextValue()) { _, new in new }
     }
 }
 
