@@ -48,16 +48,17 @@ struct OverlayView: View {
     /// already knows what to display and where, instead of only finding out
     /// the moment `onShowPreview` fires.
     let onPreviewSelectionChange: (ClipboardItem?, CGRect?) -> Void
-    /// Opens the preview panel unconditionally — used by both `␣` (Step 3's
-    /// `spaceOpensPreview`) and the "Preview" context menu entry, where the
-    /// intent is always "show", never "toggle closed".
+    /// Opens the preview panel unconditionally. Used by `␣` when the panel is
+    /// closed, and by the "Preview" context menu entry — where the intent is
+    /// always "show me this item", never "toggle closed", since the user just
+    /// right-clicked a specific card to ask for it.
     let onShowPreview: () -> Void
-    /// Closes just the preview panel, leaving the overlay itself open —
-    /// used by `␣`'s counterpart, Escape, when `escapeClosesPreview` says
-    /// the panel is what should go first.
+    /// Closes just the preview panel, leaving the overlay itself open. Used by
+    /// `␣` when the panel is already open (`spaceAction`), and by Escape when
+    /// `escapeClosesPreview` says the panel is what should go first.
     let onHidePreview: () -> Void
-    /// Whether the preview panel is currently open, read fresh by the
-    /// Escape handler on every press. The panel is an imperative `NSPanel`
+    /// Whether the preview panel is currently open, read fresh by the Space
+    /// and Escape handlers on every press. The panel is an imperative `NSPanel`
     /// owned by `OverlayWindowController`, not SwiftUI state this view
     /// holds itself, so its visibility has to be asked for rather than
     /// observed — the same closure-as-bridge shape as
@@ -129,8 +130,20 @@ struct OverlayView: View {
     /// claimed by the overlay. A leading space in a search has no use, which
     /// makes an empty field the safe place to take the key; "foo bar" is
     /// unaffected because the field isn't empty by then.
-    static func spaceOpensPreview(searchText: String) -> Bool {
-        searchText.isEmpty
+    ///
+    /// The key that opens the panel also closes it — anything else would make
+    /// the user reach for Escape to undo what Space just did.
+    static func spaceAction(searchText: String, isPreviewOpen: Bool) -> SpaceAction {
+        guard searchText.isEmpty else { return .type }
+        return isPreviewOpen ? .hidePreview : .showPreview
+    }
+
+    /// What pressing Space should do, given the search field and the panel.
+    enum SpaceAction {
+        /// Let the key through to the search field.
+        case type
+        case showPreview
+        case hidePreview
     }
 
     /// Whether Escape should close the preview instead of the overlay.
@@ -218,9 +231,17 @@ struct OverlayView: View {
             return .handled
         }
         .onKeyPress(.space) {
-            guard Self.spaceOpensPreview(searchText: searchText) else { return .ignored }
-            onShowPreview()
-            return .handled
+            switch Self.spaceAction(searchText: searchText,
+                                    isPreviewOpen: isPreviewOpen()) {
+            case .type:
+                return .ignored
+            case .showPreview:
+                onShowPreview()
+                return .handled
+            case .hidePreview:
+                onHidePreview()
+                return .handled
+            }
         }
         // `phases: .down` is required here: the single-key `onKeyPress(_:action:)`
         // overload only exposes a no-argument closure, so reading
