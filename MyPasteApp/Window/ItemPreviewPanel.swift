@@ -48,7 +48,15 @@ enum ItemPreviewPanel {
         // the Task 19 report.
         panel.becomesKeyOnlyIfNeeded = true
         panel.title = "Preview spike"
-        panel.contentView = NSHostingView(rootView: Text("preview spike"))
+        // Give the hosting view an explicit frame and autoresizing mask, the
+        // same way OverlayWindowController.prepare() does. Handing NSHostingView
+        // straight to contentView lets it drive the window from its content's
+        // intrinsic size instead — which shrank this panel to the width of the
+        // Text, ignoring the 520x380 setFrame applied moments earlier.
+        let host = NSHostingView(rootView: Text("preview spike"))
+        host.frame = NSRect(origin: .zero, size: defaultSize)
+        host.autoresizingMask = [NSView.AutoresizingMask.width, NSView.AutoresizingMask.height]
+        panel.contentView = host
         return panel
     }
 }

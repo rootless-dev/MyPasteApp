@@ -175,16 +175,21 @@ struct OverlayView: View {
             }
             return .ignored
         }
-        .onKeyPress(keys: ["k"]) { press in
+        // Both cases on purpose: with Shift held, the resolved key arrives as
+        // "K", not "k", so listening for the lowercase one alone never fires.
+        .onKeyPress(keys: ["k", "K"]) { press in
             // Task 19 spike only: ⌘⇧K opens/closes the disposable preview
             // panel. Picked over ⌘⇧P/⌘⇧V because those are the app's default
             // *global* hotkeys (pause, toggle overlay) registered through
             // Carbon — they fire regardless of which window is key, so
             // reusing either here would double-trigger. Gone once Task 20
             // picks a real trigger.
+            SpikeLog.write("keyPress k/K: char=\(press.key.character) modifiers=\(press.modifiers)")
             guard press.modifiers.contains(.command), press.modifiers.contains(.shift) else {
+                SpikeLog.write("  -> ignored (modifiers did not match)")
                 return .ignored
             }
+            SpikeLog.write("  -> calling onTogglePreview()")
             onTogglePreview()
             return .handled
         }

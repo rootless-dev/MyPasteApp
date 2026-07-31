@@ -292,6 +292,8 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         // orderFrontRegardless, not makeKeyAndOrderFront: the panel must
         // never take key status away from the overlay. See the brief's Step 3.
         panel.orderFrontRegardless()
+        SpikeLog.write("showPreviewPanel: frame=\(panel.frame) visible=\(panel.isVisible) "
+                       + "screen=\(String(describing: screen?.frame)) level=\(panel.level.rawValue)")
     }
 
     /// Resolves which `NSScreen` the overlay should appear on.
