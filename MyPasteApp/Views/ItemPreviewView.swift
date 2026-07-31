@@ -55,18 +55,20 @@ struct ItemPreviewView: View {
             // text simply isn't readable in the app.
             TextPreviewView(text: item.textContent ?? "")
         case .image:
-            if let data = item.imageData, let img = NSImage(data: data) {
+            if let data = item.imageData {
                 // Scaled to fit the panel rather than shown at natural size in
                 // a ScrollView: a 1920x1080 screenshot filled the panel with
                 // its top-left corner and made the reader scroll to see any of
                 // it. The point of the preview is seeing the whole thing at
                 // once — the dimensions in the header say what was given up.
-                Image(nsImage: img)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(CheckerboardBackground())
-                    .padding(12)
+                ThumbnailImage(
+                    data: data,
+                    id: item.id,
+                    maxPixel: ImageThumbnailCache.pixels(for: ItemPreviewPanel.defaultSize)
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(CheckerboardBackground())
+                .padding(12)
             } else {
                 Text(item.preview).font(.caption)
             }

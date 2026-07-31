@@ -22,7 +22,7 @@ struct ClipboardCardView: View {
 
         VStack(spacing: 0) {
             coloredHeader(baseColor: appColor)
-            previewArea
+            previewArea(density: density)
             footer
         }
         .frame(width: density.width, height: density.height)
@@ -126,17 +126,17 @@ struct ClipboardCardView: View {
     // MARK: - Preview area
 
     @ViewBuilder
-    private var previewArea: some View {
+    private func previewArea(density: CardDensity) -> some View {
         ZStack {
             Color(nsColor: .textBackgroundColor)
-            content
+            content(density: density)
                 .padding(10)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     @ViewBuilder
-    private var content: some View {
+    private func content(density: CardDensity) -> some View {
         switch item.type {
         case .text:
             Text(item.preview)
@@ -147,11 +147,15 @@ struct ClipboardCardView: View {
         case .url:
             LinkPreviewView(item: item)
         case .image:
-            if let data = item.imageData, let img = NSImage(data: data) {
-                Image(nsImage: img)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if let data = item.imageData {
+                ThumbnailImage(
+                    data: data,
+                    id: item.id,
+                    maxPixel: ImageThumbnailCache.pixels(
+                        for: CGSize(width: density.width, height: density.height)
+                    )
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 Text(item.preview).font(.caption)
             }

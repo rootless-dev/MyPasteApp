@@ -10,18 +10,19 @@ struct LinkPreviewView: View {
     let item: ClipboardItem
 
     var body: some View {
-        if let data = item.linkImageData, let img = NSImage(data: data) {
-            Image(nsImage: img)
-                .resizable()
-                .scaledToFill()
+        if let data = item.linkImageData {
+            ThumbnailImage(data: data, id: item.id,
+                           maxPixel: ImageThumbnailCache.pixels(
+                               for: CGSize(width: 320, height: 240)),
+                           contentMode: .fill)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .clipped()
-        } else if let data = item.linkFaviconData, let img = NSImage(data: data) {
+        } else if let data = item.linkFaviconData {
             ZStack {
                 background
-                Image(nsImage: img)
-                    .resizable()
-                    .scaledToFit()
+                ThumbnailImage(data: data, id: item.id,
+                               maxPixel: ImageThumbnailCache.pixels(
+                                   for: CGSize(width: 64, height: 64)))
                     .frame(width: 64, height: 64)
                     .shadow(color: .black.opacity(0.25), radius: 4, y: 2)
             }
