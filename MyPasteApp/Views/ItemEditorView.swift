@@ -48,9 +48,14 @@ struct ItemEditorView: View {
         case .existing(let item):
             // Prefer the stored formatting; fall back to the plain text for
             // an item captured before rich text existed, or written by hand.
+            // Decoding goes through `RichText.decode`, keyed on
+            // `richTextFormat` — trying RTF unconditionally would silently
+            // fail on an HTML-only capture and fall through to plain text,
+            // and Save would then persist that loss. See RichText.decode.
             let initial: NSAttributedString
             if let data = item.richTextData,
-               let restored = NSAttributedString(rtf: data, documentAttributes: nil) {
+               let format = item.richTextFormat,
+               let restored = RichText.decode(data: data, format: format) {
                 initial = restored
             } else {
                 initial = NSAttributedString(string: item.textContent ?? "")

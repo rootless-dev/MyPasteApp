@@ -38,6 +38,32 @@ enum RichText {
         return nil
     }
 
+    /// Decodes stored rich text bytes back into an `NSAttributedString`,
+    /// dispatching on `format` instead of guessing.
+    ///
+    /// `NSAttributedString(rtf:)` returns nil — silently, with no way to tell
+    /// "corrupted bytes" apart from "wrong format" — when handed HTML data.
+    /// Decoding without first checking `richTextFormat` (as `ItemEditorView`
+    /// used to) turned an HTML-only capture into empty formatting the moment
+    /// the editor opened, and Save then wrote that loss back over the
+    /// original bytes. See `ItemEditorView.init`.
+    ///
+    /// Must run on the main thread: AppKit's HTML importer requires it.
+    /// `ItemEditorView.init` already does, since SwiftUI builds the view
+    /// there.
+    static func decode(data: Data, format: RichTextFormat) -> NSAttributedString? {
+        switch format {
+        case .rtf:
+            return NSAttributedString(rtf: data, documentAttributes: nil)
+        case .html:
+            return try? NSAttributedString(
+                data: data,
+                options: [.documentType: NSAttributedString.DocumentType.html],
+                documentAttributes: nil
+            )
+        }
+    }
+
     /// What to put on the pasteboard for a text item, in order of preference.
     ///
     /// Plain text is always included, even alongside a rich representation: a
