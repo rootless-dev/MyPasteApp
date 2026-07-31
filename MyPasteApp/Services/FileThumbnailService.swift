@@ -10,15 +10,21 @@ import QuickLookThumbnailing
 final class FileThumbnailService {
     static let shared = FileThumbnailService()
 
-    private var cache: [String: NSImage] = [:]
+    private let cache = NSCache<NSString, NSImage>()
+
+    init() {
+        // Same reason as ImageThumbnailCache: an unbounded dictionary of
+        // ~2 MB thumbnails is the very problem this phase corrects.
+        cache.totalCostLimit = 16 * 1024 * 1024
+    }
 
     func cached(for path: String, size: CGSize) -> NSImage? {
-        cache[key(path: path, size: size)]
+        cache.object(forKey: key(path: path, size: size) as NSString)
     }
 
     func thumbnail(for path: String, size: CGSize) async -> NSImage? {
         let cacheKey = key(path: path, size: size)
-        if let hit = cache[cacheKey] { return hit }
+        if let hit = cache.object(forKey: cacheKey as NSString) { return hit }
 
         let url = URL(fileURLWithPath: path)
         guard FileManager.default.fileExists(atPath: path) else { return nil }
@@ -34,11 +40,16 @@ final class FileThumbnailService {
         do {
             let rep = try await QLThumbnailGenerator.shared.generateBestRepresentation(for: request)
             let img = rep.nsImage
-            cache[cacheKey] = img
+            // img.size is in points; totalCostLimit bounds bytes of bitmap. On a
+            // 2x display a 360x360pt thumbnail backs a 720x720 bitmap (~2 MB),
+            // not the ~0.5 MB this would declare without scaling both axes.
+            cache.setObject(img, forKey: cacheKey as NSString,
+                            cost: Int(img.size.width * scale * img.size.height * scale * 4))
             return img
         } catch {
             let icon = NSWorkspace.shared.icon(forFile: path)
-            cache[cacheKey] = icon
+            cache.setObject(icon, forKey: cacheKey as NSString,
+                            cost: Int(icon.size.width * scale * icon.size.height * scale * 4))
             return icon
         }
     }

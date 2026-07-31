@@ -14,11 +14,12 @@ struct OverlayView: View {
 
     @State private var searchText = ""
     @State private var selectedID: UUID?
-    /// Each visible card's frame, keyed by item id, refreshed continuously by
+    /// Each visible card's frame, refreshed continuously by
     /// `CardFramePreferenceKey` as cards appear, scroll, or the window
     /// resizes. Read by `notifyPreviewSelection()` to tell
-    /// `OverlayWindowController` where to anchor the preview panel.
-    @State private var cardFrames: [UUID: CGRect] = [:]
+    /// `OverlayWindowController` where to anchor the preview panel. Lives in a
+    /// reference type on purpose — see `CardFrameStore`.
+    @State private var cardFrames = CardFrameStore()
     @FocusState private var searchFocused: Bool
     @AppStorage(PreferenceKeys.showQuickPasteNumbers) private var showQuickPasteNumbers = true
     @AppStorage(PreferenceKeys.alwaysPastePlainText) private var alwaysPastePlainText = false
@@ -206,7 +207,7 @@ struct OverlayView: View {
                     notifyPreviewSelection()
                 }
                 .onPreferenceChange(CardFramePreferenceKey.self) { frames in
-                    cardFrames = frames
+                    cardFrames.update(frames)
                     notifyPreviewSelection()
                 }
             }
@@ -352,7 +353,7 @@ struct OverlayView: View {
     /// race that and open the panel on the *previous* selection.
     private func preview(_ item: ClipboardItem) {
         selectedID = item.id
-        onPreviewSelectionChange(item, cardFrames[item.id])
+        onPreviewSelectionChange(item, cardFrames.frame(for: item.id))
         onShowPreview()
     }
 
@@ -367,7 +368,7 @@ struct OverlayView: View {
     /// instead of only finding out at the moment it's asked.
     private func notifyPreviewSelection() {
         let item = filtered.first { $0.id == selectedID }
-        let anchor = selectedID.flatMap { cardFrames[$0] }
+        let anchor = selectedID.flatMap { cardFrames.frame(for: $0) }
         onPreviewSelectionChange(item, anchor)
     }
 
@@ -418,6 +419,28 @@ struct CardFramePreferenceKey: PreferenceKey {
     static var defaultValue: [UUID: CGRect] = [:]
     static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
         value.merge(nextValue()) { _, new in new }
+    }
+}
+
+/// Holds each visible card's on-screen frame.
+///
+/// Deliberately NOT `@Observable` and NOT an `ObservableObject`: `OverlayView`
+/// writes here on every card-frame change, which during a scroll animation is
+/// every tick. Publishing those writes would invalidate the body — and with it
+/// the entire `ForEach` of cards — on every frame, which is what made image
+/// decoding run per frame before this phase. A plain reference type kept in
+/// `@State` survives view updates without triggering any.
+final class CardFrameStore {
+    private var frames: [UUID: CGRect] = [:]
+
+    /// Replaces the whole map: `CardFramePreferenceKey.reduce` already merges
+    /// every card's contribution before this is called.
+    func update(_ frames: [UUID: CGRect]) {
+        self.frames = frames
+    }
+
+    func frame(for id: UUID) -> CGRect? {
+        frames[id]
     }
 }
 
