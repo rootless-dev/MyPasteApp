@@ -41,14 +41,26 @@ struct SearchFieldView: View {
                 }
             }
             if tokens.count > Self.visibleTokenLimit {
-                // Opens the panel rather than removing anything: with the rest
-                // of the filters hidden behind a counter, the panel becomes the
-                // only place they can all be seen and changed.
-                Button("+\(tokens.count - Self.visibleTokenLimit)") { onOpenFilters() }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Color.accentColor)
-                    .help("Show all active filters")
+                // Reveals the hidden filters rather than removing anything:
+                // once they are behind a counter, the panel is the only place
+                // they can all be seen and changed. Strictly this *toggles* the
+                // panel, but the click-catcher behind an open panel swallows
+                // the press first, so from here it only ever opens.
+                Button { onOpenFilters() } label: {
+                    // Carries the same capsule as a token: bare accent text
+                    // reads as a label, and this is the only route to the
+                    // filters it stands for. Sized to match a token's chrome
+                    // exactly, which costs the `TextField` ~14pt — measured,
+                    // and it still holds its width at the cap of three.
+                    Text("+\(tokens.count - Self.visibleTokenLimit)")
+                        .font(.system(size: 11, weight: .semibold))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(Capsule().fill(Color.accentColor.opacity(0.22)))
+                        .foregroundStyle(Color.accentColor)
+                }
+                .buttonStyle(.plain)
+                .help("Show all active filters")
             }
 
             TextField("Search", text: $state.text)

@@ -172,8 +172,14 @@ struct OverlayView: View {
     }
 
     /// Where the filter panel starts, measured from the top of the drawer's
-    /// content: the top bar is `10 + field + 8` tall, so this parks the panel
-    /// immediately under the search field rather than over it.
+    /// content.
+    ///
+    /// Deliberately *less* than the top bar's full height — rendered, the bar
+    /// is 49pt at rest and 52pt once a token widens the field's capsule. This
+    /// eats into the bar's 8pt bottom padding, which is empty, so the panel
+    /// still clears the capsule itself: by 5pt at rest, and by about 2pt with a
+    /// token present. Tight, but the alternative is a visible gap between the
+    /// field and the panel it opened.
     private static let filterPanelTopInset: CGFloat = 46
 
     var body: some View {
