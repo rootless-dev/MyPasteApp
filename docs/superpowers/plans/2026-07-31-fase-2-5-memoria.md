@@ -25,12 +25,15 @@ Xcode 26.6, SDK macOS 26.5, deployment target 26.2.
 ## Global Constraints
 
 - **Branch:** `feature/fase-2-5-memoria`, criada a partir de `develop`.
-- **Commits de código NÃO estão autorizados nesta branch até o Carlos dizer o
-  contrário.** Em 2026-07-31 ele autorizou commitar apenas a spec, este plano e
-  a ferramenta de medição (Tarefa 1) — o que já foi feito. Diferente da Fase 2,
-  onde a autorização cobria a execução inteira de antemão. Cada tarefa traz a
-  mensagem de commit pronta, mas o passo de commit só roda depois que ele
-  autorizar. Na dúvida, pare e pergunte.
+- **Commits autorizados nesta branch.** Carlos autorizou em 2026-07-31 que os
+  subagentes commitem em `feature/fase-2-5-memoria` sem pedir OK a cada tarefa,
+  já que este plano foi revisado e aprovado por ele e cada tarefa traz a
+  mensagem pronta. A autorização **não** cobre `develop`, `main`, `git push`
+  nem abrir PR — nada disso acontece sem pedido explícito dele.
+- **Ao terminar cada tarefa, o board é atualizado** (pedido dele em
+  2026-07-31): o card `2.5.N` em `MyPasteApp/itens/` no vault do Obsidian vai
+  para `🛠 Implementando` no despacho e para `🔍 Revisão` quando o review sai
+  limpo. Quem faz isso é o controlador, não o implementador.
 - **Commitar apenas os arquivos da própria tarefa.** Nunca `git add -A` nem
   `git add .`: há documentos não versionados na árvore (`ROADMAP.md`,
   `DESIGN.md`, `design-refs/`).
@@ -642,10 +645,22 @@ struct ImageThumbnailCacheTests {
     }
 
     /// Points in, pixels out: a 260pt card on a 2x display needs 520px.
+    ///
+    /// The scale is passed in rather than read from `NSScreen`: a test that
+    /// reads the display scale from the same place the implementation does
+    /// asserts nothing, and would give a different answer on a non-Retina
+    /// machine than in CI.
     @Test func pixelsAccountForTheDisplayScale() {
-        let scale = Int(NSScreen.main?.backingScaleFactor ?? 2)
-        let pixels = ImageThumbnailCache.pixels(for: CGSize(width: 260, height: 180))
-        #expect(pixels == 260 * scale)
+        #expect(ImageThumbnailCache.pixels(for: CGSize(width: 260, height: 180),
+                                           scale: 2) == 520)
+        #expect(ImageThumbnailCache.pixels(for: CGSize(width: 260, height: 180),
+                                           scale: 1) == 260)
+    }
+
+    /// The longest side wins regardless of which one it is.
+    @Test func pixelsUseTheLongestSide() {
+        #expect(ImageThumbnailCache.pixels(for: CGSize(width: 100, height: 400),
+                                           scale: 2) == 800)
     }
 }
 ```

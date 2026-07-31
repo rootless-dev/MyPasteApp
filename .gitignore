@@ -37,6 +37,9 @@ Pods/
 # Carthage (caso venha a usar)
 Carthage/Build/
 
+# Superpowers — rascunho de execução de planos (ledger, briefs, diffs de review)
+.superpowers/
+
 # Misc
 *.log
 *.tmp
