@@ -16,14 +16,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var hotkey: HotkeyManager!
     var pauseHotkey: HotkeyManager!
     var overlay: OverlayWindowController!
+    var itemEditor: ItemEditorWindowController!
     var retention: RetentionPolicy!
     var statusItem: NSStatusItem!
     private var prefsWindow: NSWindow?
 
-    /// Whether `pauseHotkey` is actually live right now. `false` while the two
-    /// shortcuts collide and `registerHotkeysCheckingConflict()` has left it
-    /// unregistered — the menu reads this so it never advertises a shortcut
-    /// that won't fire.
+    /// Whether `overlay`'s hotkey is actually live right now. `false` when
+    /// `HotkeyManager.register()` reports that `RegisterEventHotKey` failed —
+    /// most often because another app already owns the combination — so the
+    /// menu never advertises a shortcut that won't fire.
+    private var overlayHotkeyRegistered = false
+
+    /// Whether `pauseHotkey` is actually live right now. `false` covers two
+    /// distinct cases: the two shortcuts collide and
+    /// `registerHotkeysCheckingConflict()` left it unregistered on purpose,
+    /// or `RegisterEventHotKey` itself failed (e.g. some other app already
+    /// owns the combination). Either way the shortcut won't fire, so the menu
+    /// reads this single flag to decide whether to advertise it.
     private var pauseHotkeyRegistered = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -51,9 +60,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         writer = ClipboardWriter(monitor: monitor)
         retention = RetentionPolicy(modelContext: context)
+        itemEditor = ItemEditorWindowController(modelContainer: modelContainer)
 
-        overlay = OverlayWindowController(modelContainer: modelContainer) { [weak self] item in
-            self?.writer.write(item)
+        overlay = OverlayWindowController(modelContainer: modelContainer,
+                                          writer: writer,
+                                          itemEditor: itemEditor) { [weak self] item, plainText in
+            self?.writer.write(item, plainText: plainText)
         }
         // Pre-warm the panel: create the window and force SwiftUI's initial
         // layout now, so that the first hotkey press doesn't pay that cost
@@ -114,7 +126,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Registers both global shortcuts, unless they collide.
     ///
-    /// `PreferencesView.applyHotkeyChange` refuses to save a colliding combo,
+    /// `ShortcutsSettingsView.applyHotkeyChange` refuses to save a colliding combo,
     /// but that guard never runs on a combo that was already on disk before
     /// this version existed — e.g. someone who'd bound the overlay shortcut
     /// to ⌘⇧P upgrading into a `pauseHotkey` that, being unset, falls back to
@@ -123,18 +135,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// nothing but an `NSLog` to show for it. The overlay shortcut is treated
     /// as the pre-existing one and wins; the pause one is simply left
     /// unregistered. Preferences re-derives this same comparison from what's
-    /// on disk every time it's opened (see `PreferencesView.refreshHotkeyState`),
+    /// on disk every time it's opened (see `ShortcutsSettingsView.refreshHotkeyState`),
     /// so the user is told which shortcut is dead instead of only the log.
     private func registerHotkeysCheckingConflict() {
-        hotkey.register()
+        overlayHotkeyRegistered = hotkey.register()
         guard !KeyCombo.conflicts(hotkey.storedCombo, with: pauseHotkey.storedCombo) else {
             NSLog("Pause hotkey (\(pauseHotkey.storedCombo.displayString)) collides with the "
                   + "overlay shortcut; leaving it unregistered until Preferences resolves it.")
             pauseHotkeyRegistered = false
             return
         }
-        pauseHotkey.register()
-        pauseHotkeyRegistered = true
+        pauseHotkeyRegistered = pauseHotkey.register()
     }
 
     private func setupStatusItem() {
@@ -192,7 +203,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showStatusMenu() {
         let menu = NSMenu()
-        let show = NSMenuItem(title: "Show history  \(KeyCombo.stored.displayString)",
+        // Only advertise the shortcut when it actually registered. Another app
+        // owning the combination leaves it dead, and a menu that still shows it
+        // sends the user looking for a bug in the wrong place.
+        let showSuffix = overlayHotkeyRegistered ? "  \(KeyCombo.stored.displayString)" : ""
+        let show = NSMenuItem(title: "Show history\(showSuffix)",
                               action: #selector(showHistoryAction),
                               keyEquivalent: "")
         show.target = self
@@ -202,6 +217,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(item)
         }
         menu.addItem(.separator())
+        // A plain NSMenuItem keyEquivalent, unlike `hotkey`/`pauseHotkey`: it
+        // only needs to fire while this menu is open, so there's no global
+        // registration to fail and nothing to gate on here — see
+        // `overlayHotkeyRegistered` above for the shortcut that does need it.
+        let newItem = NSMenuItem(title: "New Text Item",
+                                 action: #selector(newItemAction),
+                                 keyEquivalent: "n")
+        newItem.target = self
+        menu.addItem(newItem)
         let prefs = NSMenuItem(title: "Preferences…",
                                action: #selector(openPreferences),
                                keyEquivalent: ",")
@@ -221,6 +245,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func showHistoryAction() {
         overlay.toggle()
+    }
+
+    @objc private func newItemAction() {
+        itemEditor.openForNewItem()
     }
 
     /// Built fresh on every menu opening — `showStatusMenu` rebuilds the whole
@@ -285,7 +313,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openPreferences() {
         if prefsWindow == nil {
-            let view = PreferencesView()
+            let view = SettingsView()
                 .modelContainer(modelContainer)
             let host = NSHostingController(rootView: view)
             let window = NSWindow(contentViewController: host)

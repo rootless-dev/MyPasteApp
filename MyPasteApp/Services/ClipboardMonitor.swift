@@ -169,11 +169,19 @@ final class ClipboardMonitor {
         if let str = pasteboard.string(forType: .string) {
             let trimmed = str.trimmingCharacters(in: .whitespacesAndNewlines)
             let isURL = URL(string: trimmed).map { $0.scheme != nil } ?? false
+            let format = RichText.preferredFormat(in: pasteboard.types ?? [])
             return ClipboardItem(
                 type: isURL ? .url : .text,
+                // Both derived from the plain string, deliberately. Hashing the
+                // RTF instead would break deduplication: the same text copied
+                // from two apps carries different formatting bytes and would
+                // come back as a new item every time. A preview with markup in
+                // it would also be unreadable on the card.
                 preview: String(str.prefix(Self.previewTextLength(from: defaults))),
                 contentHash: Self.hash(str),
                 textContent: str,
+                richTextData: format.flatMap { pasteboard.data(forType: $0.pasteboardType) },
+                richTextFormat: format,
                 sourceAppBundleID: sourceApp
             )
         }
@@ -223,22 +231,22 @@ final class ClipboardMonitor {
 
     /// How many characters of a copied string to keep as the card preview.
     static func previewTextLength(from defaults: UserDefaults = .standard) -> Int {
-        let v = defaults.integer(forKey: "previewTextLength")
+        let v = defaults.integer(forKey: PreferenceKeys.previewTextLength)
         return v > 0 ? v : 200
     }
 
     static func showLinkPreviews(from defaults: UserDefaults = .standard) -> Bool {
-        defaults.object(forKey: "showLinkPreviews") as? Bool ?? true
+        defaults.object(forKey: PreferenceKeys.showLinkPreviews) as? Bool ?? true
     }
 
     static func soundFeedbackEnabled(from defaults: UserDefaults = .standard) -> Bool {
-        defaults.object(forKey: "enableSoundFeedback") as? Bool ?? true
+        defaults.object(forKey: PreferenceKeys.enableSoundFeedback) as? Bool ?? true
     }
 
     /// Parses the user's ignored-apps list, stored as a string of bundle IDs
     /// separated by newlines or commas.
     static func ignoredBundleIDs(from defaults: UserDefaults = .standard) -> Set<String> {
-        let raw = defaults.string(forKey: "ignoredAppsRaw") ?? ""
+        let raw = defaults.string(forKey: PreferenceKeys.ignoredAppsRaw) ?? ""
         // isNewline rather than == "\n": a CRLF pair is a single Character in
         // Swift, so comparing against "\n" would miss a list pasted out of a
         // Windows file and leave the separator glued to each bundle ID.
