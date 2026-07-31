@@ -101,11 +101,12 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
             },
             onDismiss: { [weak self] in self?.hide() },
             destinationAppName: { [weak self] in self?.previousApp?.localizedName },
-            onTogglePreview: { [weak self] in self?.togglePreviewPanel() },
             onPreviewSelectionChange: { [weak self] item, anchor in
                 self?.updatePreviewSelection(item: item, anchor: anchor)
             },
-            onShowPreview: { [weak self] in self?.showPreviewPanel() }
+            onShowPreview: { [weak self] in self?.showPreviewPanel() },
+            onHidePreview: { [weak self] in self?.hidePreviewPanel() },
+            isPreviewOpen: { [weak self] in self?.previewPanel?.isVisible == true }
         )
         .modelContainer(modelContainer)
 
@@ -273,24 +274,13 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         }
     }
 
-    /// ⌘⇧K spike trigger: opens/closes the preview panel from the overlay.
-    /// Temporary — Task 21 replaces this with ␣ over the selected card and
-    /// removes this method, `onTogglePreview`, and `SpikeLog`.
-    private func togglePreviewPanel() {
-        if let panel = previewPanel, panel.isVisible {
-            panel.orderOut(nil)
-            return
-        }
-        showPreviewPanel()
-    }
-
     /// Shows the preview panel with whatever `previewItem` currently holds.
     ///
     /// A no-op when there's nothing selected to show (e.g. the history is
     /// empty) — there's nothing meaningful to open the panel onto. Reused by
-    /// both `togglePreviewPanel()` (⌘⇧K) and `onShowPreview` (the "Preview"
-    /// context menu entry), which is why it never closes the panel itself:
-    /// that decision belongs to the caller.
+    /// both `␣` and `onShowPreview` (the "Preview" context menu entry), which
+    /// is why it never closes the panel itself: that decision belongs to the
+    /// caller.
     private func showPreviewPanel() {
         guard let item = previewItem else { return }
         let panel = previewPanel ?? ItemPreviewPanel.make()
@@ -301,8 +291,15 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         // orderFrontRegardless, not makeKeyAndOrderFront: the panel must
         // never take key status away from the overlay. See the brief's Step 3.
         panel.orderFrontRegardless()
-        SpikeLog.write("showPreviewPanel: frame=\(panel.frame) visible=\(panel.isVisible) "
-                       + "item=\(item.id)")
+    }
+
+    /// Closes just the preview panel, leaving the overlay itself open.
+    ///
+    /// Used by Escape's "dismiss what's on top" rule (see
+    /// `OverlayView.escapeClosesPreview`) and by `ItemPreviewView`'s own
+    /// close button.
+    private func hidePreviewPanel() {
+        previewPanel?.orderOut(nil)
     }
 
     /// Keeps the preview panel in sync with the overlay's selection.
@@ -339,7 +336,7 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
     /// spike ran into.
     private func applyPreviewContent(to panel: NSPanel, item: ClipboardItem) {
         let host = NSHostingView(rootView: ItemPreviewView(item: item, onClose: { [weak self] in
-            self?.previewPanel?.orderOut(nil)
+            self?.hidePreviewPanel()
         }))
         host.frame = NSRect(origin: .zero, size: ItemPreviewPanel.defaultSize)
         host.autoresizingMask = [NSView.AutoresizingMask.width, NSView.AutoresizingMask.height]

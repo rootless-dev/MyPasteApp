@@ -37,9 +37,6 @@ struct OverlayView: View {
     /// closure defers that read to whenever the context menu is actually
     /// assembled, so it always reflects the current opening.
     let destinationAppName: () -> String?
-    /// Task 19 spike only: opens/closes the disposable preview panel via
-    /// ⌘⇧K. Not a real feature — Task 21 replaces this trigger entirely.
-    let onTogglePreview: () -> Void
     /// Reports the selected item and its on-screen frame every time either
     /// changes, whether or not the preview panel is open.
     ///
@@ -49,30 +46,42 @@ struct OverlayView: View {
     /// closure is the bridge: `OverlayWindowController` keeps the last
     /// values it received so that whenever the panel is (re)shown, it
     /// already knows what to display and where, instead of only finding out
-    /// the moment `onTogglePreview`/`onShowPreview` fires.
+    /// the moment `onShowPreview` fires.
     let onPreviewSelectionChange: (ClipboardItem?, CGRect?) -> Void
-    /// Opens the preview panel unconditionally — used by the "Preview"
-    /// context menu entry, where the intent is always "show", never
-    /// "toggle closed". `onTogglePreview` stays a toggle because ⌘⇧K needs
-    /// to also be able to close the panel.
+    /// Opens the preview panel unconditionally — used by both `␣` (Step 3's
+    /// `spaceOpensPreview`) and the "Preview" context menu entry, where the
+    /// intent is always "show", never "toggle closed".
     let onShowPreview: () -> Void
+    /// Closes just the preview panel, leaving the overlay itself open —
+    /// used by `␣`'s counterpart, Escape, when `escapeClosesPreview` says
+    /// the panel is what should go first.
+    let onHidePreview: () -> Void
+    /// Whether the preview panel is currently open, read fresh by the
+    /// Escape handler on every press. The panel is an imperative `NSPanel`
+    /// owned by `OverlayWindowController`, not SwiftUI state this view
+    /// holds itself, so its visibility has to be asked for rather than
+    /// observed — the same closure-as-bridge shape as
+    /// `onPreviewSelectionChange`.
+    let isPreviewOpen: () -> Bool
 
     init(writer: ClipboardWriter,
          itemEditor: ItemEditorWindowController,
          onPick: @escaping (ClipboardItem, Bool) -> Void,
          onDismiss: @escaping () -> Void,
          destinationAppName: @escaping () -> String? = { nil },
-         onTogglePreview: @escaping () -> Void = {},
          onPreviewSelectionChange: @escaping (ClipboardItem?, CGRect?) -> Void = { _, _ in },
-         onShowPreview: @escaping () -> Void = {}) {
+         onShowPreview: @escaping () -> Void = {},
+         onHidePreview: @escaping () -> Void = {},
+         isPreviewOpen: @escaping () -> Bool = { false }) {
         self.writer = writer
         self.itemEditor = itemEditor
         self.onPick = onPick
         self.onDismiss = onDismiss
         self.destinationAppName = destinationAppName
-        self.onTogglePreview = onTogglePreview
         self.onPreviewSelectionChange = onPreviewSelectionChange
         self.onShowPreview = onShowPreview
+        self.onHidePreview = onHidePreview
+        self.isPreviewOpen = isPreviewOpen
     }
 
     /// Built fresh on every access: it only wraps references (the model
@@ -111,6 +120,24 @@ struct OverlayView: View {
         if item.textContent?.lowercased().contains(q) == true { return true }
         if item.label?.lowercased().contains(q) == true { return true }
         return false
+    }
+
+    /// Whether Space should open the preview rather than type a space.
+    ///
+    /// The search field holds focus from `onAppear`, so Space can't simply be
+    /// claimed by the overlay. A leading space in a search has no use, which
+    /// makes an empty field the safe place to take the key; "foo bar" is
+    /// unaffected because the field isn't empty by then.
+    static func spaceOpensPreview(searchText: String) -> Bool {
+        searchText.isEmpty
+    }
+
+    /// Whether Escape should close the preview instead of the overlay.
+    ///
+    /// Dismiss what's on top first, as the system does everywhere else.
+    /// Without this, closing the panel takes the whole drawer with it.
+    static func escapeClosesPreview(isPreviewOpen: Bool) -> Bool {
+        isPreviewOpen
     }
 
     var body: some View {
@@ -181,7 +208,19 @@ struct OverlayView: View {
         .onChange(of: filtered.first?.id) { _, newID in
             selectedID = newID
         }
-        .onKeyPress(.escape) { onDismiss(); return .handled }
+        .onKeyPress(.escape) {
+            if Self.escapeClosesPreview(isPreviewOpen: isPreviewOpen()) {
+                onHidePreview()
+            } else {
+                onDismiss()
+            }
+            return .handled
+        }
+        .onKeyPress(.space) {
+            guard Self.spaceOpensPreview(searchText: searchText) else { return .ignored }
+            onShowPreview()
+            return .handled
+        }
         // `phases: .down` is required here: the single-key `onKeyPress(_:action:)`
         // overload only exposes a no-argument closure, so reading
         // `press.modifiers` (for ⇧↵) needs the `phases:` overload instead.
@@ -217,24 +256,6 @@ struct OverlayView: View {
                 return .handled
             }
             return .ignored
-        }
-        // Both cases on purpose: with Shift held, the resolved key arrives as
-        // "K", not "k", so listening for the lowercase one alone never fires.
-        .onKeyPress(keys: ["k", "K"]) { press in
-            // Task 19 spike only: ⌘⇧K opens/closes the disposable preview
-            // panel. Picked over ⌘⇧P/⌘⇧V because those are the app's default
-            // *global* hotkeys (pause, toggle overlay) registered through
-            // Carbon — they fire regardless of which window is key, so
-            // reusing either here would double-trigger. Gone once Task 21
-            // picks the real trigger (␣).
-            SpikeLog.write("keyPress k/K: char=\(press.key.character) modifiers=\(press.modifiers)")
-            guard press.modifiers.contains(.command), press.modifiers.contains(.shift) else {
-                SpikeLog.write("  -> ignored (modifiers did not match)")
-                return .ignored
-            }
-            SpikeLog.write("  -> calling onTogglePreview()")
-            onTogglePreview()
-            return .handled
         }
         .onKeyPress(.delete) {
             if let item = filtered.first(where: { $0.id == selectedID }) {
