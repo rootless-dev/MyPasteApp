@@ -40,6 +40,9 @@ final class ClipboardItem {
     /// A user-given name for the item. Only written by `ItemEdit.apply` for
     /// now — the card and search UI arrive in Task 17.
     var label: String?
+    /// Text recognised inside an image, filled in asynchronously by
+    /// `OCRQueue`. Never part of `contentHash` or `preview` — see Task 2.
+    var ocrText: String?
 
     var type: ClipboardItemType {
         get { ClipboardItemType(rawValue: typeRaw) ?? .text }

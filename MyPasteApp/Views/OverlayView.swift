@@ -110,19 +110,8 @@ struct OverlayView: View {
             if a.isPinned != b.isPinned { return a.isPinned }
             return a.createdAt > b.createdAt
         }
-        return sorted.filter { Self.matches(item: $0, query: searchText) }
-    }
-
-    /// Whether an item satisfies the search query.
-    ///
-    /// Static and pure so the rule is testable without rendering the overlay.
-    static func matches(item: ClipboardItem, query: String) -> Bool {
-        let q = query.lowercased()
-        guard !q.isEmpty else { return true }
-        if item.preview.lowercased().contains(q) { return true }
-        if item.textContent?.lowercased().contains(q) == true { return true }
-        if item.label?.lowercased().contains(q) == true { return true }
-        return false
+        let now = Date.now
+        return sorted.filter { ItemSearch.matches(item: $0, query: searchText, now: now) }
     }
 
     /// Whether Space should open the preview rather than type a space.
