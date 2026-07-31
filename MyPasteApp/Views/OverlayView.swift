@@ -13,6 +13,10 @@ struct OverlayView: View {
     private var items: [ClipboardItem]
 
     @State private var selectedID: UUID?
+    /// Selection to honour on the next list change, instead of the top card.
+    @State private var pendingSelection: UUID?
+    /// Set to ask the scroll view to reveal a card once it's rendered.
+    @State private var scrollRequest: UUID?
     /// Each visible card's frame, refreshed continuously by
     /// `CardFramePreferenceKey` as cards appear, scroll, or the window
     /// resizes. Read by `notifyPreviewSelection()` to tell
@@ -110,7 +114,7 @@ struct OverlayView: View {
     /// needs to survive across view updates.
     private var itemActions: ItemActions {
         ItemActions(modelContext: modelContext, writer: writer, onPaste: onPick,
-                    editorWindow: itemEditor, onPreview: preview)
+                    editorWindow: itemEditor, onPreview: preview, onJump: jumpToHistory)
     }
 
     /// Whether this paste should hand over plain text.
@@ -171,6 +175,16 @@ struct OverlayView: View {
         isPreviewOpen
     }
 
+    /// Which card should be selected after the list changes shape.
+    ///
+    /// The plain behaviour is "follow the top card", which is right when items
+    /// are added or removed — and wrong right after a jump or after letting go
+    /// of the search, because clearing the query changes the list and would
+    /// steal the selection away from the item the user asked to see.
+    static func selectionAfterListChange(pending: UUID?, newFirstID: UUID?) -> UUID? {
+        pending ?? newFirstID
+    }
+
     /// Where the filter panel starts, measured from the top of the drawer's
     /// content.
     ///
@@ -222,7 +236,8 @@ struct OverlayView: View {
                                 .contextMenu {
                                     ItemContextMenu(item: item,
                                                     actions: itemActions,
-                                                    destinationAppName: destinationAppName())
+                                                    destinationAppName: destinationAppName(),
+                                                    isSearchNarrowed: search.hasContent)
                                 }
                             }
                         }
@@ -235,6 +250,11 @@ struct OverlayView: View {
                             withAnimation { proxy.scrollTo(id, anchor: .center) }
                         }
                         notifyPreviewSelection()
+                    }
+                    .onChange(of: scrollRequest) { _, id in
+                        guard let id else { return }
+                        withAnimation { proxy.scrollTo(id, anchor: .center) }
+                        scrollRequest = nil
                     }
                     .onPreferenceChange(CardFramePreferenceKey.self) { frames in
                         cardFrames.update(frames)
@@ -295,7 +315,9 @@ struct OverlayView: View {
             selectedID = filtered.first?.id
         }
         .onChange(of: filtered.first?.id) { _, newID in
-            selectedID = newID
+            selectedID = Self.selectionAfterListChange(pending: pendingSelection,
+                                                       newFirstID: newID)
+            pendingSelection = nil
         }
         // The search can also be closed from outside this view:
         // `OverlayWindowController.show()` resets it on every opening. Either
@@ -469,6 +491,19 @@ struct OverlayView: View {
             onDismiss()
             return .handled
         }
+        // Both cases registered, like ⌘F below: with ⇧ held the key arrives
+        // uppercased, which is what made ⌘⇧K silently dead in Phase 2.
+        //
+        // Gated on `hasContent` for the same reason the menu entry is: with
+        // the whole history already on screen there is nothing to jump out of.
+        .onKeyPress(keys: ["j", "J"]) { press in
+            guard press.modifiers.contains(.command), search.hasContent else { return .ignored }
+            guard let item = filtered.first(where: { $0.id == selectedID }) else {
+                return .ignored
+            }
+            jumpToHistory(item)
+            return .handled
+        }
         // Typing with the search closed opens it — the behaviour Paste teaches
         // in its own onboarding card ("Start typing to search"). The character
         // must not be swallowed by the transition.
@@ -550,9 +585,30 @@ struct OverlayView: View {
     /// which is always in the tree, so there's no inserted view to wait for.
     /// The `onChange(of: search.isActive)` above would catch this too — the
     /// explicit write is what keeps the local path from depending on that.
+    ///
+    /// The pending selection is the same trap the jump exists to avoid:
+    /// clearing the query changes the list, and the top card would otherwise
+    /// take the selection away from whatever the user had highlighted.
     private func closeSearch() {
+        pendingSelection = selectedID
         search.close()
         focusTarget = .list
+    }
+
+    /// Clears search and filters, then reveals the item in the full history.
+    ///
+    /// The order matters: clearing first, scrolling second. Asking for the
+    /// scroll in the same cycle does nothing — the id isn't in the rendered
+    /// list yet, which is why the request is deferred by one turn of the
+    /// main actor.
+    private func jumpToHistory(_ item: ClipboardItem) {
+        pendingSelection = item.id
+        search.close()
+        focusTarget = .list
+        selectedID = item.id
+        Task { @MainActor in
+            scrollRequest = item.id
+        }
     }
 
     private func pick(_ item: ClipboardItem, plainText: Bool? = nil) {

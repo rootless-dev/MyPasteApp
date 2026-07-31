@@ -40,6 +40,8 @@ struct ItemContextMenu: View {
     let actions: ItemActions
     /// Name of the app the paste would land in, when it's known.
     let destinationAppName: String?
+    /// Whether a search or filter is narrowing the list right now.
+    let isSearchNarrowed: Bool
 
     @AppStorage(PreferenceKeys.alwaysPastePlainText) private var alwaysPastePlainText = false
 
@@ -75,6 +77,12 @@ struct ItemContextMenu: View {
         }
         // Unlike "Edit", renaming applies to every type.
         Button(titled("Rename", "⌘R")) { actions.rename(item) }
+
+        if isSearchNarrowed {
+            // Only meaningful while something is hiding the rest of the
+            // history — with the full list on screen it would do nothing.
+            Button(titled("Show in History", "⌘J")) { actions.jumpToHistory(item) }
+        }
 
         Divider()
 
