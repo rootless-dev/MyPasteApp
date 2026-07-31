@@ -32,6 +32,14 @@ struct TextPreviewView: NSViewRepresentable {
         guard let textView = scrollView.documentView as? NSTextView else {
             return scrollView
         }
+        // Enforces the invariant above at runtime, in Debug only: if this ever
+        // fires, something upstream (an AppKit version change, a well-meaning
+        // edit) knocked the view into TextKit 1, and the whole document is
+        // about to be laid out and rasterized again — the 240 MB bug is back.
+        assert(textView.textLayoutManager != nil,
+               "TextPreviewView dropped to TextKit 1 — the whole document " +
+               "will be laid out again, reintroducing the memory bug this " +
+               "view exists to fix. Do not touch textView.layoutManager.")
         textView.isEditable = false
         // Keeps the selection the previous `.textSelection(.enabled)` gave.
         textView.isSelectable = true

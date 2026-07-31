@@ -40,13 +40,16 @@ final class FileThumbnailService {
         do {
             let rep = try await QLThumbnailGenerator.shared.generateBestRepresentation(for: request)
             let img = rep.nsImage
+            // img.size is in points; totalCostLimit bounds bytes of bitmap. On a
+            // 2x display a 360x360pt thumbnail backs a 720x720 bitmap (~2 MB),
+            // not the ~0.5 MB this would declare without scaling both axes.
             cache.setObject(img, forKey: cacheKey as NSString,
-                            cost: Int(img.size.width * img.size.height * 4))
+                            cost: Int(img.size.width * scale * img.size.height * scale * 4))
             return img
         } catch {
             let icon = NSWorkspace.shared.icon(forFile: path)
             cache.setObject(icon, forKey: cacheKey as NSString,
-                            cost: Int(icon.size.width * icon.size.height * 4))
+                            cost: Int(icon.size.width * scale * icon.size.height * scale * 4))
             return icon
         }
     }
