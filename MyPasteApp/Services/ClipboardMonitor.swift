@@ -22,7 +22,10 @@ final class ClipboardMonitor {
     /// when it finds the preference off, and only `enqueueBacklog()` puts it
     /// back — without this, turning OCR back on would recognise new captures
     /// while the existing history stayed permanently blank until a relaunch.
-    private var lastSeenOCREnabled = OCRQueue.isEnabled()
+    /// Assigned in `init`, not inline: a property initializer can't reach
+    /// `self.defaults`, and reading `UserDefaults.standard` here would silently
+    /// ignore whatever store this instance was constructed with.
+    private var lastSeenOCREnabled: Bool
 
     /// When true, ignores the next detected change (used by ClipboardWriter
     /// to avoid recapturing items it just wrote back to the pasteboard).
@@ -36,6 +39,7 @@ final class ClipboardMonitor {
         self.modelContext = modelContext
         self.defaults = defaults
         self.lastChangeCount = NSPasteboard.general.changeCount
+        self.lastSeenOCREnabled = OCRQueue.isEnabled(from: defaults)
     }
 
     func start() {
@@ -111,10 +115,10 @@ final class ClipboardMonitor {
             ocrQueue.enqueue(stored.id)
         }
 
-        if item.type == .url, let urlString = item.textContent,
+        if stored.type == .url, let urlString = stored.textContent,
            let url = URL(string: urlString.trimmingCharacters(in: .whitespacesAndNewlines)),
            url.scheme?.hasPrefix("http") == true {
-            fetchLinkMetadata(for: item, url: url)
+            fetchLinkMetadata(for: stored, url: url)
         }
     }
 
