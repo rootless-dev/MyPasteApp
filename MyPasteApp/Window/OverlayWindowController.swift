@@ -26,6 +26,18 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
     /// actually open. See `updatePreviewSelection(item:anchor:)`.
     private var previewItem: ClipboardItem?
     private var previewAnchorFrame: CGRect?
+    /// The id of the item whose content is currently loaded into the preview
+    /// panel's `contentView`, or nil when nothing has been built yet.
+    ///
+    /// Guards `applyPreviewContent` against rebuilding on every card-frame
+    /// change `updatePreviewSelection` reports — scrolling the card strip
+    /// reports a new frame for the selected card on every animation tick,
+    /// and rebuilding on each one threw away the panel's own scroll position
+    /// and text selection, and allocated a fresh `NSHostingView` per frame.
+    /// The item's own content still updates live when it changes underneath
+    /// an unchanged id: `ClipboardItem` is a SwiftData `@Model`, so the
+    /// already-hosted `ItemPreviewView` observes its properties on its own.
+    private var previewDisplayedItemID: UUID?
 
     init(modelContainer: ModelContainer,
          writer: ClipboardWriter,
@@ -286,7 +298,12 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         let panel = previewPanel ?? ItemPreviewPanel.make()
         previewPanel = panel
         panel.sharingType = WindowPrivacy.sharingType()
-        applyPreviewContent(to: panel, item: item)
+        // Reopening on the same item the panel already had loaded (e.g. ␣ was
+        // pressed again after Escape closed it) doesn't need a rebuild — see
+        // `previewDisplayedItemID`.
+        if previewDisplayedItemID != item.id {
+            applyPreviewContent(to: panel, item: item)
+        }
         positionPreviewPanel(panel)
         // orderFrontRegardless, not makeKeyAndOrderFront: the panel must
         // never take key status away from the overlay. See the brief's Step 3.
@@ -319,9 +336,19 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
             // surprising option, matching what happens when the overlay
             // itself runs out of cards to select.
             panel.orderOut(nil)
+            previewDisplayedItemID = nil
             return
         }
-        applyPreviewContent(to: panel, item: item)
+        // Only rebuild the panel's content when the selection actually
+        // changed. This fires on every card-frame update too — scrolling the
+        // strip alone would otherwise tear down and rebuild the panel's
+        // content on every animation frame, losing the user's scroll
+        // position and text selection inside it. Repositioning stays
+        // unconditional below: the panel must keep tracking the card as it
+        // moves regardless of whether its content changed.
+        if previewDisplayedItemID != item.id {
+            applyPreviewContent(to: panel, item: item)
+        }
         positionPreviewPanel(panel)
     }
 
@@ -341,6 +368,7 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         host.frame = NSRect(origin: .zero, size: ItemPreviewPanel.defaultSize)
         host.autoresizingMask = [NSView.AutoresizingMask.width, NSView.AutoresizingMask.height]
         panel.contentView = host
+        previewDisplayedItemID = item.id
     }
 
     /// Positions the panel above the selected card, horizontally centered on
