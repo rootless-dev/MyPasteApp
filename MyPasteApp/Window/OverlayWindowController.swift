@@ -17,6 +17,15 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
     private var globalMouseMonitor: Any?
     private var localMouseMonitor: Any?
     private var previousApp: NSRunningApplication?
+    /// The overlay's search, owned here rather than by `OverlayView`.
+    ///
+    /// `prepare()` builds one `OverlayView` for the life of the process, so
+    /// anything the view held in `@State` would survive the drawer closing:
+    /// dismissing with the field open (⌘F then Escape) or pasting mid-query
+    /// would bring the next opening back mid-search instead of at rest. Held
+    /// here, `show()` can reset it on every opening — the one place that
+    /// covers Escape, paste and click-outside alike.
+    private let searchState = SearchState()
     // Task 19 spike: a second window of our own, so the click-outside
     // monitors below need to know about it too. See ItemPreviewPanel.
     private var previewPanel: NSPanel?
@@ -95,6 +104,7 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         let root = OverlayView(
             writer: writer,
             itemEditor: itemEditor,
+            search: searchState,
             onPick: { [weak self] item, plainText in
                 guard let self else { return }
                 self.onPick(item, plainText)
@@ -161,6 +171,15 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         prepare()
         applySharingPolicy()
         guard let panel = window else { return }
+
+        // Every opening starts at rest: magnifier, no query, no filters. Done
+        // before the panel is ordered front so the collapsed top bar is
+        // already laid out by the `layoutSubtreeIfNeeded()` below, and the
+        // slide-up never shows a stale field. This is the single place that
+        // covers all three ways the drawer goes away — Escape, a paste
+        // (`hideImmediately`) and a click outside — none of which run any
+        // teardown inside `OverlayView`.
+        searchState.close()
 
         let height = Self.overlayHeight
         let frame = NSRect(

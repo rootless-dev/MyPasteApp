@@ -12,7 +12,6 @@ struct OverlayView: View {
     @Query(sort: \ClipboardItem.createdAt, order: .reverse)
     private var items: [ClipboardItem]
 
-    @State private var search = SearchState()
     @State private var selectedID: UUID?
     /// Each visible card's frame, refreshed continuously by
     /// `CardFramePreferenceKey` as cards appear, scroll, or the window
@@ -34,6 +33,16 @@ struct OverlayView: View {
 
     let writer: ClipboardWriter
     let itemEditor: ItemEditorWindowController
+    /// Owned by `OverlayWindowController`, not by this view.
+    ///
+    /// The overlay is built once, in `prepare()`, and reused for the life of
+    /// the process — so state held here in `@State` would outlive the drawer
+    /// being closed, and the next opening would come back mid-search instead
+    /// of at rest. The controller resets it on every `show()`. A plain `let`
+    /// is enough for updates to arrive: `SearchState` is `@Observable`, so
+    /// reading its properties during `body` registers the dependency
+    /// regardless of how the reference is stored.
+    let search: SearchState
     let onPick: (ClipboardItem, Bool) -> Void
     let onDismiss: () -> Void
     /// Resolves the name of the app a paste would land in, read fresh at menu
@@ -76,6 +85,7 @@ struct OverlayView: View {
 
     init(writer: ClipboardWriter,
          itemEditor: ItemEditorWindowController,
+         search: SearchState,
          onPick: @escaping (ClipboardItem, Bool) -> Void,
          onDismiss: @escaping () -> Void,
          destinationAppName: @escaping () -> String? = { nil },
@@ -85,6 +95,7 @@ struct OverlayView: View {
          isPreviewOpen: @escaping () -> Bool = { false }) {
         self.writer = writer
         self.itemEditor = itemEditor
+        self.search = search
         self.onPick = onPick
         self.onDismiss = onDismiss
         self.destinationAppName = destinationAppName
@@ -216,24 +227,42 @@ struct OverlayView: View {
                     cardFrames.update(frames)
                     notifyPreviewSelection()
                 }
-                // The card strip is what holds the keyboard whenever the
-                // search field isn't there to hold it. `onKeyPress` only
-                // fires while the declaring view or a descendant is focused,
-                // so without this the overlay would see no keys at rest.
-                .focusable()
-                .focused($focusTarget, equals: .list)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(VisualEffectBackground())
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .padding(8)
+        // Something has to hold the keyboard whenever the search field isn't
+        // there to hold it: `onKeyPress` only fires while the declaring view
+        // or a descendant is focused, so with nothing focused the overlay
+        // sees no keys at all — exactly what Phase 1 found.
+        //
+        // Deliberately the root container and NOT the `ScrollView`. A focused
+        // macOS scroll view handles `←`/`→` and `␣` natively, and the
+        // handlers below live on this root: making the focused view and the
+        // handlers the same view removes the question of who is consulted
+        // first. `focusEffectDisabled` suppresses the ring the system would
+        // otherwise draw around the whole drawer — the cards carry their own
+        // selection highlight, and the search field its own background.
+        .focusable()
+        .focusEffectDisabled()
+        .focused($focusTarget, equals: .list)
         .onAppear {
             focusTarget = .list
             selectedID = filtered.first?.id
         }
         .onChange(of: filtered.first?.id) { _, newID in
             selectedID = newID
+        }
+        // The search can also be closed from outside this view:
+        // `OverlayWindowController.show()` resets it on every opening. Either
+        // way the `.search`-tagged field leaves the tree, and a focus target
+        // that no longer exists focuses nothing — which would leave the
+        // reopened drawer keyboard-dead. Reading `search.isActive` here is
+        // also what registers this body's dependency on it.
+        .onChange(of: search.isActive) { _, isActive in
+            if !isActive { focusTarget = .list }
         }
         .onKeyPress(.escape) {
             switch SearchState.escapeAction(isFilterPanelOpen: search.isFilterPanelOpen,
@@ -371,10 +400,11 @@ struct OverlayView: View {
         // in its own onboarding card ("Start typing to search"). The character
         // must not be swallowed by the transition.
         //
-        // Applied last on purpose: key presses reach the innermost handler
-        // first, so every ⌘-gated handler above gets its refusal in before
-        // this one is consulted. `activationCharacter` rejects ⌘/⌃/⌥ anyway,
-        // which makes the order belt-and-braces rather than load-bearing.
+        // What keeps this from stealing ⌘C/⌘P/⌘E/⌘R/⌘N/⌘1-9/⌘F is not where
+        // it sits in the chain — ⌘F is registered after it — but
+        // `SearchState.activationCharacter`, which returns nil for anything
+        // held with ⌘, ⌃ or ⌥. This handler then returns `.ignored` and the
+        // key goes on to whichever handler wants it.
         .onKeyPress(characters: .alphanumerics.union(.punctuationCharacters).union(.symbols),
                     phases: .down) { press in
             guard let character = press.characters.first,
@@ -397,10 +427,20 @@ struct OverlayView: View {
     /// Opens the search and points the keyboard at it.
     private func activateSearch(seeding character: Character? = nil) {
         search.activate(seeding: character)
-        focusTarget = .search
+        // Deferred by one turn on purpose: `OverlayTopBar` only inserts the
+        // `.search`-tagged field on the render that `activate` triggers, and a
+        // focus value written before its target exists can be dropped — which
+        // would leave nothing focused at all and silently kill every
+        // `onKeyPress` on the chain.
+        Task { @MainActor in focusTarget = .search }
     }
 
-    /// Closes the search and hands the keyboard back to the card strip.
+    /// Closes the search and hands the keyboard back to the root container.
+    ///
+    /// Synchronous, unlike `activateSearch`: `.list` names the root container,
+    /// which is always in the tree, so there's no inserted view to wait for.
+    /// The `onChange(of: search.isActive)` above would catch this too — the
+    /// explicit write is what keeps the local path from depending on that.
     private func closeSearch() {
         search.close()
         focusTarget = .list
