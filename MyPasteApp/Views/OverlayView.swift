@@ -14,6 +14,10 @@ struct OverlayView: View {
 
     @State private var selectedID: UUID?
     /// Selection to honour on the next list change, instead of the top card.
+    ///
+    /// Lives for exactly one turn of the main actor — see `jumpToHistory` and
+    /// `closeSearch`, which both drop it in a deferred task so an id that no
+    /// list change ever consumed can't stay armed.
     @State private var pendingSelection: UUID?
     /// Set to ask the scroll view to reveal a card once it's rendered.
     @State private var scrollRequest: UUID?
@@ -589,10 +593,17 @@ struct OverlayView: View {
     /// The pending selection is the same trap the jump exists to avoid:
     /// clearing the query changes the list, and the top card would otherwise
     /// take the selection away from whatever the user had highlighted.
+    ///
+    /// This arms on *every* close, including one that narrowed nothing — so
+    /// the clear below is not an edge case, it's the common path. Deferred
+    /// rather than immediate for the reason spelled out in `jumpToHistory`:
+    /// clearing in this same turn would run before the list-change handler
+    /// could consume it, which is the whole point of arming it.
     private func closeSearch() {
         pendingSelection = selectedID
         search.close()
         focusTarget = .list
+        Task { @MainActor in pendingSelection = nil }
     }
 
     /// Clears search and filters, then reveals the item in the full history.
@@ -601,6 +612,19 @@ struct OverlayView: View {
     /// scroll in the same cycle does nothing — the id isn't in the rendered
     /// list yet, which is why the request is deferred by one turn of the
     /// main actor.
+    ///
+    /// The pending id is dropped in that same deferred turn, and not before.
+    /// It is meant to survive exactly one list change: the list-change handler
+    /// consumes it first when the head of the list actually moved, and when it
+    /// didn't move — the head of the search results was already the head of the
+    /// history — the handler never runs and this is what stops the id from
+    /// staying armed indefinitely. Left armed, the next unrelated list change
+    /// would honour it, and if the item had been deleted meanwhile the
+    /// selection would point at a card that no longer exists. Clearing it
+    /// immediately instead would defeat the arming entirely.
+    ///
+    /// Note this bounds how long a stale id can live; it does not verify that
+    /// the id is still in the list. Nothing here does.
     private func jumpToHistory(_ item: ClipboardItem) {
         pendingSelection = item.id
         search.close()
@@ -608,6 +632,7 @@ struct OverlayView: View {
         selectedID = item.id
         Task { @MainActor in
             scrollRequest = item.id
+            pendingSelection = nil
         }
     }
 
