@@ -12,7 +12,7 @@ struct OverlayView: View {
     @Query(sort: \ClipboardItem.createdAt, order: .reverse)
     private var items: [ClipboardItem]
 
-    @State private var searchText = ""
+    @State private var search = SearchState()
     @State private var selectedID: UUID?
     /// Each visible card's frame, refreshed continuously by
     /// `CardFramePreferenceKey` as cards appear, scroll, or the window
@@ -20,7 +20,15 @@ struct OverlayView: View {
     /// `OverlayWindowController` where to anchor the preview panel. Lives in a
     /// reference type on purpose — see `CardFrameStore`.
     @State private var cardFrames = CardFrameStore()
-    @FocusState private var searchFocused: Bool
+    /// Where the keyboard is pointed.
+    ///
+    /// The overlay used to keep the search field focused at all times, which
+    /// is also how `onKeyPress` received anything at all: it only fires while
+    /// the declaring view or a descendant holds focus. With the field gone at
+    /// rest, the card strip has to take focus instead — without that, the
+    /// overlay goes back to being exactly what Phase 1 found: a window that
+    /// never sees a key.
+    @FocusState private var focusTarget: OverlayFocusTarget?
     @AppStorage(PreferenceKeys.showQuickPasteNumbers) private var showQuickPasteNumbers = true
     @AppStorage(PreferenceKeys.alwaysPastePlainText) private var alwaysPastePlainText = false
 
@@ -111,15 +119,19 @@ struct OverlayView: View {
             return a.createdAt > b.createdAt
         }
         let now = Date.now
-        return sorted.filter { ItemSearch.matches(item: $0, query: searchText, now: now) }
+        return sorted.filter {
+            ItemSearch.matches(item: $0, query: search.text, filter: search.filter, now: now)
+        }
     }
 
     /// Whether Space should open the preview rather than type a space.
     ///
-    /// The search field holds focus from `onAppear`, so Space can't simply be
-    /// claimed by the overlay. A leading space in a search has no use, which
-    /// makes an empty field the safe place to take the key; "foo bar" is
-    /// unaffected because the field isn't empty by then.
+    /// While the search is open the field holds focus, so Space can't simply
+    /// be claimed by the overlay. A leading space in a search has no use,
+    /// which makes an empty field the safe place to take the key; "foo bar" is
+    /// unaffected because the field isn't empty by then. With the search
+    /// closed the text is empty by definition, so the same rule already says
+    /// "toggle the preview" — no second branch needed.
     ///
     /// The key that opens the panel also closes it — anything else would make
     /// the user reach for Escape to undo what Space just did.
@@ -140,17 +152,22 @@ struct OverlayView: View {
     ///
     /// Dismiss what's on top first, as the system does everywhere else.
     /// Without this, closing the panel takes the whole drawer with it.
+    ///
+    /// The live Escape handler now goes through `SearchState.escapeAction`,
+    /// which folds this rule in alongside the filter panel and the search
+    /// itself; this stays as the isolated statement of the preview half.
     static func escapeClosesPreview(isPreviewOpen: Bool) -> Bool {
         isPreviewOpen
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            SearchBar(text: $searchText)
-                .focused($searchFocused)
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
-                .padding(.bottom, 8)
+            // `activateSearch` takes a defaulted parameter, so it can't be
+            // handed over as a bare `() -> Void` — Swift doesn't apply
+            // defaults when a function is used as a value.
+            OverlayTopBar(state: search,
+                          focusTarget: $focusTarget,
+                          onActivate: { activateSearch() })
 
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -199,6 +216,12 @@ struct OverlayView: View {
                     cardFrames.update(frames)
                     notifyPreviewSelection()
                 }
+                // The card strip is what holds the keyboard whenever the
+                // search field isn't there to hold it. `onKeyPress` only
+                // fires while the declaring view or a descendant is focused,
+                // so without this the overlay would see no keys at rest.
+                .focusable()
+                .focused($focusTarget, equals: .list)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -206,22 +229,30 @@ struct OverlayView: View {
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .padding(8)
         .onAppear {
-            searchFocused = true
+            focusTarget = .list
             selectedID = filtered.first?.id
         }
         .onChange(of: filtered.first?.id) { _, newID in
             selectedID = newID
         }
         .onKeyPress(.escape) {
-            if Self.escapeClosesPreview(isPreviewOpen: isPreviewOpen()) {
+            switch SearchState.escapeAction(isFilterPanelOpen: search.isFilterPanelOpen,
+                                            isPreviewOpen: isPreviewOpen(),
+                                            isActive: search.isActive,
+                                            hasContent: search.hasContent) {
+            case .closeFilterPanel:
+                search.isFilterPanelOpen = false
+            case .hidePreview:
                 onHidePreview()
-            } else {
+            case .closeSearch:
+                closeSearch()
+            case .dismissOverlay:
                 onDismiss()
             }
             return .handled
         }
         .onKeyPress(.space) {
-            switch Self.spaceAction(searchText: searchText,
+            switch Self.spaceAction(searchText: search.text,
                                     isPreviewOpen: isPreviewOpen()) {
             case .type:
                 return .ignored
@@ -288,11 +319,23 @@ struct OverlayView: View {
             return .ignored
         }
         .onKeyPress(.delete) {
-            if let item = filtered.first(where: { $0.id == selectedID }) {
-                delete(item)
+            switch SearchState.backspaceAction(isActive: search.isActive,
+                                               textIsEmpty: search.text.isEmpty,
+                                               hasTokens: !search.filter.isEmpty) {
+            case .deleteItem:
+                if let item = filtered.first(where: { $0.id == selectedID }) {
+                    delete(item)
+                    return .handled
+                }
+                return .ignored
+            case .removeLastToken:
+                if let last = SearchToken.tokens(from: search.filter).last {
+                    search.filter = last.removed(from: search.filter)
+                }
                 return .handled
+            case .passThrough:
+                return .ignored
             }
-            return .ignored
         }
         .onKeyPress(keys: ["e"]) { press in
             guard press.modifiers.contains(.command) else { return .ignored }
@@ -324,6 +367,43 @@ struct OverlayView: View {
             onDismiss()
             return .handled
         }
+        // Typing with the search closed opens it — the behaviour Paste teaches
+        // in its own onboarding card ("Start typing to search"). The character
+        // must not be swallowed by the transition.
+        //
+        // Applied last on purpose: key presses reach the innermost handler
+        // first, so every ⌘-gated handler above gets its refusal in before
+        // this one is consulted. `activationCharacter` rejects ⌘/⌃/⌥ anyway,
+        // which makes the order belt-and-braces rather than load-bearing.
+        .onKeyPress(characters: .alphanumerics.union(.punctuationCharacters).union(.symbols),
+                    phases: .down) { press in
+            guard let character = press.characters.first,
+                  let seed = SearchState.activationCharacter(character,
+                                                             modifiers: press.modifiers,
+                                                             isActive: search.isActive)
+            else { return .ignored }
+            activateSearch(seeding: seed)
+            return .handled
+        }
+        // Both cases registered: with ⇧ held the key arrives uppercased, which
+        // is what made ⌘⇧K silently dead in Phase 2.
+        .onKeyPress(keys: ["f", "F"]) { press in
+            guard press.modifiers.contains(.command) else { return .ignored }
+            activateSearch()
+            return .handled
+        }
+    }
+
+    /// Opens the search and points the keyboard at it.
+    private func activateSearch(seeding character: Character? = nil) {
+        search.activate(seeding: character)
+        focusTarget = .search
+    }
+
+    /// Closes the search and hands the keyboard back to the card strip.
+    private func closeSearch() {
+        search.close()
+        focusTarget = .list
     }
 
     private func pick(_ item: ClipboardItem, plainText: Bool? = nil) {
