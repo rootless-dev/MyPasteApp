@@ -171,63 +171,98 @@ struct OverlayView: View {
         isPreviewOpen
     }
 
-    var body: some View {
-        VStack(spacing: 0) {
-            // `activateSearch` takes a defaulted parameter, so it can't be
-            // handed over as a bare `() -> Void` — Swift doesn't apply
-            // defaults when a function is used as a value.
-            OverlayTopBar(state: search,
-                          focusTarget: $focusTarget,
-                          onActivate: { activateSearch() },
-                          onOpenFilters: { search.isFilterPanelOpen.toggle() })
+    /// Where the filter panel starts, measured from the top of the drawer's
+    /// content: the top bar is `10 + field + 8` tall, so this parks the panel
+    /// immediately under the search field rather than over it.
+    private static let filterPanelTopInset: CGFloat = 46
 
-            ScrollViewReader { proxy in
-                ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(spacing: 12) {
-                        ForEach(Array(filtered.enumerated()), id: \.element.id) { index, item in
-                            ClipboardCardView(
-                                item: item,
-                                isSelected: selectedID == item.id,
-                                quickPasteLabel: showQuickPasteNumbers
-                                    ? QuickPaste.label(forIndex: index)
-                                    : nil,
-                                onDelete: { delete(item) }
-                            )
-                            .id(item.id)
-                            .background(
-                                // Reports this card's on-screen frame so the
-                                // preview panel can anchor above it. Color.clear
-                                // keeps this purely observational — it doesn't
-                                // intercept the tap/context-menu gestures below.
-                                GeometryReader { proxy in
-                                    Color.clear.preference(
-                                        key: CardFramePreferenceKey.self,
-                                        value: [item.id: proxy.frame(in: .global)]
-                                    )
+    var body: some View {
+        ZStack(alignment: .top) {
+            VStack(spacing: 0) {
+                // `activateSearch` takes a defaulted parameter, so it can't be
+                // handed over as a bare `() -> Void` — Swift doesn't apply
+                // defaults when a function is used as a value.
+                OverlayTopBar(state: search,
+                              focusTarget: $focusTarget,
+                              onActivate: { activateSearch() },
+                              onOpenFilters: { search.isFilterPanelOpen.toggle() })
+
+                ScrollViewReader { proxy in
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        LazyHStack(spacing: 12) {
+                            ForEach(Array(filtered.enumerated()), id: \.element.id) { index, item in
+                                ClipboardCardView(
+                                    item: item,
+                                    isSelected: selectedID == item.id,
+                                    quickPasteLabel: showQuickPasteNumbers
+                                        ? QuickPaste.label(forIndex: index)
+                                        : nil,
+                                    onDelete: { delete(item) }
+                                )
+                                .id(item.id)
+                                .background(
+                                    // Reports this card's on-screen frame so the
+                                    // preview panel can anchor above it. Color.clear
+                                    // keeps this purely observational — it doesn't
+                                    // intercept the tap/context-menu gestures below.
+                                    GeometryReader { proxy in
+                                        Color.clear.preference(
+                                            key: CardFramePreferenceKey.self,
+                                            value: [item.id: proxy.frame(in: .global)]
+                                        )
+                                    }
+                                )
+                                .onTapGesture { pick(item) }
+                                .contextMenu {
+                                    ItemContextMenu(item: item,
+                                                    actions: itemActions,
+                                                    destinationAppName: destinationAppName())
                                 }
-                            )
-                            .onTapGesture { pick(item) }
-                            .contextMenu {
-                                ItemContextMenu(item: item,
-                                                actions: itemActions,
-                                                destinationAppName: destinationAppName())
                             }
                         }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                }
-                .frame(maxHeight: .infinity)
-                .onChange(of: selectedID) { _, newID in
-                    if let id = newID {
-                        withAnimation { proxy.scrollTo(id, anchor: .center) }
+                    .frame(maxHeight: .infinity)
+                    .onChange(of: selectedID) { _, newID in
+                        if let id = newID {
+                            withAnimation { proxy.scrollTo(id, anchor: .center) }
+                        }
+                        notifyPreviewSelection()
                     }
-                    notifyPreviewSelection()
+                    .onPreferenceChange(CardFramePreferenceKey.self) { frames in
+                        cardFrames.update(frames)
+                        notifyPreviewSelection()
+                    }
                 }
-                .onPreferenceChange(CardFramePreferenceKey.self) { frames in
-                    cardFrames.update(frames)
-                    notifyPreviewSelection()
-                }
+            }
+
+            if search.isFilterPanelOpen {
+                // Catches a click anywhere else inside the overlay. Nearly
+                // transparent rather than `Color.clear`: a fully clear shape
+                // doesn't take hits.
+                Color.black.opacity(0.001)
+                    .onTapGesture { search.isFilterPanelOpen = false }
+
+                // A layer in this `ZStack`, deliberately not a `.popover`: a
+                // popover is a new window, and this overlay is `.transient` —
+                // it vanishes the moment it loses focus. Phase 2 already paid
+                // that bill once, with a whole `NSPanel` plus an exception in
+                // the click-outside monitor, just so the preview could coexist
+                // with the drawer.
+                //
+                // The facets come from `items`, the whole history, never from
+                // `filtered`: deriving them from the filtered list would make
+                // every other app disappear from the panel the instant one app
+                // was picked, leaving no way back.
+                FilterPanelView(state: search, facets: ItemSearch.facets(in: items))
+                    // Right-aligned inside the same 470pt frame the field
+                    // occupies, which is where the filter button that opens it
+                    // sits. The bottom inset keeps the panel off the drawer's
+                    // rounded corner when it is tall enough to reach it.
+                    .frame(maxWidth: 470, alignment: .trailing)
+                    .padding(.top, Self.filterPanelTopInset)
+                    .padding(.bottom, 8)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

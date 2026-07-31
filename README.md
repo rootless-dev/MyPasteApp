@@ -44,6 +44,7 @@ MyPasteApp/
     │   ├── OverlayTopBar.swift      # Magnifier at rest, field when searching
     │   ├── SearchFieldView.swift    # Field with the active filters as tokens
     │   ├── SearchTokenView.swift    # One filter, as a removable pill
+    │   ├── FilterPanelView.swift    # Type/app/date picker, a layer over the cards
     │   └── AppFacetDisplay.swift    # App names/icons and the filter labels
     └── Preview/
         ├── LinkPreviewView.swift
