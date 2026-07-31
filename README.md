@@ -39,8 +39,12 @@ MyPasteApp/
 └── Views/
     ├── OverlayView.swift        # Card grid + search
     ├── ClipboardCardView.swift  # Individual card
-    ├── SearchBar.swift
     ├── PreferencesView.swift
+    ├── Search/
+    │   ├── OverlayTopBar.swift      # Magnifier at rest, field when searching
+    │   ├── SearchFieldView.swift    # Field with the active filters as tokens
+    │   ├── SearchTokenView.swift    # One filter, as a removable pill
+    │   └── AppFacetDisplay.swift    # App names/icons and the filter labels
     └── Preview/
         ├── LinkPreviewView.swift
         └── FilePreviewView.swift

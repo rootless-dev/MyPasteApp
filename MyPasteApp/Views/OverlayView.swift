@@ -293,10 +293,20 @@ struct OverlayView: View {
             }
             return .handled
         }
+        // ␣ is the first of three keys that share one rule — see
+        // `typesIntoDetachedField` below, and its two other callers on
+        // `.delete` and on the generic character handler.
         .onKeyPress(.space) {
             switch Self.spaceAction(searchText: search.text,
                                     isPreviewOpen: isPreviewOpen()) {
             case .type:
+                // `.type` only happens with text already in the field, so this
+                // never produces a leading space.
+                if typesIntoDetachedField {
+                    search.text.append(" ")
+                    focusTarget = .search
+                    return .handled
+                }
                 return .ignored
             case .showPreview:
                 onShowPreview()
@@ -361,6 +371,15 @@ struct OverlayView: View {
             return .ignored
         }
         .onKeyPress(.delete) {
+            // Second of the three keys sharing `typesIntoDetachedField`.
+            // Only when there's a character to delete: with the text empty the
+            // existing rule below already says `.removeLastToken`, which is a
+            // real action and not a dropped key.
+            if typesIntoDetachedField, !search.text.isEmpty {
+                search.text.removeLast()
+                focusTarget = .search
+                return .handled
+            }
             switch SearchState.backspaceAction(isActive: search.isActive,
                                                textIsEmpty: search.text.isEmpty,
                                                hasTokens: !search.filter.isEmpty) {
@@ -421,12 +440,7 @@ struct OverlayView: View {
         .onKeyPress(characters: .alphanumerics.union(.punctuationCharacters).union(.symbols),
                     phases: .down) { press in
             guard let character = press.characters.first else { return .ignored }
-            // The search already open with the focus outside the field: it
-            // happens on a click on the drawer chrome, or in the one-turn
-            // window between `activate` and the deferred focus write. Without
-            // this the key is swallowed in silence — `activationCharacter`
-            // returns nil because `isActive` is already true — which is
-            // exactly what this phase exists not to do.
+            // Last of the three keys sharing `typesIntoDetachedField`.
             //
             // The `isActive: false` argument is deliberate: what's being asked
             // here is not "is the search open" but "is this a key that types
@@ -435,7 +449,7 @@ struct OverlayView: View {
             // open search with the focus on the cards read ⌘C as the letter
             // "c" and swallow the shortcut, and chain order is no defence
             // against that, for the reason spelled out just above.
-            if search.isActive, focusTarget != .search,
+            if typesIntoDetachedField,
                SearchState.activationCharacter(character,
                                                modifiers: press.modifiers,
                                                isActive: false) != nil {
@@ -457,6 +471,25 @@ struct OverlayView: View {
             activateSearch()
             return .handled
         }
+    }
+
+    /// Whether a key that belongs to the search field has arrived here instead
+    /// of at the field.
+    ///
+    /// One rule with three keys: ␣, ⌫ and any typed character. The search can
+    /// be open while the keyboard is still on the card strip — a click on the
+    /// drawer chrome moves the first responder off the field, and there's a
+    /// one-turn window between `activate()` and `activateSearch`'s deferred
+    /// focus write. In that state the handlers on this view are the only ones
+    /// that run, and each of the three used to answer `.ignored`: with no
+    /// focused field to fall through to, the key vanished with no error, no
+    /// log and nothing on screen.
+    ///
+    /// So the three handlers apply the key themselves and pull the keyboard
+    /// back to the field. A key the user typed never disappears — that promise
+    /// is the whole point of this phase, and it can't hold for letters only.
+    private var typesIntoDetachedField: Bool {
+        search.isActive && focusTarget != .search
     }
 
     /// Opens the search and points the keyboard at it.

@@ -49,14 +49,25 @@ struct SearchFieldView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
-        // The accent stroke is the field's own focus signal. `OverlayView`
-        // applies `focusEffectDisabled()` at the root, which suppresses the
-        // system focus ring for everything below it — including this field —
-        // so relying on the ring would leave the open search looking inert.
+        // The stroke is the field's only focus affordance, so it has to track
+        // focus rather than mere presence. `OverlayView` applies
+        // `focusEffectDisabled()` at the root, which suppresses the system
+        // ring for everything below it — this field included — and the field
+        // can be on screen while the keyboard is on the cards (a click on the
+        // drawer chrome, or the turn between `activate` and the deferred focus
+        // write). Stroking in accent unconditionally would claim the keyboard
+        // in exactly the state where the overlay doesn't have it.
         .background(
             Capsule()
                 .fill(.quaternary)
-                .overlay(Capsule().stroke(Color.accentColor, lineWidth: 2))
+                .overlay(
+                    Capsule().stroke(
+                        focusTarget == .search
+                            ? Color.accentColor
+                            : Color.secondary.opacity(0.4),
+                        lineWidth: 2
+                    )
+                )
         )
     }
 }

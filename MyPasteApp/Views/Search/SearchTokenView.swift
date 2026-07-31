@@ -18,6 +18,13 @@ struct SearchTokenView: View {
         HStack(spacing: 4) {
             Image(systemName: symbol)
                 .font(.system(size: 9, weight: .semibold))
+            // Deliberately uncapped. A `.frame(maxWidth:)` here or on the pill
+            // doesn't cap — it *expands* to whatever is proposed, so a short
+            // token grew a pill full of dead space while a long one truncated
+            // in the same row. `lineLimit(1)` alone is what's wanted: the
+            // label takes its ideal width and the enclosing `HStack` truncates
+            // it only when the row actually runs out of room, which is both
+            // tighter and more legible at every token count.
             Text(label)
                 .font(.system(size: 11, weight: .medium))
                 .lineLimit(1)
@@ -31,7 +38,6 @@ struct SearchTokenView: View {
         .padding(.vertical, 3)
         .background(Capsule().fill(Color.accentColor.opacity(0.22)))
         .foregroundStyle(Color.accentColor)
-        .frame(maxWidth: 130, alignment: .leading)
     }
 
     /// `@MainActor` because `AppFacetDisplay` is: the app-name lookup reads
