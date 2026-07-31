@@ -62,13 +62,17 @@ struct ItemPreviewView: View {
             }
         case .image:
             if let data = item.imageData, let img = NSImage(data: data) {
-                ScrollView([.horizontal, .vertical]) {
-                    Image(nsImage: img)
-                        .resizable()
-                        .scaledToFit()
-                        .background(CheckerboardBackground())
-                        .padding(12)
-                }
+                // Scaled to fit the panel rather than shown at natural size in
+                // a ScrollView: a 1920x1080 screenshot filled the panel with
+                // its top-left corner and made the reader scroll to see any of
+                // it. The point of the preview is seeing the whole thing at
+                // once — the dimensions in the header say what was given up.
+                Image(nsImage: img)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(CheckerboardBackground())
+                    .padding(12)
             } else {
                 Text(item.preview).font(.caption)
             }
