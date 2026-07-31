@@ -98,8 +98,9 @@ struct ItemPreviewView: View {
         case .text, .url:
             return "\(item.textContent?.count ?? 0) caracteres"
         case .image:
-            guard let data = item.imageData, let img = NSImage(data: data) else { return nil }
-            return "\(Int(img.size.width)) × \(Int(img.size.height))"
+            guard let data = item.imageData,
+                  let size = ImageMetadata.pixelSize(of: data) else { return nil }
+            return "\(Int(size.width)) × \(Int(size.height))"
         case .file:
             return nil
         }

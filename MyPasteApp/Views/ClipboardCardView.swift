@@ -195,7 +195,7 @@ struct ClipboardCardView: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
         case .image:
-            if let size = Self.imageDimensions(item.imageData) {
+            if let data = item.imageData, let size = ImageMetadata.pixelSize(of: data) {
                 Text("\(Int(size.width))×\(Int(size.height))")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
@@ -235,11 +235,6 @@ struct ClipboardCardView: View {
         let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let host = URL(string: trimmed)?.host else { return trimmed }
         return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
-    }
-
-    private static func imageDimensions(_ data: Data?) -> CGSize? {
-        guard let data, let img = NSImage(data: data) else { return nil }
-        return img.size
     }
 
     // MARK: - Helpers
