@@ -1199,8 +1199,16 @@ Nenhuma destas tem teste automatizado. A fase não fecha sem todas.
 **Preview de texto (Tarefa 2)**
 - [ ] Texto longo abre com `␣` e o conteúdo **inteiro** está lá
 - [ ] A rolagem funciona, com o mouse e com as setas
-- [ ] Dá para selecionar trechos com o mouse e copiar com ⌘C
+- [ ] Dá para selecionar trechos com o mouse e copiar via clique-direito →
+      Copy no próprio menu do texto (não ⌘C: o overlay é a key window e
+      consome ⌘C para copiar o item inteiro — `OverlayView.swift:278` — antes
+      que o `NSTextView`, que não é key, o veja; o `.textSelection` do SwiftUI
+      tinha a mesma limitação, isto não é regressão desta fase)
 - [ ] Um texto curto não fica com rolagem sobrando nem cortado
+- [ ] Clicar e arrastar para selecionar texto dentro do painel não fecha o
+      overlay (o painel só evita virar key window porque
+      `ItemPreviewView`/`TextPreviewView` mantêm `isEditable = false`; ver o
+      comentário em `ItemPreviewPanel.swift`)
 
 **Painel (Tarefa 3)**
 - [ ] Abrir preview, `Esc`, reabrir: volta com o conteúdo certo
