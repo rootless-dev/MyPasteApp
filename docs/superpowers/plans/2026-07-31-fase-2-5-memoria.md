@@ -563,6 +563,7 @@ git commit -m "perf(cards): read image dimensions from the header instead of dec
   - `ImageThumbnailCache.downsample(data: Data, maxPixel: Int) -> CGImage?` (`nonisolated static`)
   - `ImageThumbnailCache.key(id: UUID, maxPixel: Int) -> NSString` (`nonisolated static`)
   - `ImageThumbnailCache.pixels(for size: CGSize) -> Int` (`nonisolated static`)
+  - `ImageThumbnailCache.pixels(for size: CGSize, scale: CGFloat) -> Int` (`nonisolated static`)
   - `cached(id:maxPixel:) -> NSImage?` e `thumbnail(for:id:maxPixel:) async -> NSImage?`
   - `ThumbnailImage(data:id:maxPixel:contentMode:)` — uma `View`
 
@@ -765,8 +766,13 @@ final class ImageThumbnailCache {
 
     /// Longest side of `size`, in points, converted to pixels for this display.
     nonisolated static func pixels(for size: CGSize) -> Int {
-        let scale = NSScreen.main?.backingScaleFactor ?? 2
-        return Int(max(size.width, size.height) * scale)
+        pixels(for: size, scale: NSScreen.main?.backingScaleFactor ?? 2)
+    }
+
+    /// The arithmetic on its own, with the display scale as a parameter, so a
+    /// test can pin it without depending on the machine it runs on.
+    nonisolated static func pixels(for size: CGSize, scale: CGFloat) -> Int {
+        Int(max(size.width, size.height) * scale)
     }
 }
 ```
