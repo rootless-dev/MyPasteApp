@@ -11,8 +11,8 @@ import SwiftUI
 /// Replaces the old full-width `SearchBar`.
 struct SearchFieldView: View {
     @Bindable var state: SearchState
-    /// Bound to the `TextField` itself, never to a container: `.focused` on a
-    /// view that merely *contains* a field does not move the keyboard into it.
+    /// Bound to the field itself, never to a container: `.focused` on a view
+    /// that merely *contains* a field does not move the keyboard into it.
     @FocusState.Binding var focusTarget: OverlayFocusTarget?
     var onOpenFilters: () -> Void
 
@@ -63,10 +63,29 @@ struct SearchFieldView: View {
                 .help("Show all active filters")
             }
 
-            TextField("Search", text: $state.text)
-                .textFieldStyle(.plain)
-                .font(.system(size: 14))
+            // AppKit-backed, not SwiftUI's `TextField`: focus has to arrive
+            // with a caret at the end rather than with the query selected. See
+            // `SearchTextField` — the `.focused` tag below is what makes
+            // `focusTarget = .search` have somewhere to land.
+            SearchTextField(text: $state.text,
+                            placeholder: "Search",
+                            focusTarget: $focusTarget)
+                // A `TextField` is flexible by nature; a representable is only
+                // as wide as it says it is, and rendered without this the
+                // capsule shrank to fit the text instead of spanning the bar.
+                .frame(maxWidth: .infinity)
                 .focused($focusTarget, equals: .search)
+                // Gives the keyboard back on the way out, and this is
+                // load-bearing: closing the search takes an AppKit first
+                // responder out of the tree, and SwiftUI does not re-home its
+                // own focus when the view holding it was one it did not build.
+                // Measured without this: Escape closed the search and the
+                // drawer stopped answering `←`, `→`, `↵` — everything —
+                // silently, which is Phase 1's bug verbatim. `onDisappear` runs
+                // after the removal, which is what makes the write stick; the
+                // same write from `closeSearch`, in the turn of the removal
+                // itself, is the one that gets dropped.
+                .onDisappear { focusTarget = .list }
 
             if !state.text.isEmpty {
                 Button { state.text = "" } label: {
@@ -89,10 +108,9 @@ struct SearchFieldView: View {
         // focus rather than mere presence. `OverlayView` applies
         // `focusEffectDisabled()` at the root, which suppresses the system
         // ring for everything below it — this field included — and the field
-        // can be on screen while the keyboard is on the cards (a click on the
-        // drawer chrome, or the turn between `activate` and the deferred focus
-        // write). Stroking in accent unconditionally would claim the keyboard
-        // in exactly the state where the overlay doesn't have it.
+        // can be on screen while the keyboard is on the cards, after a click on
+        // the drawer chrome. Stroking in accent unconditionally would claim the
+        // keyboard in exactly the state where the overlay doesn't have it.
         .background(
             Capsule()
                 .fill(.quaternary)

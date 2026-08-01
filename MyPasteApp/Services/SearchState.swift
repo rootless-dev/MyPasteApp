@@ -30,12 +30,11 @@ final class SearchState {
 
     /// Opens the search, and nothing else.
     ///
-    /// It deliberately takes no seed character. The character that opened the
-    /// search has to reach `text` one main-actor turn *after* the field takes
-    /// focus, or SwiftUI's focus-time select-all makes the next keystroke
-    /// replace it — see `OverlayView.focusSearchField`, which owns that
-    /// ordering. A `seeding:` parameter here would put the seed back in the
-    /// same turn as the activation and quietly restore the bug.
+    /// It deliberately takes no seed character: `OverlayView.activateSearch`
+    /// writes the seed straight into `text` in the same turn, next to the focus
+    /// write it belongs with. Nothing here would be able to place the caret,
+    /// which is the half of that job that decides whether the seed survives —
+    /// see `SearchTextField`.
     func activate() {
         isActive = true
     }
