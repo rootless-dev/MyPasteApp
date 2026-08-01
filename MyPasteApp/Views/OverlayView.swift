@@ -609,13 +609,21 @@ struct OverlayView: View {
     /// 2. The edit is deferred by one *further* turn because SwiftUI's
     ///    programmatic focus onto a `TextField` selects the field's entire
     ///    contents. Anything already in the query is therefore selected the
-    ///    instant focus lands, and the next keystroke replaces it — the exact
-    ///    failure `SearchStateTests.letterOpensSearch` exists to prevent
-    ///    ("the user types 'gh' and the field shows 'h'"). Writing the text in
-    ///    the same turn as the focus write does *not* help: measured, the
-    ///    select-all still wins. Writing it in the turn after does, because
-    ///    pushing a new value through the binding collapses that selection to
-    ///    a caret at the end.
+    ///    instant focus lands, and the next keystroke replaces it — "the user
+    ///    types 'gh' and the field shows 'h'". Writing the text in the same
+    ///    turn as the focus write does *not* help: measured, the select-all
+    ///    still wins. Writing it in the turn after does, because pushing a new
+    ///    value through the binding collapses that selection to a caret at the
+    ///    end.
+    ///
+    ///    **Nothing automated covers this.** `SearchStateTests` pins
+    ///    `activationCharacter`, which is the rule, not the race: the suite
+    ///    never renders a view, never moves focus and never sees a selection,
+    ///    so it passed throughout while every typed first character was being
+    ///    eaten. It was found, and both candidate orderings were chosen
+    ///    between, by hosting this view in an `NSHostingView` and posting real
+    ///    `NSEvent`s. Any change to these turns has to be re-measured the same
+    ///    way — the suite will not tell you.
     ///
     /// A binding write only collapses the selection when the value actually
     /// changes, so ⌘F pressed with a live query and the focus detached — no new
@@ -636,6 +644,12 @@ struct OverlayView: View {
         Task { @MainActor in
             focusTarget = .search
             Task { @MainActor in
+                // The search can be closed from outside this view between the
+                // turns — `OverlayWindowController.show()` resets it on every
+                // opening. Applying the edit anyway would leave a query set
+                // with the field gone: a filter narrowing the history with
+                // nothing on screen saying so.
+                guard search.isActive else { return }
                 var text = search.text
                 edit(&text)
                 search.text = text
@@ -649,12 +663,28 @@ struct OverlayView: View {
     ///
     /// Reaches through to AppKit on purpose: SwiftUI offers no way to place the
     /// caret in a `TextField`, and the text write above only clears the
-    /// selection when it changes the value. A no-op whenever the first
-    /// responder isn't a field editor — which is the same state the overlay was
-    /// already in before this ran, so it can't make anything worse.
+    /// selection when it changes the value. A no-op whenever the overlay's own
+    /// first responder isn't a field editor — which is the same state the
+    /// overlay was already in before this ran, so it can't make anything worse.
+    ///
+    /// `NSApp.windows` is scanned rather than `NSApp.keyWindow` because
+    /// `keyWindow` is nil for a `.nonactivatingPanel` — measured. That scan is
+    /// then pinned to `OverlayPanel`, and the class check is not decoration:
+    /// a *background* window keeps its field editor as first responder, so
+    /// with the item editor open behind the drawer (an ordinary flow — the
+    /// overlay only closes on `windowDidResignKey`, and `.transient` is a
+    /// collection behaviour, not a lifetime) an unscoped loop reaches it.
+    /// `NSApp.windows` is documented in no particular order, so "the overlay
+    /// happens to come first" is not a guarantee. Unscoped and measured, the
+    /// loop walked past an overlay whose responder wasn't a field editor and
+    /// moved the caret in the item editor's rename field instead: the
+    /// overlay's own select-all survived (⌘F silently regressing) and the
+    /// rename field's select-all was destroyed, so the user's next keystroke
+    /// there appended instead of replacing.
     private static func collapseFieldEditorSelection() {
         for window in NSApp.windows {
-            guard window.isVisible,
+            guard window is OverlayPanel,
+                  window.isVisible,
                   let editor = window.firstResponder as? NSTextView,
                   editor.isFieldEditor
             else { continue }

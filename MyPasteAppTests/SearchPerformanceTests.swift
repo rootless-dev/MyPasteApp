@@ -104,22 +104,30 @@ struct SearchPerformanceTests {
         // keystroke does NOT fit in a frame at 500 items, and the culprit is
         // the sort over SwiftData-backed properties, not the text scan.
         //
-        // Recorded rather than fixed, by instruction: the answer is pagination
-        // (or an unsorted/pre-sorted source), which is a roadmap item, not a
-        // patch to slip into a bug-fix wave. `isIntermittent` because a faster
-        // machine or a Release build may well come in under the frame, and
-        // this must not fail either way.
+        // Recorded rather than fixed, by instruction. Note the sort is not
+        // expensive because ordering 500 items is hard: it re-reads
+        // `isPinned`/`createdAt` through SwiftData accessors ~17k times
+        // (~4.4k comparisons × 4 reads, at ~1.5µs each), where the filter's
+        // ~2.5k reads cost ~3.7ms. Hoisting the sort keys once —
+        // decorate/sort/undecorate — would take this to ~1k reads without any
+        // change to how much history is loaded.
+        //
+        // `isIntermittent` keeps this quiet in BOTH directions: it neither
+        // fails while the number is over a frame, nor complains if a faster
+        // machine or a Release build comes in under it. So this expectation
+        // does not gate anything — it is a note with a number attached, kept
+        // executable so it can't drift from the code.
         withKnownIssue("""
             A `filtered` pass over 500 items costs ~31ms in Debug (sort ~27ms \
-            + filter ~3.6ms), against a 16ms frame. Pending a pagination item on \
-            the roadmap — see the Phase 3 final fix report.
+            + filter ~3.6ms), against a 16ms frame. See the Phase 3 final fix \
+            report: the sort's repeated `@Model` property reads are the cost.
             """, isIntermittent: true) {
             #expect(median < .milliseconds(16))
         }
 
-        // The regression gate that still bites: 4× the measured cost. A change
-        // that makes this fail has done something structurally worse, not just
-        // run on a busy machine.
+        // The only expectation here that actually bites: ~5× the measured
+        // cost. A change that trips it has done something structurally worse,
+        // not just run on a busy machine.
         #expect(median < .milliseconds(160))
     }
 }
