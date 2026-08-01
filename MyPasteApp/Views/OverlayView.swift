@@ -12,20 +12,45 @@ struct OverlayView: View {
     @Query(sort: \ClipboardItem.createdAt, order: .reverse)
     private var items: [ClipboardItem]
 
-    @State private var searchText = ""
     @State private var selectedID: UUID?
+    /// Selection to honour on the next list change, instead of the top card.
+    ///
+    /// Lives for exactly one turn of the main actor — see `jumpToHistory` and
+    /// `closeSearch`, which both drop it in a deferred task so an id that no
+    /// list change ever consumed can't stay armed.
+    @State private var pendingSelection: UUID?
+    /// Set to ask the scroll view to reveal a card once it's rendered.
+    @State private var scrollRequest: UUID?
     /// Each visible card's frame, refreshed continuously by
     /// `CardFramePreferenceKey` as cards appear, scroll, or the window
     /// resizes. Read by `notifyPreviewSelection()` to tell
     /// `OverlayWindowController` where to anchor the preview panel. Lives in a
     /// reference type on purpose — see `CardFrameStore`.
     @State private var cardFrames = CardFrameStore()
-    @FocusState private var searchFocused: Bool
+    /// Where the keyboard is pointed.
+    ///
+    /// The overlay used to keep the search field focused at all times, which
+    /// is also how `onKeyPress` received anything at all: it only fires while
+    /// the declaring view or a descendant holds focus. With the field gone at
+    /// rest, the card strip has to take focus instead — without that, the
+    /// overlay goes back to being exactly what Phase 1 found: a window that
+    /// never sees a key.
+    @FocusState private var focusTarget: OverlayFocusTarget?
     @AppStorage(PreferenceKeys.showQuickPasteNumbers) private var showQuickPasteNumbers = true
     @AppStorage(PreferenceKeys.alwaysPastePlainText) private var alwaysPastePlainText = false
 
     let writer: ClipboardWriter
     let itemEditor: ItemEditorWindowController
+    /// Owned by `OverlayWindowController`, not by this view.
+    ///
+    /// The overlay is built once, in `prepare()`, and reused for the life of
+    /// the process — so state held here in `@State` would outlive the drawer
+    /// being closed, and the next opening would come back mid-search instead
+    /// of at rest. The controller resets it on every `show()`. A plain `let`
+    /// is enough for updates to arrive: `SearchState` is `@Observable`, so
+    /// reading its properties during `body` registers the dependency
+    /// regardless of how the reference is stored.
+    let search: SearchState
     let onPick: (ClipboardItem, Bool) -> Void
     let onDismiss: () -> Void
     /// Resolves the name of the app a paste would land in, read fresh at menu
@@ -68,6 +93,7 @@ struct OverlayView: View {
 
     init(writer: ClipboardWriter,
          itemEditor: ItemEditorWindowController,
+         search: SearchState,
          onPick: @escaping (ClipboardItem, Bool) -> Void,
          onDismiss: @escaping () -> Void,
          destinationAppName: @escaping () -> String? = { nil },
@@ -77,6 +103,7 @@ struct OverlayView: View {
          isPreviewOpen: @escaping () -> Bool = { false }) {
         self.writer = writer
         self.itemEditor = itemEditor
+        self.search = search
         self.onPick = onPick
         self.onDismiss = onDismiss
         self.destinationAppName = destinationAppName
@@ -91,7 +118,7 @@ struct OverlayView: View {
     /// needs to survive across view updates.
     private var itemActions: ItemActions {
         ItemActions(modelContext: modelContext, writer: writer, onPaste: onPick,
-                    editorWindow: itemEditor, onPreview: preview)
+                    editorWindow: itemEditor, onPreview: preview, onJump: jumpToHistory)
     }
 
     /// Whether this paste should hand over plain text.
@@ -110,27 +137,20 @@ struct OverlayView: View {
             if a.isPinned != b.isPinned { return a.isPinned }
             return a.createdAt > b.createdAt
         }
-        return sorted.filter { Self.matches(item: $0, query: searchText) }
-    }
-
-    /// Whether an item satisfies the search query.
-    ///
-    /// Static and pure so the rule is testable without rendering the overlay.
-    static func matches(item: ClipboardItem, query: String) -> Bool {
-        let q = query.lowercased()
-        guard !q.isEmpty else { return true }
-        if item.preview.lowercased().contains(q) { return true }
-        if item.textContent?.lowercased().contains(q) == true { return true }
-        if item.label?.lowercased().contains(q) == true { return true }
-        return false
+        let now = Date.now
+        return sorted.filter {
+            ItemSearch.matches(item: $0, query: search.text, filter: search.filter, now: now)
+        }
     }
 
     /// Whether Space should open the preview rather than type a space.
     ///
-    /// The search field holds focus from `onAppear`, so Space can't simply be
-    /// claimed by the overlay. A leading space in a search has no use, which
-    /// makes an empty field the safe place to take the key; "foo bar" is
-    /// unaffected because the field isn't empty by then.
+    /// While the search is open the field holds focus, so Space can't simply
+    /// be claimed by the overlay. A leading space in a search has no use,
+    /// which makes an empty field the safe place to take the key; "foo bar" is
+    /// unaffected because the field isn't empty by then. With the search
+    /// closed the text is empty by definition, so the same rule already says
+    /// "toggle the preview" — no second branch needed.
     ///
     /// The key that opens the panel also closes it — anything else would make
     /// the user reach for Escape to undo what Space just did.
@@ -151,90 +171,210 @@ struct OverlayView: View {
     ///
     /// Dismiss what's on top first, as the system does everywhere else.
     /// Without this, closing the panel takes the whole drawer with it.
+    ///
+    /// The live Escape handler now goes through `SearchState.escapeAction`,
+    /// which folds this rule in alongside the filter panel and the search
+    /// itself; this stays as the isolated statement of the preview half.
     static func escapeClosesPreview(isPreviewOpen: Bool) -> Bool {
         isPreviewOpen
     }
 
-    var body: some View {
-        VStack(spacing: 0) {
-            SearchBar(text: $searchText)
-                .focused($searchFocused)
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
-                .padding(.bottom, 8)
+    /// Which card should be selected after the list changes shape.
+    ///
+    /// The plain behaviour is "follow the top card", which is right when items
+    /// are added or removed — and wrong right after a jump or after letting go
+    /// of the search, because clearing the query changes the list and would
+    /// steal the selection away from the item the user asked to see.
+    static func selectionAfterListChange(pending: UUID?, newFirstID: UUID?) -> UUID? {
+        pending ?? newFirstID
+    }
 
-            ScrollViewReader { proxy in
-                ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(spacing: 12) {
-                        ForEach(Array(filtered.enumerated()), id: \.element.id) { index, item in
-                            ClipboardCardView(
-                                item: item,
-                                isSelected: selectedID == item.id,
-                                quickPasteLabel: showQuickPasteNumbers
-                                    ? QuickPaste.label(forIndex: index)
-                                    : nil,
-                                onDelete: { delete(item) }
-                            )
-                            .id(item.id)
-                            .background(
-                                // Reports this card's on-screen frame so the
-                                // preview panel can anchor above it. Color.clear
-                                // keeps this purely observational — it doesn't
-                                // intercept the tap/context-menu gestures below.
-                                GeometryReader { proxy in
-                                    Color.clear.preference(
-                                        key: CardFramePreferenceKey.self,
-                                        value: [item.id: proxy.frame(in: .global)]
-                                    )
+    /// Where the filter panel starts, measured from the top of the drawer's
+    /// content.
+    ///
+    /// Deliberately *less* than the top bar's full height — rendered, the bar
+    /// is 49pt at rest and 52pt once a token widens the field's capsule. This
+    /// eats into the bar's 8pt bottom padding, which is empty, so the panel
+    /// still clears the capsule itself: by 5pt at rest, and by about 2pt with a
+    /// token present. Tight, but the alternative is a visible gap between the
+    /// field and the panel it opened.
+    private static let filterPanelTopInset: CGFloat = 46
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            VStack(spacing: 0) {
+                // `activateSearch` takes a defaulted parameter, so it can't be
+                // handed over as a bare `() -> Void` — Swift doesn't apply
+                // defaults when a function is used as a value.
+                OverlayTopBar(state: search,
+                              focusTarget: $focusTarget,
+                              onActivate: { activateSearch() },
+                              onOpenFilters: { search.isFilterPanelOpen.toggle() })
+
+                ScrollViewReader { proxy in
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        LazyHStack(spacing: 12) {
+                            ForEach(Array(filtered.enumerated()), id: \.element.id) { index, item in
+                                ClipboardCardView(
+                                    item: item,
+                                    isSelected: selectedID == item.id,
+                                    quickPasteLabel: showQuickPasteNumbers
+                                        ? QuickPaste.label(forIndex: index)
+                                        : nil,
+                                    onDelete: { delete(item) }
+                                )
+                                .id(item.id)
+                                .background(
+                                    // Reports this card's on-screen frame so the
+                                    // preview panel can anchor above it. Color.clear
+                                    // keeps this purely observational — it doesn't
+                                    // intercept the tap/context-menu gestures below.
+                                    GeometryReader { proxy in
+                                        Color.clear.preference(
+                                            key: CardFramePreferenceKey.self,
+                                            value: [item.id: proxy.frame(in: .global)]
+                                        )
+                                    }
+                                )
+                                .onTapGesture { pick(item) }
+                                .contextMenu {
+                                    ItemContextMenu(item: item,
+                                                    actions: itemActions,
+                                                    destinationAppName: destinationAppName(),
+                                                    isSearchNarrowed: search.hasContent)
                                 }
-                            )
-                            .onTapGesture { pick(item) }
-                            .contextMenu {
-                                ItemContextMenu(item: item,
-                                                actions: itemActions,
-                                                destinationAppName: destinationAppName())
                             }
                         }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                }
-                .frame(maxHeight: .infinity)
-                .onChange(of: selectedID) { _, newID in
-                    if let id = newID {
+                    .frame(maxHeight: .infinity)
+                    .onChange(of: selectedID) { _, newID in
+                        if let id = newID {
+                            withAnimation { proxy.scrollTo(id, anchor: .center) }
+                        }
+                        notifyPreviewSelection()
+                    }
+                    .onChange(of: scrollRequest) { _, id in
+                        guard let id else { return }
                         withAnimation { proxy.scrollTo(id, anchor: .center) }
+                        scrollRequest = nil
                     }
-                    notifyPreviewSelection()
+                    .onPreferenceChange(CardFramePreferenceKey.self) { frames in
+                        cardFrames.update(frames)
+                        notifyPreviewSelection()
+                    }
                 }
-                .onPreferenceChange(CardFramePreferenceKey.self) { frames in
-                    cardFrames.update(frames)
-                    notifyPreviewSelection()
-                }
+            }
+
+            if search.isFilterPanelOpen {
+                // Catches a click anywhere else inside the overlay. Nearly
+                // transparent rather than `Color.clear`: a fully clear shape
+                // doesn't take hits.
+                Color.black.opacity(0.001)
+                    .onTapGesture { search.isFilterPanelOpen = false }
+
+                // A layer in this `ZStack`, deliberately not a `.popover`: a
+                // popover is a new window, and this overlay is `.transient` —
+                // it vanishes the moment it loses focus. Phase 2 already paid
+                // that bill once, with a whole `NSPanel` plus an exception in
+                // the click-outside monitor, just so the preview could coexist
+                // with the drawer.
+                //
+                // The facets come from `items`, the whole history, never from
+                // `filtered`: deriving them from the filtered list would make
+                // every other app disappear from the panel the instant one app
+                // was picked, leaving no way back.
+                FilterPanelView(state: search, facets: ItemSearch.facets(in: items))
+                    // Right-aligned inside the same 470pt frame the field
+                    // occupies, which is where the filter button that opens it
+                    // sits. The bottom inset keeps the panel off the drawer's
+                    // rounded corner when it is tall enough to reach it.
+                    .frame(maxWidth: 470, alignment: .trailing)
+                    .padding(.top, Self.filterPanelTopInset)
+                    .padding(.bottom, 8)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(VisualEffectBackground())
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .padding(8)
+        // Something has to hold the keyboard whenever the search field isn't
+        // there to hold it: `onKeyPress` only fires while the declaring view
+        // or a descendant is focused, so with nothing focused the overlay
+        // sees no keys at all — exactly what Phase 1 found.
+        //
+        // Deliberately the root container and NOT the `ScrollView`. A focused
+        // macOS scroll view handles `←`/`→` and `␣` natively, and the
+        // handlers below live on this root: making the focused view and the
+        // handlers the same view removes the question of who is consulted
+        // first. `focusEffectDisabled` suppresses the ring the system would
+        // otherwise draw around the whole drawer — the cards carry their own
+        // selection highlight, and the search field its own background.
+        .focusable()
+        .focusEffectDisabled()
+        .focused($focusTarget, equals: .list)
         .onAppear {
-            searchFocused = true
+            focusTarget = .list
             selectedID = filtered.first?.id
         }
         .onChange(of: filtered.first?.id) { _, newID in
-            selectedID = newID
+            selectedID = Self.selectionAfterListChange(pending: pendingSelection,
+                                                       newFirstID: newID)
+            pendingSelection = nil
+        }
+        // The search can also be closed from outside this view:
+        // `OverlayWindowController.show()` resets it on every opening. Either
+        // way the `.search`-tagged field leaves the tree, and a focus target
+        // that no longer exists focuses nothing — which would leave the
+        // reopened drawer keyboard-dead. Reading `search.isActive` here is
+        // also what registers this body's dependency on it.
+        .onChange(of: search.isActive) { _, isActive in
+            if !isActive { focusTarget = .list }
+        }
+        // `onAppear` runs exactly once, at pre-warm. If anything clears the
+        // first responder while the drawer is hidden, the next opening would
+        // have focus nowhere and the drawer would ignore every key — no error,
+        // no log, nothing on screen. `close()` alone can't cover that: it only
+        // moves focus when there was an active search to close.
+        //
+        // Unconditional on purpose: the drawer reopens with the keyboard
+        // pointed at the cards even when nothing about the search changed
+        // since last time.
+        .onChange(of: search.openCount) { _, _ in
+            focusTarget = .list
         }
         .onKeyPress(.escape) {
-            if Self.escapeClosesPreview(isPreviewOpen: isPreviewOpen()) {
+            switch SearchState.escapeAction(isFilterPanelOpen: search.isFilterPanelOpen,
+                                            isPreviewOpen: isPreviewOpen(),
+                                            isActive: search.isActive,
+                                            hasContent: search.hasContent) {
+            case .closeFilterPanel:
+                search.isFilterPanelOpen = false
+            case .hidePreview:
                 onHidePreview()
-            } else {
+            case .closeSearch:
+                closeSearch()
+            case .dismissOverlay:
                 onDismiss()
             }
             return .handled
         }
+        // ␣ is the first of three keys that share one rule — see
+        // `typesIntoDetachedField` below, and its two other callers on
+        // `.delete` and on the generic character handler.
         .onKeyPress(.space) {
-            switch Self.spaceAction(searchText: searchText,
+            switch Self.spaceAction(searchText: search.text,
                                     isPreviewOpen: isPreviewOpen()) {
             case .type:
+                // `.type` only happens with text already in the field, so this
+                // never produces a leading space. With the keyboard on the
+                // field, `.ignored` hands the key to the field itself, which is
+                // where a space belongs.
+                if typesIntoDetachedField {
+                    focusSearchField { $0.append(" ") }
+                    return .handled
+                }
                 return .ignored
             case .showPreview:
                 onShowPreview()
@@ -299,11 +439,31 @@ struct OverlayView: View {
             return .ignored
         }
         .onKeyPress(.delete) {
-            if let item = filtered.first(where: { $0.id == selectedID }) {
-                delete(item)
+            // Second of the three keys sharing `typesIntoDetachedField`.
+            // Only when there's a character to delete: with the text empty the
+            // existing rule below already says `.removeLastToken`, which is a
+            // real action and not a dropped key.
+            if typesIntoDetachedField, !search.text.isEmpty {
+                focusSearchField { if !$0.isEmpty { $0.removeLast() } }
                 return .handled
             }
-            return .ignored
+            switch SearchState.backspaceAction(isActive: search.isActive,
+                                               textIsEmpty: search.text.isEmpty,
+                                               hasTokens: !search.filter.isEmpty) {
+            case .deleteItem:
+                if let item = filtered.first(where: { $0.id == selectedID }) {
+                    delete(item)
+                    return .handled
+                }
+                return .ignored
+            case .removeLastToken:
+                if let last = SearchToken.tokens(from: search.filter).last {
+                    search.filter = last.removed(from: search.filter)
+                }
+                return .handled
+            case .passThrough:
+                return .ignored
+            }
         }
         .onKeyPress(keys: ["e"]) { press in
             guard press.modifiers.contains(.command) else { return .ignored }
@@ -334,6 +494,201 @@ struct OverlayView: View {
             itemActions.newItem()
             onDismiss()
             return .handled
+        }
+        // Both cases registered, like ⌘F below: with ⇧ held the key arrives
+        // uppercased, which is what made ⌘⇧K silently dead in Phase 2.
+        //
+        // Gated on `hasContent` for the same reason the menu entry is: with
+        // the whole history already on screen there is nothing to jump out of.
+        .onKeyPress(keys: ["j", "J"]) { press in
+            guard press.modifiers.contains(.command), search.hasContent else { return .ignored }
+            guard let item = filtered.first(where: { $0.id == selectedID }) else {
+                return .ignored
+            }
+            jumpToHistory(item)
+            return .handled
+        }
+        // Typing with the search closed opens it — the behaviour Paste teaches
+        // in its own onboarding card ("Start typing to search"). The character
+        // must not be swallowed by the transition.
+        //
+        // What keeps this from stealing ⌘C/⌘P/⌘E/⌘R/⌘N/⌘1-9/⌘F is not where
+        // it sits in the chain — ⌘F is registered after it — but
+        // `SearchState.activationCharacter`, which returns nil for anything
+        // held with ⌘, ⌃ or ⌥. This handler then returns `.ignored` and the
+        // key goes on to whichever handler wants it.
+        .onKeyPress(characters: .alphanumerics.union(.punctuationCharacters).union(.symbols),
+                    phases: .down) { press in
+            guard let character = press.characters.first else { return .ignored }
+            // Last of the three keys sharing `typesIntoDetachedField`.
+            //
+            // The `isActive: false` argument is deliberate: what's being asked
+            // here is not "is the search open" but "is this a key that types
+            // into the field", and that's the same rule — no ⌘/⌃/⌥, letters,
+            // digits, punctuation and symbols only. Skipping it would make an
+            // open search with the focus on the cards read ⌘C as the letter
+            // "c" and swallow the shortcut, and chain order is no defence
+            // against that, for the reason spelled out just above.
+            if typesIntoDetachedField,
+               SearchState.activationCharacter(character,
+                                               modifiers: press.modifiers,
+                                               isActive: false) != nil {
+                focusSearchField { $0.append(character) }
+                return .handled
+            }
+            guard let seed = SearchState.activationCharacter(character,
+                                                             modifiers: press.modifiers,
+                                                             isActive: search.isActive)
+            else { return .ignored }
+            activateSearch(seeding: seed)
+            return .handled
+        }
+        // Both cases registered: with ⇧ held the key arrives uppercased, which
+        // is what made ⌘⇧K silently dead in Phase 2.
+        .onKeyPress(keys: ["f", "F"]) { press in
+            guard press.modifiers.contains(.command) else { return .ignored }
+            activateSearch()
+            return .handled
+        }
+    }
+
+    /// Whether a key that belongs to the search field has arrived here instead
+    /// of at the field.
+    ///
+    /// One rule with three keys: ␣, ⌫ and any typed character. With the search
+    /// open and the keyboard on the card strip, the handlers on this view are
+    /// the only ones that run, and each of the three used to answer `.ignored`:
+    /// with no focused field to fall through to, the key vanished with no
+    /// error, no log and nothing on screen. So the three handlers apply the key
+    /// themselves and pull the keyboard back to the field.
+    ///
+    /// **That state is currently unreachable, and this guard stays anyway.**
+    /// Since the field became `SearchTextField`, nothing detaches it: a posted
+    /// click on the drawer chrome leaves the field editor exactly where it was
+    /// (measured — the harness logs it as "detach did not detach"), and
+    /// `OverlayWindowController.show()` calls `search.close()` before it points
+    /// the keyboard at the cards, so the field is out of the tree by then
+    /// rather than detached. Both routes that used to produce this state are
+    /// therefore closed.
+    ///
+    /// It is kept because it costs one boolean and it is the only thing
+    /// standing between a future change that re-detaches the field and a key
+    /// the user typed disappearing in silence — the failure mode this whole
+    /// phase exists to make impossible.
+    private var typesIntoDetachedField: Bool {
+        search.isActive && focusTarget != .search
+    }
+
+    /// Opens the search, points the keyboard at it and writes the character
+    /// that opened it — all in this turn.
+    ///
+    /// Synchronous throughout, and that is the change Task 12 exists to make.
+    /// Both hazards that used to force deferred turns are gone:
+    ///
+    /// 1. The focus write no longer has to wait for the field to be inserted.
+    ///    `search.activate()` and this write happen before SwiftUI evaluates
+    ///    anything, so by the time focus is resolved the `.search` tag exists.
+    ///    Measured: the field takes the keyboard on the same key that opens the
+    ///    search, which also removes the two-frame grey stroke the deferral
+    ///    produced.
+    /// 2. The seed no longer has to be written after the focus write to survive
+    ///    a select-all. `SearchTextField` places the caret itself, inside
+    ///    `becomeFirstResponder`, so there is no selection left to destroy it.
+    ///
+    /// What that buys is ordering: with every write landing in the turn its key
+    /// arrived in, a key handled here and a key taken directly by the field can
+    /// no longer swap places. The deferred version reordered `ghi` into `gih`
+    /// at a 20ms gap, 10 runs out of 10.
+    private func activateSearch(seeding character: Character? = nil) {
+        search.activate()
+        if let character { search.text.append(character) }
+        focusTarget = .search
+    }
+
+    /// Points the keyboard at the search field and applies `edit` to the query,
+    /// in this turn.
+    ///
+    /// **Nothing automated covers this path.** `SearchStateTests` pins
+    /// `activationCharacter`, which is the rule, not the routing: the suite
+    /// never renders a view, never moves focus and never sees a selection, so
+    /// it passed throughout while every typed first character was being eaten.
+    /// Changes here have to be re-measured by hosting this view in an
+    /// `NSHostingView` and posting real `NSEvent`s — the suite will not tell
+    /// you.
+    private func focusSearchField(applying edit: (inout String) -> Void) {
+        focusTarget = .search
+        var text = search.text
+        edit(&text)
+        search.text = text
+    }
+
+    /// Closes the search and hands the keyboard back to the root container.
+    ///
+    /// Synchronous, unlike `activateSearch`: `.list` names the root container,
+    /// which is always in the tree, so there's no inserted view to wait for.
+    /// The `onChange(of: search.isActive)` above would catch this too — the
+    /// explicit write is what keeps the local path from depending on that.
+    ///
+    /// The pending selection is the same trap the jump exists to avoid:
+    /// clearing the query changes the list, and the top card would otherwise
+    /// take the selection away from whatever the user had highlighted.
+    ///
+    /// This arms on *every* close, including one that narrowed nothing — so
+    /// the clear below is not an edge case, it's the common path. Deferred
+    /// rather than immediate for the reason spelled out in `jumpToHistory`:
+    /// clearing in this same turn would run before the list-change handler
+    /// could consume it, which is the whole point of arming it.
+    ///
+    /// The scroll request is armed for the same reason `jumpToHistory` arms
+    /// one, and it is not optional: preserving the selection without revealing
+    /// it is worse than not preserving it. `selectionAfterListChange` resolves
+    /// to the id already in `selectedID`, so `onChange(of: selectedID)` never
+    /// fires and nothing scrolls — the full history comes back with the strip
+    /// at its head while the selected card sits at, say, index 47, off screen,
+    /// with `↵`/`⌘C`/`⌘E`/`⌫` all acting on a card the user cannot see. With
+    /// the preview panel open it is worse still: `cardFrames` holds no frame
+    /// for an unrendered card and the panel jumps to the centre of the screen.
+    ///
+    /// Deferred by a turn, like the jump's: the id isn't in the rendered list
+    /// until the cleared query has changed it.
+    private func closeSearch() {
+        let revealed = selectedID
+        pendingSelection = revealed
+        search.close()
+        focusTarget = .list
+        Task { @MainActor in
+            if let revealed { scrollRequest = revealed }
+            pendingSelection = nil
+        }
+    }
+
+    /// Clears search and filters, then reveals the item in the full history.
+    ///
+    /// The order matters: clearing first, scrolling second. Asking for the
+    /// scroll in the same cycle does nothing — the id isn't in the rendered
+    /// list yet, which is why the request is deferred by one turn of the
+    /// main actor.
+    ///
+    /// The pending id is dropped in that same deferred turn, and not before.
+    /// It is meant to survive exactly one list change: the list-change handler
+    /// consumes it first when the head of the list actually moved, and when it
+    /// didn't move — the head of the search results was already the head of the
+    /// history — the handler never runs and this is what stops the id from
+    /// staying armed indefinitely. Left armed, the next unrelated list change
+    /// would honour it, and if the item had been deleted meanwhile the
+    /// selection would point at a card that no longer exists. Clearing it
+    /// immediately instead would defeat the arming entirely.
+    ///
+    /// Note this bounds how long a stale id can live; it does not verify that
+    /// the id is still in the list. Nothing here does.
+    private func jumpToHistory(_ item: ClipboardItem) {
+        pendingSelection = item.id
+        search.close()
+        focusTarget = .list
+        selectedID = item.id
+        Task { @MainActor in
+            scrollRequest = item.id
+            pendingSelection = nil
         }
     }
 

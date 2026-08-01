@@ -19,17 +19,20 @@ final class ItemActions {
     private let onPaste: (ClipboardItem, Bool) -> Void
     private let editorWindow: ItemEditorWindowController
     private let onPreview: (ClipboardItem) -> Void
+    private let onJump: (ClipboardItem) -> Void
 
     init(modelContext: ModelContext,
          writer: ClipboardWriter,
          onPaste: @escaping (ClipboardItem, Bool) -> Void,
          editorWindow: ItemEditorWindowController,
-         onPreview: @escaping (ClipboardItem) -> Void = { _ in }) {
+         onPreview: @escaping (ClipboardItem) -> Void = { _ in },
+         onJump: @escaping (ClipboardItem) -> Void = { _ in }) {
         self.modelContext = modelContext
         self.writer = writer
         self.onPaste = onPaste
         self.editorWindow = editorWindow
         self.onPreview = onPreview
+        self.onJump = onJump
     }
 
     func paste(_ item: ClipboardItem, plainText: Bool) {
@@ -94,6 +97,14 @@ final class ItemActions {
     /// why the selection is updated synchronously before this fires.
     func preview(_ item: ClipboardItem) {
         onPreview(item)
+    }
+
+    /// Clears the search and reveals the item in the full history.
+    ///
+    /// Forwarded like `preview`: clearing the query and moving the selection
+    /// are view state, which this type has no business holding.
+    func jumpToHistory(_ item: ClipboardItem) {
+        onJump(item)
     }
 }
 
