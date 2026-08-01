@@ -59,7 +59,7 @@ final class ClipboardMonitor {
             predicate: #Predicate { $0.typeRaw == "url" }
         )
         guard let items = try? modelContext.fetch(descriptor) else { return }
-        for item in items where item.linkImageData == nil && item.linkFaviconData == nil {
+        for item in items where Self.needsLinkMetadata(item) {
             guard let urlString = item.textContent,
                   let url = URL(string: urlString.trimmingCharacters(in: .whitespacesAndNewlines)),
                   url.scheme?.hasPrefix("http") == true else { continue }
@@ -115,7 +115,13 @@ final class ClipboardMonitor {
             ocrQueue.enqueue(stored.id)
         }
 
-        if stored.type == .url, let urlString = stored.textContent,
+        // `stored` is the *persisted* item, which for a duplicate capture is
+        // the one already on screen with its banner, favicon and colour — so
+        // this asks the same question the backfill asks, through the same
+        // rule. Without it, re-copying a URL pays a full HTML fetch, image
+        // download and dominant-colour extraction every single time.
+        if Self.needsLinkMetadata(stored),
+           let urlString = stored.textContent,
            let url = URL(string: urlString.trimmingCharacters(in: .whitespacesAndNewlines)),
            url.scheme?.hasPrefix("http") == true {
             fetchLinkMetadata(for: stored, url: url)
@@ -142,16 +148,44 @@ final class ClipboardMonitor {
 
     // MARK: - Link metadata
 
+    /// Whether an item still needs a link-metadata fetch.
+    ///
+    /// One home for a rule with two callers — the backfill at launch and
+    /// `poll()` on every capture. `poll()` used to have no such guard, which
+    /// only became visible once Task 2 made `insertIfNotDuplicate` return the
+    /// *persisted* item: before that the fetch landed on a throwaway object.
+    ///
+    /// Visual metadata is what's asked about, not the title: a page with no
+    /// `og:image` and no favicon has nothing more to give, and asking again on
+    /// every re-copy would download its HTML forever.
+    static func needsLinkMetadata(_ item: ClipboardItem) -> Bool {
+        guard item.type == .url else { return false }
+        return item.linkImageData == nil && item.linkFaviconData == nil
+    }
+
+    /// Fills in what the fetch actually found, and only that.
+    ///
+    /// Every assignment is guarded, `linkTitle` included: `LinkMetadataService`
+    /// returns an all-nil result whenever the HTML can't be downloaded —
+    /// offline, past the 5s timeout, or a non-HTML response — and this can run
+    /// against a *persisted* item (the backfill's items always are), so an
+    /// unguarded write would erase the banner, favicon and background colour a
+    /// previous, successful fetch had stored. A field that came back nil means
+    /// "nothing found this time", never "delete what you have".
+    static func apply(_ metadata: LinkMetadata, to item: ClipboardItem) {
+        if let title = metadata.title { item.linkTitle = title }
+        if let imageData = metadata.imageData { item.linkImageData = imageData }
+        if let faviconData = metadata.faviconData { item.linkFaviconData = faviconData }
+        if let backgroundHex = metadata.backgroundHex { item.linkBackgroundHex = backgroundHex }
+    }
+
     private func fetchLinkMetadata(for item: ClipboardItem, url: URL) {
         guard Self.showLinkPreviews(from: defaults) else { return }
         Task { [weak self] in
             let metadata = await LinkMetadataService.fetch(from: url)
             await MainActor.run {
                 guard let self else { return }
-                if let title = metadata.title { item.linkTitle = title }
-                item.linkImageData = metadata.imageData
-                item.linkFaviconData = metadata.faviconData
-                item.linkBackgroundHex = metadata.backgroundHex
+                Self.apply(metadata, to: item)
                 try? self.modelContext.save()
             }
         }
