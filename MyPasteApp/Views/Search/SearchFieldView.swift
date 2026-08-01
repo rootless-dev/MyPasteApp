@@ -104,13 +104,20 @@ struct SearchFieldView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
-        // The stroke is the field's only focus affordance, so it has to track
-        // focus rather than mere presence. `OverlayView` applies
-        // `focusEffectDisabled()` at the root, which suppresses the system
-        // ring for everything below it — this field included — and the field
-        // can be on screen while the keyboard is on the cards, after a click on
-        // the drawer chrome. Stroking in accent unconditionally would claim the
-        // keyboard in exactly the state where the overlay doesn't have it.
+        // The stroke is the field's only focus affordance, so it tracks focus
+        // rather than mere presence. `OverlayView` applies
+        // `focusEffectDisabled()` at the root, which suppresses the system ring
+        // for everything below it — this field included.
+        //
+        // Measured on this build, `focusTarget` is `.search` for as long as the
+        // field is on screen: nothing detaches an AppKit field editor short of
+        // removing it, and a posted click on the drawer chrome leaves it in
+        // place. So the conditional never picks the secondary colour today. It
+        // is written conditionally regardless, because the alternative — an
+        // unconditional accent stroke — would be a claim about the keyboard
+        // that goes stale the moment anything moves focus off the field, and
+        // that is a lie the user cannot see through: a field that looks focused
+        // and eats nothing.
         .background(
             Capsule()
                 .fill(.quaternary)

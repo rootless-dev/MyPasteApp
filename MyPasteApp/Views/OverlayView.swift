@@ -555,18 +555,26 @@ struct OverlayView: View {
     /// Whether a key that belongs to the search field has arrived here instead
     /// of at the field.
     ///
-    /// One rule with three keys: ␣, ⌫ and any typed character. The search can
-    /// be open while the keyboard is still on the card strip — a click on the
-    /// drawer chrome moves the first responder off the field, and
-    /// `OverlayWindowController.show()` points it back at the cards on every
-    /// opening. In that state the handlers on this view are the only ones that
-    /// run, and each of the three used to answer `.ignored`: with no focused
-    /// field to fall through to, the key vanished with no error, no log and
-    /// nothing on screen.
+    /// One rule with three keys: ␣, ⌫ and any typed character. With the search
+    /// open and the keyboard on the card strip, the handlers on this view are
+    /// the only ones that run, and each of the three used to answer `.ignored`:
+    /// with no focused field to fall through to, the key vanished with no
+    /// error, no log and nothing on screen. So the three handlers apply the key
+    /// themselves and pull the keyboard back to the field.
     ///
-    /// So the three handlers apply the key themselves and pull the keyboard
-    /// back to the field. A key the user typed never disappears — that promise
-    /// is the whole point of this phase, and it can't hold for letters only.
+    /// **That state is currently unreachable, and this guard stays anyway.**
+    /// Since the field became `SearchTextField`, nothing detaches it: a posted
+    /// click on the drawer chrome leaves the field editor exactly where it was
+    /// (measured — the harness logs it as "detach did not detach"), and
+    /// `OverlayWindowController.show()` calls `search.close()` before it points
+    /// the keyboard at the cards, so the field is out of the tree by then
+    /// rather than detached. Both routes that used to produce this state are
+    /// therefore closed.
+    ///
+    /// It is kept because it costs one boolean and it is the only thing
+    /// standing between a future change that re-detaches the field and a key
+    /// the user typed disappearing in silence — the failure mode this whole
+    /// phase exists to make impossible.
     private var typesIntoDetachedField: Bool {
         search.isActive && focusTarget != .search
     }

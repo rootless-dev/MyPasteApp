@@ -59,10 +59,12 @@ struct SearchTextField: NSViewRepresentable {
         // ever did.
         field.target = nil
         field.action = nil
-        // A search field is the flexible element of its row: it gives up width
-        // to the filter tokens rather than pushing them out.
-        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        // No content-hugging or compression-resistance priorities here: under
+        // SwiftUI this view's size comes from `sizeThatFits` below and the
+        // `.frame(maxWidth: .infinity)` at the call site, and Auto Layout
+        // priorities are never consulted. Setting them read as if they were
+        // what made the field flexible, which they are not — rendered with and
+        // without them, the field is the same pixel.
         field.stringValue = text
         return field
     }
@@ -101,6 +103,13 @@ struct SearchTextField: NSViewRepresentable {
         // *old* target right after it moves focus here. That branch was built
         // and measured — typing `ghi` produced `g`, because the stale update
         // pushed the keyboard back out of the field before the second key.
+        //
+        // What makes the grab safe is that today every route away from
+        // `.search` also takes this view out of the tree, so a stale `.search`
+        // can never reach a field that should have given the keyboard up. A
+        // future phase that moves focus off the field while the search stays
+        // open breaks that: this line would then quietly drag the keyboard back
+        // every time SwiftUI redraws. Re-measure here if that day comes.
         if focusTarget == .search, field.currentEditor() == nil, let window = field.window {
             window.makeFirstResponder(field)
         }

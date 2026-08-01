@@ -15,9 +15,10 @@ import SwiftUI
 struct OverlayTopBar: View {
     @Bindable var state: SearchState
     /// Passed in rather than declared here, and forwarded straight to
-    /// `SearchFieldView`, which puts `.focused` on the `TextField` itself.
-    /// Applying it to a container that merely *contains* a field doesn't move
-    /// the keyboard into it.
+    /// `SearchFieldView`, which puts `.focused` on the `SearchTextField`
+    /// itself. Applying it to a container that merely *contains* a field
+    /// doesn't move the keyboard into it — and for that field the tag is what
+    /// gives `focusTarget = .search` somewhere to land at all.
     @FocusState.Binding var focusTarget: OverlayFocusTarget?
     var onActivate: () -> Void
     var onOpenFilters: () -> Void

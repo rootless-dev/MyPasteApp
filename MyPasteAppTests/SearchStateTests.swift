@@ -54,11 +54,10 @@ struct SearchStateTests {
 
     @Test("Activating opens the search without touching the query")
     func activateLeavesTextAlone() {
-        // The seed character is applied by `OverlayView.focusSearchField`, one
-        // turn after the field takes focus — never here. Writing it at
-        // activation time is what made the first typed character disappear:
-        // SwiftUI's focus-time select-all left the seed selected and the next
-        // key replaced it.
+        // The seed character is applied by `OverlayView.activateSearch`, in the
+        // same turn as the focus write — never here. This type owns the rule
+        // (`activationCharacter`), not the writing: what makes a seed survive
+        // is where the caret lands, which only `SearchTextField` can decide.
         let state = SearchState()
         state.activate()
         #expect(state.isActive)
