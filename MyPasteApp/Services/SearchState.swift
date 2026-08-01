@@ -130,8 +130,11 @@ enum SearchToken: Hashable, Identifiable {
     var id: Self { self }
 
     static func tokens(from filter: SearchFilter) -> [SearchToken] {
-        let canonicalOrder: [ClipboardItemType] = [.text, .url, .image, .file]
-        var result = canonicalOrder.filter(filter.types.contains).map(SearchToken.type)
+        // Same order as the filter panel's rows — one home, see
+        // `ClipboardItemType.canonicalOrder`.
+        var result = ClipboardItemType.canonicalOrder
+            .filter(filter.types.contains)
+            .map(SearchToken.type)
         result += filter.apps
             .sorted { AppFacet.sortKey($0) < AppFacet.sortKey($1) }
             .map(SearchToken.app)

@@ -120,10 +120,9 @@ extension ItemSearch {
     /// nobody has is a button that always returns nothing.
     static func facets(in items: [ClipboardItem]) -> Facets {
         let presentTypes = Set(items.map(\.type))
-        let canonicalOrder: [ClipboardItemType] = [.text, .url, .image, .file]
         let apps = Set(items.map { AppFacet(bundleID: $0.sourceAppBundleID) })
         return Facets(
-            types: canonicalOrder.filter(presentTypes.contains),
+            types: ClipboardItemType.canonicalOrder.filter(presentTypes.contains),
             apps: apps.sorted { AppFacet.sortKey($0) < AppFacet.sortKey($1) }
         )
     }

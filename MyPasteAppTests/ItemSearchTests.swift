@@ -187,4 +187,21 @@ final class ItemSearchTests {
         #expect(facets.types == [.text, .image])
         #expect(facets.apps == [.bundle("com.apple.Notes"), .bundle("com.apple.Safari"), .unknown])
     }
+
+    @Test("The canonical order lists every type exactly once")
+    func canonicalOrderCoversEveryType() {
+        // The compiler already forces a new case to be ranked — `canonicalRank`
+        // is an exhaustive switch. This is the other half: that the ranked list
+        // is complete, so a new case can't be ranked and still be missing from
+        // the filter panel and the token list.
+        #expect(ClipboardItemType.canonicalOrder.count == ClipboardItemType.allCases.count)
+        #expect(Set(ClipboardItemType.canonicalOrder) == Set(ClipboardItemType.allCases))
+        #expect(ClipboardItemType.canonicalOrder == [.text, .url, .image, .file])
+    }
+
+    @Test("Tokens are listed in the same canonical order as the panel")
+    func tokensFollowCanonicalOrder() {
+        let filter = SearchFilter(types: [.file, .text, .url])
+        #expect(SearchToken.tokens(from: filter) == [.type(.text), .type(.url), .type(.file)])
+    }
 }
