@@ -680,11 +680,28 @@ struct OverlayView: View {
     /// rather than immediate for the reason spelled out in `jumpToHistory`:
     /// clearing in this same turn would run before the list-change handler
     /// could consume it, which is the whole point of arming it.
+    ///
+    /// The scroll request is armed for the same reason `jumpToHistory` arms
+    /// one, and it is not optional: preserving the selection without revealing
+    /// it is worse than not preserving it. `selectionAfterListChange` resolves
+    /// to the id already in `selectedID`, so `onChange(of: selectedID)` never
+    /// fires and nothing scrolls — the full history comes back with the strip
+    /// at its head while the selected card sits at, say, index 47, off screen,
+    /// with `↵`/`⌘C`/`⌘E`/`⌫` all acting on a card the user cannot see. With
+    /// the preview panel open it is worse still: `cardFrames` holds no frame
+    /// for an unrendered card and the panel jumps to the centre of the screen.
+    ///
+    /// Deferred by a turn, like the jump's: the id isn't in the rendered list
+    /// until the cleared query has changed it.
     private func closeSearch() {
-        pendingSelection = selectedID
+        let revealed = selectedID
+        pendingSelection = revealed
         search.close()
         focusTarget = .list
-        Task { @MainActor in pendingSelection = nil }
+        Task { @MainActor in
+            if let revealed { scrollRequest = revealed }
+            pendingSelection = nil
+        }
     }
 
     /// Clears search and filters, then reveals the item in the full history.
