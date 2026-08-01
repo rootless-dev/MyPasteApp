@@ -52,18 +52,24 @@ struct SearchStateTests {
         #expect(SearchState.activationCharacter("g", modifiers: [], isActive: true) == nil)
     }
 
-    @Test("Activating with a seed keeps the character")
-    func activateSeeds() {
+    @Test("Activating opens the search without touching the query")
+    func activateLeavesTextAlone() {
+        // The seed character is applied by `OverlayView.focusSearchField`, one
+        // turn after the field takes focus — never here. Writing it at
+        // activation time is what made the first typed character disappear:
+        // SwiftUI's focus-time select-all left the seed selected and the next
+        // key replaced it.
         let state = SearchState()
-        state.activate(seeding: "g")
+        state.activate()
         #expect(state.isActive)
-        #expect(state.text == "g")
+        #expect(state.text.isEmpty)
     }
 
     @Test("Closing clears text, filter and panel")
     func closeClears() {
         let state = SearchState()
-        state.activate(seeding: "g")
+        state.activate()
+        state.text = "g"
         state.filter.types = [.image]
         state.isFilterPanelOpen = true
         state.close()

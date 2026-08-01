@@ -368,10 +368,12 @@ struct OverlayView: View {
                                     isPreviewOpen: isPreviewOpen()) {
             case .type:
                 // `.type` only happens with text already in the field, so this
-                // never produces a leading space.
+                // never produces a leading space. The append goes through
+                // `focusSearchField` rather than landing here: applied in this
+                // turn, it would be selected by the focus write and destroyed
+                // by the next key.
                 if typesIntoDetachedField {
-                    search.text.append(" ")
-                    focusTarget = .search
+                    focusSearchField { $0.append(" ") }
                     return .handled
                 }
                 return .ignored
@@ -443,8 +445,10 @@ struct OverlayView: View {
             // existing rule below already says `.removeLastToken`, which is a
             // real action and not a dropped key.
             if typesIntoDetachedField, !search.text.isEmpty {
-                search.text.removeLast()
-                focusTarget = .search
+                // Re-checked inside the deferred edit: the query is read again
+                // when the edit actually runs, and something else could have
+                // emptied it in between.
+                focusSearchField { if !$0.isEmpty { $0.removeLast() } }
                 return .handled
             }
             switch SearchState.backspaceAction(isActive: search.isActive,
@@ -533,8 +537,7 @@ struct OverlayView: View {
                SearchState.activationCharacter(character,
                                                modifiers: press.modifiers,
                                                isActive: false) != nil {
-                search.text.append(character)
-                focusTarget = .search
+                focusSearchField { $0.append(character) }
                 return .handled
             }
             guard let seed = SearchState.activationCharacter(character,
@@ -572,15 +575,93 @@ struct OverlayView: View {
         search.isActive && focusTarget != .search
     }
 
-    /// Opens the search and points the keyboard at it.
+    /// Opens the search and points the keyboard at it, seeding the query with
+    /// the character that opened it.
+    ///
+    /// The seed is deliberately NOT written here — it is handed to
+    /// `focusSearchField`, which applies it one turn *after* the focus write.
+    /// See that method: the ordering is the whole fix.
     private func activateSearch(seeding character: Character? = nil) {
-        search.activate(seeding: character)
-        // Deferred by one turn on purpose: `OverlayTopBar` only inserts the
-        // `.search`-tagged field on the render that `activate` triggers, and a
-        // focus value written before its target exists can be dropped — which
-        // would leave nothing focused at all and silently kill every
-        // `onKeyPress` on the chain.
-        Task { @MainActor in focusTarget = .search }
+        search.activate()
+        focusSearchField { text in
+            // Inserted at the front, not appended: the seed is by definition
+            // the first character of a query that was empty a moment ago
+            // (`close()` clears the text, and this only runs with the search
+            // shut). A fast typist's *second* key can reach the field before
+            // this edit lands — measured at a 20ms gap — and appending would
+            // then spell "hgi" for a typed "ghi".
+            if let character { text.insert(character, at: text.startIndex) }
+        }
+    }
+
+    /// Points the keyboard at the search field, then applies `edit` to the
+    /// query one turn later.
+    ///
+    /// **The ordering here is load-bearing — do not collapse these turns.**
+    ///
+    /// Two separate hazards, in sequence:
+    ///
+    /// 1. The focus write is deferred by one turn because `OverlayTopBar` only
+    ///    inserts the `.search`-tagged field on the render that `activate`
+    ///    triggers, and a focus value written before its target exists can be
+    ///    dropped — which would leave nothing focused at all and silently kill
+    ///    every `onKeyPress` on the chain.
+    /// 2. The edit is deferred by one *further* turn because SwiftUI's
+    ///    programmatic focus onto a `TextField` selects the field's entire
+    ///    contents. Anything already in the query is therefore selected the
+    ///    instant focus lands, and the next keystroke replaces it — the exact
+    ///    failure `SearchStateTests.letterOpensSearch` exists to prevent
+    ///    ("the user types 'gh' and the field shows 'h'"). Writing the text in
+    ///    the same turn as the focus write does *not* help: measured, the
+    ///    select-all still wins. Writing it in the turn after does, because
+    ///    pushing a new value through the binding collapses that selection to
+    ///    a caret at the end.
+    ///
+    /// A binding write only collapses the selection when the value actually
+    /// changes, so ⌘F pressed with a live query and the focus detached — no new
+    /// character to add — would still leave the whole query selected and lose
+    /// it to the next key. That case is handled by collapsing the field
+    /// editor's selection directly, right below. Both mechanisms are kept:
+    /// dropping the deferred write and relying on the caret fix alone was
+    /// measured too, and it loses the first character intermittently when the
+    /// second key arrives ~20ms later — the select-all sometimes wins the race
+    /// against the caret fix, and there is then no second write to repair it.
+    ///
+    /// This is a timing-shaped fix and it is honest about being one. The
+    /// durable replacement is an `NSViewRepresentable` search field, where the
+    /// caret can be placed explicitly on the way in instead of being inferred
+    /// from the order of two main-actor turns and patched up through AppKit.
+    /// Out of scope for Phase 3.
+    private func focusSearchField(applying edit: @escaping (inout String) -> Void) {
+        Task { @MainActor in
+            focusTarget = .search
+            Task { @MainActor in
+                var text = search.text
+                edit(&text)
+                search.text = text
+                Task { @MainActor in Self.collapseFieldEditorSelection() }
+            }
+        }
+    }
+
+    /// Puts the caret at the end of the focused text field, undoing the
+    /// select-all that SwiftUI performs when focus is written programmatically.
+    ///
+    /// Reaches through to AppKit on purpose: SwiftUI offers no way to place the
+    /// caret in a `TextField`, and the text write above only clears the
+    /// selection when it changes the value. A no-op whenever the first
+    /// responder isn't a field editor — which is the same state the overlay was
+    /// already in before this ran, so it can't make anything worse.
+    private static func collapseFieldEditorSelection() {
+        for window in NSApp.windows {
+            guard window.isVisible,
+                  let editor = window.firstResponder as? NSTextView,
+                  editor.isFieldEditor
+            else { continue }
+            editor.setSelectedRange(NSRange(location: (editor.string as NSString).length,
+                                            length: 0))
+            return
+        }
     }
 
     /// Closes the search and hands the keyboard back to the root container.

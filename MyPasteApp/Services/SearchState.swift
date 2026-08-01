@@ -28,9 +28,16 @@ final class SearchState {
     /// Whether there's anything to let go of before closing the overlay.
     var hasContent: Bool { !text.isEmpty || !filter.isEmpty }
 
-    func activate(seeding character: Character? = nil) {
+    /// Opens the search, and nothing else.
+    ///
+    /// It deliberately takes no seed character. The character that opened the
+    /// search has to reach `text` one main-actor turn *after* the field takes
+    /// focus, or SwiftUI's focus-time select-all makes the next keystroke
+    /// replace it — see `OverlayView.focusSearchField`, which owns that
+    /// ordering. A `seeding:` parameter here would put the seed back in the
+    /// same turn as the activation and quietly restore the bug.
+    func activate() {
         isActive = true
-        if let character { text.append(character) }
     }
 
     func close() {
