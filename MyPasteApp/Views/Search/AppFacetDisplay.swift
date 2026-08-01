@@ -16,35 +16,42 @@ import AppKit
 @MainActor
 enum AppFacetDisplay {
     private static var nameCache: [String: String] = [:]
-    private static var iconCache: [String: NSImage] = [:]
+    /// Optional values on purpose: "this bundle id resolves to no app" is a
+    /// result worth remembering, not a reason to ask again. `iconCache[id]`
+    /// therefore reads as a hit even when what was cached is nil.
+    private static var iconCache: [String: NSImage?] = [:]
 
     /// The app's display name, falling back to the bundle ID.
     ///
     /// An uninstalled app resolves to nothing through `NSWorkspace`, and the
     /// bundle ID is still a usable label — a filter row with no name would be
     /// an invisible button.
+    ///
+    /// That fallback is cached like any other answer. Both lookups are
+    /// synchronous LaunchServices calls, and this runs from `body` — which
+    /// re-runs on every keystroke while the filter panel is open, for every
+    /// app facet on screen. Returning the fallback without caching it made an
+    /// uninstalled app the one case that paid that cost forever.
     static func name(for facet: AppFacet) -> String {
         switch facet {
         case .unknown:
             return "Unknown"
         case .bundle(let id):
             if let cached = nameCache[id] { return cached }
-            guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: id) else {
-                return id
-            }
-            let name = FileManager.default.displayName(atPath: url.path)
+            let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: id)
+            let name = url.map { FileManager.default.displayName(atPath: $0.path) } ?? id
             nameCache[id] = name
             return name
         }
     }
 
+    /// The app's icon, or nil when the app isn't installed — cached either way,
+    /// for the reason spelled out on `name(for:)`.
     static func icon(for facet: AppFacet) -> NSImage? {
         guard case .bundle(let id) = facet else { return nil }
         if let cached = iconCache[id] { return cached }
-        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: id) else {
-            return nil
-        }
-        let icon = NSWorkspace.shared.icon(forFile: url.path)
+        let icon = NSWorkspace.shared.urlForApplication(withBundleIdentifier: id)
+            .map { NSWorkspace.shared.icon(forFile: $0.path) }
         iconCache[id] = icon
         return icon
     }
