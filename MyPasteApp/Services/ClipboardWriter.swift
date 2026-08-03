@@ -49,4 +49,45 @@ final class ClipboardWriter {
             }
         }
     }
+
+    /// Writes several items to the pasteboard as a single block.
+    ///
+    /// Deliberately **not** a parameter on `write(_:plainText:)`. The two
+    /// diverge on exactly what they save: `write` promotes to the top by
+    /// rewriting `createdAt`, this one doesn't touch `createdAt` at all. Phase
+    /// 2 already paid once for folding two saves with different semantics into
+    /// one routine — that was the near-miss corruption that split
+    /// `ItemEdit.apply` from `ItemEdit.applyLabel`.
+    ///
+    /// `ignoreNextChange` still suffices: this is one write, not a loop. It's
+    /// also why there's no `pasteDelayMs` between items — there's a single ⌘V.
+    func writeJoined(_ items: [ClipboardItem],
+                     separator: MultiPasteSeparator,
+                     plainText: Bool) {
+        guard !items.isEmpty else { return }
+        let pb = NSPasteboard.general
+        monitor?.ignoreNextChange = true
+        pb.clearContents()
+
+        MultiPaste.markUsed(items, now: .now)
+
+        // Closure rather than `items.map(MultiPaste.attributed(for:))`: passing
+        // a `@MainActor` method as a function value drops the global actor and
+        // fails to compile. A closure inherits the isolation instead.
+        let joined = MultiPaste.joined(items.map { MultiPaste.attributed(for: $0) },
+                                       separator: separator)
+        // Always RTF for the block, even when the sources were HTML: it's the
+        // format `ItemEdit.apply` already writes, and it avoids having to pick
+        // a winner between heterogeneous sources.
+        if !plainText,
+           let rtf = try? joined.data(
+               from: NSRange(location: 0, length: joined.length),
+               documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]) {
+            pb.setData(rtf, forType: .rtf)
+        }
+        // Always present, even alongside RTF: a pasteboard carrying only RTF
+        // breaks pasting into any plain text field. Same rule as
+        // `RichText.payload`.
+        pb.setData(Data(joined.string.utf8), forType: .string)
+    }
 }
