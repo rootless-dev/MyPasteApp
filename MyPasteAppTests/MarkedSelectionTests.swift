@@ -72,6 +72,44 @@ struct MarkedSelectionTests {
         selection.toggle(b)
         selection.clear()
         #expect(selection.isEmpty)
-        #expect(selection.ids.isEmpty)
+    }
+
+    // MARK: - Removal
+
+    @Test("Removing drops the id and renumbers what follows")
+    func removeRenumbers() {
+        // What `OverlayView.delete` calls. Without it the deleted id stays
+        // marked: the count pill keeps counting it, and with every marked item
+        // deleted ↵ takes the mark branch, resolves to nothing and does
+        // nothing at all.
+        let selection = MarkedSelection()
+        selection.toggle(a)
+        selection.toggle(b)
+        selection.toggle(c)
+        selection.remove(a)
+        #expect(selection.ids == [b, c])
+        #expect(selection.count == 2)
+        #expect(selection.order(of: c) == 2)
+    }
+
+    @Test("Removing an id that was never marked changes nothing")
+    func removeUnmarkedIsNoOp() {
+        // Deleting an unmarked card must not mark it — the difference between
+        // `remove` and `toggle`, and the reason `delete` can call this
+        // unconditionally.
+        let selection = MarkedSelection()
+        selection.toggle(a)
+        selection.remove(b)
+        #expect(selection.ids == [a])
+    }
+
+    @Test("Removing the last mark empties the selection")
+    func removeLastEmpties() {
+        // The dead-key case: the only marked card is deleted, so ↵ has to go
+        // back to pasting the selected card instead of taking the mark branch.
+        let selection = MarkedSelection()
+        selection.toggle(a)
+        selection.remove(a)
+        #expect(selection.isEmpty)
     }
 }

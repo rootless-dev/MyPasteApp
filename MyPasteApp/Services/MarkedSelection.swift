@@ -45,6 +45,25 @@ final class MarkedSelection {
         }
     }
 
+    /// Drops an id, marked or not.
+    ///
+    /// Unlike `toggle`, this never marks: it is what a *deletion* calls, and a
+    /// deleted item must not become marked because it happened not to be.
+    /// Renumbers what follows, for the same reason unmarking from the middle
+    /// does.
+    ///
+    /// `MultiPaste.resolve` already drops ids with no item left, and that stays
+    /// as the backstop for everything that deletes without going through the
+    /// view — retention pruning, for one. But the backstop only covers the
+    /// paste itself: the count pill keeps reading the raw `count`, and with
+    /// every marked item deleted, ↵ hits the mark branch, resolves to nothing
+    /// and returns `.ignored`, so the key does nothing at all while the pill
+    /// says "1 marked ↵ paste".
+    func remove(_ id: UUID) {
+        guard let index = ids.firstIndex(of: id) else { return }
+        ids.remove(at: index)
+    }
+
     /// 1-based position for the card's chip, or nil when not marked.
     func order(of id: UUID) -> Int? {
         ids.firstIndex(of: id).map { $0 + 1 }

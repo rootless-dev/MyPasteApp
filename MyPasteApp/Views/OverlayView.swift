@@ -806,12 +806,20 @@ struct OverlayView: View {
     /// (`filtered`, captured before the delete) so the replacement is the
     /// card that visually sat at the same spot, falling back to the first
     /// card when the deleted one was the last.
+    ///
+    /// Unmarking is part of the deletion, not housekeeping: the mark branch of
+    /// the ↵ handler runs on `marked.isEmpty` alone, so an id left behind here
+    /// makes ↵ swallow the key and paste nothing — a card marked and then
+    /// deleted turns ↵ into a dead key while the count pill still says "1
+    /// marked ↵ paste". `MultiPaste.resolve` dropping the id at paste time
+    /// covers what lands in the block, and nothing else.
     private func delete(_ item: ClipboardItem) {
         let deletedID = item.id
         let wasSelected = selectedID == deletedID
         let remaining = filtered.filter { $0.id != deletedID }
         let index = filtered.firstIndex { $0.id == deletedID }
 
+        marked.remove(deletedID)
         itemActions.delete(item)
 
         guard wasSelected else { return }
