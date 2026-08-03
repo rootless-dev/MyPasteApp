@@ -91,6 +91,33 @@ sandboxado, não há um container por bundle ID.
       "History") — nenhuma pílula some da faixa, e o campo de busca não fica
       espremido nem muda de tamanho por causa disso.
 
+- [ ] **B9 ⚠️ Depois de confirmar um nome com `↵`, o teclado volta para a
+      lista.** Aperte `+`, digite "Teclado", `↵`. **Sem clicar em nada**,
+      aperte `←` e `→`: a seleção anda entre os cards. Aperte `⎋`: a gaveta
+      fecha. Se em vez disso nada responder até você clicar num card, o campo
+      de renomeação levou o foco embora com ele ao sair da tela — é a falha da
+      Fase 1 por uma segunda porta. Repita o mesmo teste saindo da renomeação
+      com `⎋` em vez de `↵`, e uma terceira vez entrando pela entrada "Rename"
+      do menu da pílula.
+
+- [ ] **B10 ⚠️ A renomeação não sobrevive ao fechamento da gaveta.** Aperte
+      `+` e, **sem confirmar nome nenhum**, feche a gaveta (hotkey de novo ou
+      clique fora). Reabra. **Critério:** a pílula aparece com o nome que
+      tinha ("Untitled"), como rótulo de texto normal — **não** em modo de
+      edição, com um campo de texto no lugar do nome. Reabra mais uma vez para
+      confirmar que não é só a primeira abertura. Repita o mesmo pelo caminho
+      do menu do card ("New Pinboard…", passo H1), que também abre a pílula em
+      edição.
+
+- [ ] **B11** Sem nenhum pinboard criado (exclua todos, se houver), com a
+      gaveta aberta, aperte `⌃Tab`: nada acontece e nada quebra — não há para
+      onde ciclar, e a tecla não é engolida.
+
+- [ ] **B12** Com o histórico realmente vazio — instalação nova, ou logo
+      depois de um "Clear history" que não deixou nada —, a área de cards diz
+      **"Nothing copied yet"**, não "No results". "No results" nomeia uma
+      busca que ninguém fez.
+
 ---
 
 ## C. Escopo
@@ -152,8 +179,9 @@ sandboxado, não há um container por bundle ID.
       2. Adiante o relógio do sistema pelo menos 2 horas (Ajustes do Sistema
          → Data e Hora, desligue "Definir automaticamente" para poder mexer
          na hora manualmente).
-      3. **A poda só roda no lançamento do app — não há timer periódico.**
-         Feche o app pelo menu da barra de status → Quit, e abra de novo.
+      3. A poda roda no lançamento **e** a cada 5 minutos. Para não esperar,
+         feche o app pelo menu da barra de status → Quit, e abra de novo. (O
+         caminho sem reiniciar é o passo D8.)
       4. **Critério:** o item sumiu do Histórico e sumiu do pinboard, apesar
          de estar fixado, arquivado e ter passado por "Keep". Se ele
          continuar em qualquer uma das duas listas, a poda está respeitando
@@ -166,15 +194,56 @@ sandboxado, não há um container por bundle ID.
 
 - [ ] **D5** Em Ajustes → History, o botão que antes era "Clear non-pinned
       history" agora é **"Clear history"**, com a legenda "Keeps pinned
-      items, items in pinboards, and items set to never expire." Clique
-      nele: itens fixados, itens em qualquer pinboard e itens "never expire"
-      continuam na lista depois; todo o resto (sem nenhuma das três marcas)
-      some.
+      items, items in pinboards, items set to never expire, and items whose
+      expiry date is still ahead." Clique nele: itens fixados, itens em
+      qualquer pinboard e itens "never expire" continuam na lista depois;
+      todo o resto (sem nenhuma das quatro marcas) some.
 
 - [ ] **D6** Crie um item escrito à mão (`⌘N` → digite um texto → salve).
       Ele nasce "never expire" por baixo dos panos, então sobrevive ao "Clear
       history" do D5 — mas **não** nasce fixado: ele não aparece à frente da
       lista, e sim na posição normal por data de criação.
+
+- [ ] **D7 🔴 Uma data de expiração no futuro protege o item.** Decidido na
+      revisão de branch: a data manda apagar **depois** dela e manda **não**
+      apagar antes. Duas metades:
+      1. **Contra o "Clear history".** Pegue um item **sem** nenhuma das
+         outras proteções (não fixado, fora de qualquer pinboard) e escolha
+         "Keep → Expire in 1 week". Vá em Ajustes → History e clique "Clear
+         history". **Critério:** esse item continua na lista, junto com os
+         fixados, os de pinboard e os "never expire". Se ele sumir, a data
+         está valendo só para encurtar a vida do item, nunca para prolongá-la.
+      2. **Contra a poda por volume.** Com um histórico de mais de 50 itens,
+         escolha um item **antigo** — bem fora dos 50 mais recentes — e dê a
+         ele "Keep → Expire in 1 week". Anote também qual é o card vizinho
+         dele na lista, sem marca nenhuma, para servir de controle. Em
+         Ajustes → History, baixe "Maximum items" para **50**. Espere a poda
+         (até 5 minutos, ou Quit + reabrir). **Critério:** o item com data
+         continua lá e o vizinho de controle sumiu. Devolva "Maximum items"
+         ao valor anterior depois.
+
+- [ ] **D8 ⚠️ A expiração acontece com o app rodando, sem reiniciar.** Sem
+      isto, "Expire in 1 hour" significa "expira no próximo relançamento" —
+      num app de barra de status que fica semanas ligado, isso é nunca.
+      **Roteiro:**
+      1. Num item qualquer, escolha "Keep → Expire in 1 hour". Confirme pelo
+         menu que a data resolvida aparece (passo D3).
+      2. Adiante o relógio do sistema em 2 horas. **Não feche o app**, não dê
+         Quit, não rebuilde pelo Xcode.
+      3. Espere 6 minutos com o app rodando (o timer da poda é de 5).
+      4. Abra a gaveta. **Critério:** o item sumiu sozinho. Se ele ainda
+         estiver lá e sumir só depois de um Quit + reabrir, o timer não está
+         rodando — anote isso, é a diferença entre a expiração funcionar e
+         não funcionar na prática.
+      5. Volte o relógio ao normal ("Definir automaticamente").
+
+- [ ] **D9** Copie um texto qualquer, dê a ele "Keep → Expire in 1 hour",
+      adiante o relógio em 2 horas e, **antes de esperar a poda**, copie
+      exatamente o mesmo texto de novo no app de origem. O card volta ao topo
+      como captura nova. Espere a poda (6 minutos, ou Quit + reabrir).
+      **Critério:** o card **continua lá** — copiar de novo é intenção nova e
+      apaga a data vencida. Se ele sumir, o app está apagando algo que o
+      usuário copiou minutos antes, sem nada na tela explicando por quê.
 
 ---
 
@@ -234,6 +303,83 @@ sandboxado, não há um container por bundle ID.
 
 - [ ] **F6** Ponha um app em "Ignore everything" e copie qualquer coisa nele
       (texto, imagem, link): nada aparece no histórico.
+
+- [ ] **F7 ⚠️ A ordem dos guards — o único jeito de verificar isto é aqui.**
+      A mudança-título desta fase é rejeitar um app banido **antes** de ler o
+      pasteboard. Nenhum teste automatizado cobre a ordem: a suíte prova que a
+      regra mora na função pré-leitura (`ClipboardMonitor.shouldRead`), não
+      que o `poll()` a chama antes do `readCurrentItem()` — ordem de efeito
+      colateral não é observável por função pura. Com o app do F6 ainda em
+      "Ignore everything", copie nele um **texto longo e reconhecível**. Abra
+      o Console.app filtrando por `MyPasteApp` enquanto faz isso.
+      **Critério:** nada aparece no histórico e nada com o conteúdo copiado
+      aparece no log. É uma verificação fraca por natureza — o registro dela
+      é o que a torna útil.
+
+---
+
+## G. Cor do card e filiação (Tarefa 7)
+
+Este bloco não tem **nenhuma** cobertura automatizada: tudo aqui vive em
+`Views/`, que por regra do projeto não tem teste. Até este bloco rodar, a
+Tarefa 7 está implementada e não verificada.
+
+Preparação: crie dois pinboards de cores diferentes ("Trabalho" e "Links") e
+tenha itens copiados de **pelo menos dois apps diferentes** (ex.: um texto do
+Safari e um do Xcode — os cabeçalhos deles no Histórico têm cores diferentes
+entre si).
+
+- [ ] **G1** Filie ao **mesmo** board um item do app A e um item do app B
+      (menu do card → "Add to Pinboard" → Trabalho). Entre no board clicando
+      na pílula. **Critério:** os dois cabeçalhos têm a **cor do board** —
+      iguais entre si, e diferentes das cores que esses mesmos cards têm no
+      Histórico. Nenhum card dentro do board mantém a cor do app de origem.
+
+- [ ] **G2** Volte ao Histórico. **Critério:** os dois cards arquivados
+      mostram um **ponto colorido** na cor do board, no canto do cabeçalho, e
+      o cabeçalho volta a ser a cor do **app de origem** — o ponto marca a
+      filiação, ele não repinta o card.
+
+- [ ] **G3** No Histórico, um card que não está em pinboard nenhum **não**
+      mostra ponto nenhum.
+
+- [ ] **G4** Entre no board de novo. **Critério:** o ponto **some** dos
+      cards — lá dentro a cor do cabeçalho já diz a filiação, e o ponto seria
+      redundante.
+
+- [ ] **G5** Com um board como escopo ativo, troque a cor dele pelo menu da
+      pílula (botão direito → uma cor). **Critério:** os cabeçalhos dos cards
+      mudam de cor na hora, sem fechar e reabrir a gaveta. Volte ao Histórico:
+      o ponto dos itens desse board também está na cor nova.
+
+- [ ] **G6** Um card fixado (`⌘P`) e arquivado ao mesmo tempo mostra o ponto
+      do board **e** o alfinete, sem um cobrir o outro.
+
+---
+
+## H. Filiação pelo menu do card
+
+Os três fluxos que a faixa de pílulas não cobre.
+
+- [ ] **H1** Menu de um card → "Add to Pinboard" → **"New Pinboard…"**.
+      **Critério:** nasce uma pílula nova, com a próxima cor da paleta, já com
+      esse item dentro dela, e a pílula abre em **edição inline** (campo de
+      texto com o foco). O escopo ativo **continua no Histórico** — este
+      caminho não teleporta o usuário para dentro do board novo. Digite um
+      nome e `↵`: a pílula mostra o nome, e o card ganha o ponto da cor dela
+      no Histórico. (O `↵` aqui também vale para o B9: depois dele, `←`/`→`
+      têm que andar.)
+
+- [ ] **H2** Num item **já** filiado, a entrada do menu diz **"Move to
+      Pinboard"** (não "Add to Pinboard"). Escolha o outro board.
+      **Critério:** o item aparece no board novo, **sumiu** do board anterior
+      (um item pertence a um board por vez), e o ponto dele no Histórico
+      mudou para a cor do board novo.
+
+- [ ] **H3** Num item filiado, o menu mostra também **"Remove from
+      Pinboard"** — e num item solto essa entrada **não** aparece. Clique
+      nela. **Critério:** o item some da lista do board, continua no
+      Histórico, e o ponto colorido some do cabeçalho dele.
 
 ---
 
