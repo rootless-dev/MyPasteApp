@@ -87,4 +87,33 @@ final class PinboardScopeTests {
 
         #expect(scope.activeID == nil)
     }
+
+    @Test("Reset also ends an inline rename")
+    func resetEndsRenaming() {
+        // The rename lives here precisely so this one call covers it: as
+        // `@State` in the view it outlived the drawer closing, and `+`
+        // followed by a close brought the pill back as a text field on every
+        // opening afterwards.
+        let scope = PinboardScope()
+        let id = UUID()
+        scope.beginRenaming(id)
+        #expect(scope.renamingBoardID == id)
+
+        scope.reset()
+
+        #expect(scope.renamingBoardID == nil)
+    }
+
+    @Test("Ending a rename leaves the active scope alone")
+    func endRenamingKeepsScope() {
+        let scope = PinboardScope()
+        let id = UUID()
+        scope.select(id)
+        scope.beginRenaming(id)
+
+        scope.endRenaming()
+
+        #expect(scope.renamingBoardID == nil)
+        #expect(scope.activeID == id)
+    }
 }

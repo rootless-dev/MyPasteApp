@@ -30,9 +30,6 @@ struct OverlayView: View {
     /// `OverlayWindowController` where to anchor the preview panel. Lives in a
     /// reference type on purpose — see `CardFrameStore`.
     @State private var cardFrames = CardFrameStore()
-    /// The board whose pill is in inline rename, if any. View state, not
-    /// controller state: it never has to survive the drawer closing.
-    @State private var renamingBoardID: UUID?
     /// Where the keyboard is pointed.
     ///
     /// The overlay used to keep the search field focused at all times, which
@@ -61,7 +58,9 @@ struct OverlayView: View {
     /// reason. The controller clears it on every `show()`.
     let marked: MarkedSelection
     /// Owned by `OverlayWindowController`, like `search` and `marked`, and for
-    /// the same reason. The controller resets it on every `show()`.
+    /// the same reason. The controller resets it on every `show()` — which
+    /// covers the inline rename it also holds (`renamingBoardID`), not just
+    /// the active board.
     let scope: PinboardScope
     let onPick: (ClipboardItem, Bool) -> Void
     let onPickMultiple: ([ClipboardItem], Bool) -> Void
@@ -250,16 +249,16 @@ struct OverlayView: View {
                           AnyView(PinboardContextMenu(
                               board: board,
                               actions: pinboardActions,
-                              onRename: { renamingBoardID = board.id },
+                              onRename: { scope.beginRenaming(board.id) },
                               onDeleted: {
                                   if scope.activeID == board.id { scope.select(nil) }
-                                  if renamingBoardID == board.id { renamingBoardID = nil }
+                                  if scope.renamingBoardID == board.id { scope.endRenaming() }
                               }))
                       },
-                      editingBoardID: renamingBoardID,
+                      editingBoardID: scope.renamingBoardID,
                       onCommitBoardName: { board, name in
                           pinboardActions.rename(board, to: name)
-                          renamingBoardID = nil
+                          scope.endRenaming()
                       })
     }
 
@@ -338,7 +337,7 @@ struct OverlayView: View {
                             onFileInNewBoard: {
                                 let board = pinboardActions.create()
                                 ItemActions.assign(item, to: board)
-                                renamingBoardID = board.id
+                                scope.beginRenaming(board.id)
                             })
         }
     }
@@ -1002,7 +1001,7 @@ struct OverlayView: View {
     private func createBoard() {
         let board = pinboardActions.create()
         scope.select(board.id)
-        renamingBoardID = board.id
+        scope.beginRenaming(board.id)
         selectedID = nil
     }
 

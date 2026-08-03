@@ -24,14 +24,34 @@ final class PinboardScope {
     /// The active pinboard, or nil for the history.
     private(set) var activeID: UUID?
 
+    /// The board whose pill is in inline rename, if any.
+    ///
+    /// Here rather than in `OverlayView.@State` for the same reason `activeID`
+    /// is: the view is built once and reused, so a `@State` id survived the
+    /// drawer closing. Pressing `+` and closing the drawer before confirming
+    /// the name brought the pill back in edit mode — a text field where the
+    /// board's name should be — on that opening and every one after it. Sharing
+    /// `reset()` with `activeID` is what keeps that from needing its own
+    /// separate teardown path in `show()`.
+    private(set) var renamingBoardID: UUID?
+
     var isScoped: Bool { activeID != nil }
 
     func select(_ id: UUID?) {
         activeID = id
     }
 
+    func beginRenaming(_ id: UUID) {
+        renamingBoardID = id
+    }
+
+    func endRenaming() {
+        renamingBoardID = nil
+    }
+
     func reset() {
         activeID = nil
+        renamingBoardID = nil
     }
 }
 

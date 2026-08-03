@@ -34,7 +34,9 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
     /// as `searchState` and `markedSelection`. Reopening the drawer inside a
     /// pinboard would mean copying something and not seeing it appear, which
     /// is the invisible-state failure the roadmap treats as the worst kind.
-    let pinboardScope = PinboardScope()
+    /// It also holds the inline rename (`renamingBoardID`), so that too is
+    /// covered by the single `reset()` below instead of a parallel path.
+    private let pinboardScope = PinboardScope()
     // Task 19 spike: a second window of our own, so the click-outside
     // monitors below need to know about it too. See ItemPreviewPanel.
     private var previewPanel: NSPanel?
@@ -180,7 +182,8 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         guard let panel = window else { return }
 
         // Every opening starts at rest: magnifier, no query, no filters,
-        // nothing marked. Done before the panel is ordered front so the
+        // nothing marked, the history in view and no pill mid-rename. Done
+        // before the panel is ordered front so the
         // collapsed top bar is already laid out by the
         // `layoutSubtreeIfNeeded()` below, and the slide-up never shows a
         // stale field. These two lines are the single place that covers all
