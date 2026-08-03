@@ -9,9 +9,8 @@ import SwiftUI
 ///
 /// At rest it's just the magnifier, as in the Paste reference
 /// (`design-refs/01-barra-principal.png`); searching, it becomes a wide field
-/// (`12-busca-ativa.png`). The empty stack to the right is where Phase 5's
-/// pinboard pills go — reserving it now is what keeps that phase from having
-/// to redraw this layout.
+/// (`12-busca-ativa.png`). The `PinboardBar` scope strip sits to the right in
+/// both states, collapsing to markers only while the search field is open.
 struct OverlayTopBar: View {
     @Bindable var state: SearchState
     /// Passed in rather than declared here, and forwarded straight to
@@ -24,6 +23,13 @@ struct OverlayTopBar: View {
     var onOpenFilters: () -> Void
     /// How many items are marked for a multi-item paste, or zero.
     var markedCount: Int = 0
+    /// The pinboards to offer as scopes, ordered by creation.
+    var boards: [Pinboard] = []
+    /// The active scope, or nil for the history.
+    var activeScopeID: UUID?
+    var onSelectScope: (UUID?) -> Void = { _ in }
+    var onCreateBoard: () -> Void = {}
+    var boardContextMenu: (Pinboard) -> AnyView = { _ in AnyView(EmptyView()) }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -32,6 +38,12 @@ struct OverlayTopBar: View {
                                 focusTarget: $focusTarget,
                                 onOpenFilters: onOpenFilters)
                     .frame(maxWidth: 470)
+                PinboardBar(boards: boards,
+                            activeID: activeScopeID,
+                            isCollapsed: true,
+                            onSelect: onSelectScope,
+                            onCreate: onCreateBoard,
+                            contextMenu: boardContextMenu)
             } else {
                 Button(action: onActivate) {
                     Image(systemName: "magnifyingglass")
@@ -43,8 +55,12 @@ struct OverlayTopBar: View {
                 .buttonStyle(.plain)
                 .help("Search history")
 
-                // Reserved for Phase 5's pinboard pills.
-                HStack(spacing: 8) {}
+                PinboardBar(boards: boards,
+                            activeID: activeScopeID,
+                            isCollapsed: false,
+                            onSelect: onSelectScope,
+                            onCreate: onCreateBoard,
+                            contextMenu: boardContextMenu)
             }
         }
         .frame(maxWidth: .infinity)
