@@ -217,7 +217,8 @@ struct OverlayView: View {
                 OverlayTopBar(state: search,
                               focusTarget: $focusTarget,
                               onActivate: { activateSearch() },
-                              onOpenFilters: { search.isFilterPanelOpen.toggle() })
+                              onOpenFilters: { search.isFilterPanelOpen.toggle() },
+                              markedCount: marked.count)
 
                 ScrollViewReader { proxy in
                     ScrollView(.horizontal, showsIndicators: false) {
@@ -273,7 +274,9 @@ struct OverlayView: View {
                                     ItemContextMenu(item: item,
                                                     actions: itemActions,
                                                     destinationAppName: destinationAppName(),
-                                                    isSearchNarrowed: search.hasContent)
+                                                    isSearchNarrowed: search.hasContent,
+                                                    isMarked: marked.contains(item.id),
+                                                    onToggleMark: { marked.toggle(item.id) })
                                 }
                             }
                         }

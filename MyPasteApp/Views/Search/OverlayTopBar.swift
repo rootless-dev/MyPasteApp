@@ -22,6 +22,8 @@ struct OverlayTopBar: View {
     @FocusState.Binding var focusTarget: OverlayFocusTarget?
     var onActivate: () -> Void
     var onOpenFilters: () -> Void
+    /// How many items are marked for a multi-item paste, or zero.
+    var markedCount: Int = 0
 
     var body: some View {
         HStack(spacing: 12) {
@@ -43,6 +45,21 @@ struct OverlayTopBar: View {
 
                 // Reserved for Phase 5's pinboard pills.
                 HStack(spacing: 8) {}
+            }
+
+            if markedCount > 0 {
+                Spacer(minLength: 8)
+                // Marks survive the search by design, so some of them can be
+                // off-screen. Without this the user would be assembling a
+                // block they can't see — the invisible-state failure the
+                // roadmap flags for the pause feature.
+                Text("\(markedCount) marked    ↵ paste    ⎋ clear")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(Color.accentColor))
+                    .fixedSize()
             }
         }
         .frame(maxWidth: .infinity)
