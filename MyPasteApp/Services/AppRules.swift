@@ -82,10 +82,23 @@ enum AppRules {
 
     private static func migratedFromLegacy(_ defaults: UserDefaults) -> [AppRule] {
         let raw = defaults.string(forKey: PreferenceKeys.ignoredAppsRaw) ?? ""
-        return raw
-            .split(separator: "\n")
-            .map { $0.trimmingCharacters(in: .whitespaces) }
+        // isNewline rather than == "\n": a CRLF pair is a single Character in
+        // Swift, so comparing against "\n" alone would miss a list pasted out
+        // of a Windows file and leave the separator glued to each bundle ID.
+        // Comma is included too, since the old free-text field accepted it as
+        // an alternative separator.
+        let bundleIDs = raw
+            .split(whereSeparator: { $0.isNewline || $0 == "," })
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
-            .map { AppRule(bundleID: $0, allowedTypes: []) }
+
+        // The old format tolerated repeats — it fed into a `Set` that
+        // absorbed them silently. A `[AppRule]` can't: two rules for the same
+        // bundle ID would be a new kind of ambiguity this format never had,
+        // so only the first occurrence of each ID survives.
+        var seen = Set<String>()
+        let deduplicated = bundleIDs.filter { seen.insert($0).inserted }
+
+        return deduplicated.map { AppRule(bundleID: $0, allowedTypes: []) }
     }
 }

@@ -64,6 +64,74 @@ struct AppRulesTests {
         #expect(rules.map(\.bundleID) == ["com.apple.Passwords"])
     }
 
+    // MARK: - Migration — legacy list parsing
+    //
+    // These mirror, case for case, what used to live in
+    // `ClipboardPreferencesTests`'s "Ignored apps" section against
+    // `ClipboardMonitor.ignoredBundleIDs(from:)`. That function and its old
+    // caller in `poll()` were only safe to delete once this suite proved
+    // `AppRules.migratedFromLegacy` parses a legacy list exactly the same
+    // way — comma and any newline as separators, CRLF included, trimmed and
+    // deduplicated. Losing any one of these cases silently un-bans an app
+    // for anyone whose legacy list used that separator.
+
+    @Test("Blank input migrates to no rules", arguments: ["", "   ", "\n", "\n\n  \n", ",", ",,"])
+    func migrationBlankInputYieldsNoRules(raw: String) {
+        store.set(raw, forKey: PreferenceKeys.ignoredAppsRaw)
+        #expect(AppRules.load(from: store).isEmpty)
+    }
+
+    @Test("A single bundle ID migrates on its own")
+    func migrationSingleBundleID() {
+        store.set("com.agilebits.onepassword7", forKey: PreferenceKeys.ignoredAppsRaw)
+        #expect(AppRules.load(from: store).map(\.bundleID) == ["com.agilebits.onepassword7"])
+    }
+
+    @Test("Newline-separated IDs migrate in order")
+    func migrationNewlineSeparated() {
+        store.set("com.apple.keychainaccess\ncom.1password.1password",
+                  forKey: PreferenceKeys.ignoredAppsRaw)
+        #expect(AppRules.load(from: store).map(\.bundleID)
+                == ["com.apple.keychainaccess", "com.1password.1password"])
+    }
+
+    @Test("Comma-separated IDs migrate in order")
+    func migrationCommaSeparated() {
+        store.set("com.apple.keychainaccess,com.1password.1password",
+                  forKey: PreferenceKeys.ignoredAppsRaw)
+        #expect(AppRules.load(from: store).map(\.bundleID)
+                == ["com.apple.keychainaccess", "com.1password.1password"])
+    }
+
+    @Test("Mixed separators migrate with surrounding spaces trimmed")
+    func migrationMixedAndTrimmed() {
+        store.set("  com.a  ,\n  com.b\n\ncom.c ,, ", forKey: PreferenceKeys.ignoredAppsRaw)
+        #expect(AppRules.load(from: store).map(\.bundleID) == ["com.a", "com.b", "com.c"])
+    }
+
+    @Test("A list pasted from a CRLF file migrates with no stray carriage returns")
+    func migrationCRLF() {
+        // Regression guard carried over from the pre-Task-10 parser:
+        // splitting on "\n" alone left a trailing "\r" glued to each ID, so
+        // no bundle ID ever matched after migration.
+        store.set("com.a\r\ncom.b\r\n", forKey: PreferenceKeys.ignoredAppsRaw)
+        #expect(AppRules.load(from: store).map(\.bundleID) == ["com.a", "com.b"])
+    }
+
+    @Test("Repeating an ID migrates to a single rule")
+    func migrationDeduplicates() {
+        store.set("com.a\ncom.a\ncom.a", forKey: PreferenceKeys.ignoredAppsRaw)
+        #expect(AppRules.load(from: store).map(\.bundleID) == ["com.a"])
+    }
+
+    @Test("Migrated matching is exact, so a prefix doesn't ignore a different app")
+    func migrationExactMatch() {
+        store.set("com.apple.Safari", forKey: PreferenceKeys.ignoredAppsRaw)
+        let rules = AppRules.load(from: store)
+        #expect(AppRules.ignoresEverything("com.apple.Safari", rules: rules))
+        #expect(AppRules.ignoresEverything("com.apple.SafariTechnologyPreview", rules: rules) == false)
+    }
+
     @Test("Corrupt JSON falls back to the old format, never to nothing")
     func corruptJSONFallsBackToTheOldFormat() {
         // Falling back to an empty list would silently start capturing from a
