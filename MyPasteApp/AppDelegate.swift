@@ -42,7 +42,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if Self.isRunningUnitTests { return }
 
         do {
-            modelContainer = try ModelContainer(for: ClipboardItem.self)
+            // Both models, explicitly. SwiftData only infers what it can reach
+            // from this list — a `Pinboard` left out here compiles fine and
+            // then traps on the first write to the relationship.
+            modelContainer = try ModelContainer(for: ClipboardItem.self, Pinboard.self)
         } catch {
             NSLog("Failed to create ModelContainer: \(error)")
             return
