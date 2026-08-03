@@ -12,6 +12,9 @@ struct OverlayView: View {
     @Query(sort: \ClipboardItem.createdAt, order: .reverse)
     private var items: [ClipboardItem]
 
+    @Query(sort: \Pinboard.createdAt, order: .forward)
+    private var boards: [Pinboard]
+
     @State private var selectedID: UUID?
     /// Selection to honour on the next list change, instead of the top card.
     ///
@@ -27,6 +30,9 @@ struct OverlayView: View {
     /// `OverlayWindowController` where to anchor the preview panel. Lives in a
     /// reference type on purpose — see `CardFrameStore`.
     @State private var cardFrames = CardFrameStore()
+    /// The board whose pill is in inline rename, if any. View state, not
+    /// controller state: it never has to survive the drawer closing.
+    @State private var renamingBoardID: UUID?
     /// Where the keyboard is pointed.
     ///
     /// The overlay used to keep the search field focused at all times, which
@@ -54,6 +60,9 @@ struct OverlayView: View {
     /// Owned by `OverlayWindowController`, like `search` and for the same
     /// reason. The controller clears it on every `show()`.
     let marked: MarkedSelection
+    /// Owned by `OverlayWindowController`, like `search` and `marked`, and for
+    /// the same reason. The controller resets it on every `show()`.
+    let scope: PinboardScope
     let onPick: (ClipboardItem, Bool) -> Void
     let onPickMultiple: ([ClipboardItem], Bool) -> Void
     let onDismiss: () -> Void
@@ -99,6 +108,7 @@ struct OverlayView: View {
          itemEditor: ItemEditorWindowController,
          search: SearchState,
          marked: MarkedSelection,
+         scope: PinboardScope,
          onPick: @escaping (ClipboardItem, Bool) -> Void,
          onPickMultiple: @escaping ([ClipboardItem], Bool) -> Void,
          onDismiss: @escaping () -> Void,
@@ -111,6 +121,7 @@ struct OverlayView: View {
         self.itemEditor = itemEditor
         self.search = search
         self.marked = marked
+        self.scope = scope
         self.onPick = onPick
         self.onPickMultiple = onPickMultiple
         self.onDismiss = onDismiss
@@ -127,6 +138,10 @@ struct OverlayView: View {
     private var itemActions: ItemActions {
         ItemActions(modelContext: modelContext, writer: writer, onPaste: onPick,
                     editorWindow: itemEditor, onPreview: preview, onJump: jumpToHistory)
+    }
+
+    private var pinboardActions: PinboardActions {
+        PinboardActions(modelContext: modelContext)
     }
 
     /// Whether this paste should hand over plain text.
@@ -146,9 +161,14 @@ struct OverlayView: View {
             return a.createdAt > b.createdAt
         }
         let now = Date.now
-        return sorted.filter {
-            ItemSearch.matches(item: $0, query: search.text, filter: search.filter, now: now)
-        }
+        // Scope first, search second: two separate questions, asked in the
+        // order the user asked them — "show me this shelf", then "find this on
+        // it". See `PinboardScope.contains`.
+        return sorted
+            .filter { PinboardScope.contains(item: $0, activeID: scope.activeID) }
+            .filter {
+                ItemSearch.matches(item: $0, query: search.text, filter: search.filter, now: now)
+            }
     }
 
     /// Whether Space should open the preview rather than type a space.
@@ -208,98 +228,153 @@ struct OverlayView: View {
     /// field and the panel it opened.
     private static let filterPanelTopInset: CGFloat = 46
 
+    /// Split out of `body`: with the pinboard wiring added, the compiler
+    /// timed out type-checking the top bar and the card list as one
+    /// expression. Giving the bar its own typed property is what brought it
+    /// back under budget.
+    @ViewBuilder
+    private var topBar: some View {
+        // `activateSearch` takes a defaulted parameter, so it can't be
+        // handed over as a bare `() -> Void` — Swift doesn't apply
+        // defaults when a function is used as a value.
+        OverlayTopBar(state: search,
+                      focusTarget: $focusTarget,
+                      onActivate: { activateSearch() },
+                      onOpenFilters: { search.isFilterPanelOpen.toggle() },
+                      markedCount: marked.count,
+                      boards: boards,
+                      activeScopeID: scope.activeID,
+                      onSelectScope: selectScope,
+                      onCreateBoard: createBoard,
+                      boardContextMenu: { board in
+                          AnyView(PinboardContextMenu(
+                              board: board,
+                              actions: pinboardActions,
+                              onRename: { renamingBoardID = board.id },
+                              onDeleted: {
+                                  if scope.activeID == board.id { scope.select(nil) }
+                                  if renamingBoardID == board.id { renamingBoardID = nil }
+                              }))
+                      },
+                      editingBoardID: renamingBoardID,
+                      onCommitBoardName: { board, name in
+                          pinboardActions.rename(board, to: name)
+                          renamingBoardID = nil
+                      })
+    }
+
+    /// One card in the strip, factored out of `body` for the same reason
+    /// `topBar` was: the compiler couldn't type-check the `ForEach` closure
+    /// and everything around it as a single expression once the pinboard
+    /// wiring landed.
+    @ViewBuilder
+    private func cardCell(index: Int, item: ClipboardItem) -> some View {
+        ClipboardCardView(
+            item: item,
+            isSelected: selectedID == item.id,
+            quickPasteLabel: showQuickPasteNumbers
+                ? QuickPaste.label(forIndex: index)
+                : nil,
+            markOrder: marked.order(of: item.id),
+            anyMarked: !marked.isEmpty,
+            onDelete: { delete(item) }
+        )
+        .id(item.id)
+        .background(
+            // Reports this card's on-screen frame so the
+            // preview panel can anchor above it. Color.clear
+            // keeps this purely observational — it doesn't
+            // intercept the tap/context-menu gestures below.
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: CardFramePreferenceKey.self,
+                    value: [item.id: proxy.frame(in: .global)]
+                )
+            }
+        )
+        .onTapGesture {
+            // `onTapGesture` doesn't report modifiers,
+            // so ⌘ is read from the current event at
+            // the moment of the click — the same shape
+            // `pastesPlainText` already uses for ⇧.
+            //
+            // Three-way, not two: ⌘-click on a
+            // markable item toggles the mark; ⌘-click
+            // on one that isn't markable does nothing
+            // — it must not fall through to `pick`,
+            // which would paste it and close the
+            // drawer out from under a block the user
+            // is still assembling. Only a plain click,
+            // with no ⌘ at all, pastes. Mirrors ⌘M,
+            // which returns `.ignored` on the same
+            // gate instead of pasting.
+            if NSEvent.modifierFlags.contains(.command) {
+                if MultiPaste.isMarkable(item.type) {
+                    marked.toggle(item.id)
+                }
+            } else {
+                pick(item)
+            }
+        }
+        .contextMenu {
+            ItemContextMenu(item: item,
+                            actions: itemActions,
+                            destinationAppName: destinationAppName(),
+                            isSearchNarrowed: search.hasContent,
+                            isMarked: marked.contains(item.id),
+                            onToggleMark: { marked.toggle(item.id) },
+                            onDelete: { delete(item) })
+        }
+    }
+
+    /// Split from the keyboard handlers below for the same reason `topBar`
+    /// and `cardCell` were: the whole thing as one expression was over the
+    /// compiler's type-checking budget once the pinboard wiring landed.
     var body: some View {
+        keyHandled(contentStack)
+    }
+
+    private var contentStack: some View {
         ZStack(alignment: .top) {
             VStack(spacing: 0) {
-                // `activateSearch` takes a defaulted parameter, so it can't be
-                // handed over as a bare `() -> Void` — Swift doesn't apply
-                // defaults when a function is used as a value.
-                OverlayTopBar(state: search,
-                              focusTarget: $focusTarget,
-                              onActivate: { activateSearch() },
-                              onOpenFilters: { search.isFilterPanelOpen.toggle() },
-                              markedCount: marked.count)
+                topBar
 
-                ScrollViewReader { proxy in
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        LazyHStack(spacing: 12) {
-                            ForEach(Array(filtered.enumerated()), id: \.element.id) { index, item in
-                                ClipboardCardView(
-                                    item: item,
-                                    isSelected: selectedID == item.id,
-                                    quickPasteLabel: showQuickPasteNumbers
-                                        ? QuickPaste.label(forIndex: index)
-                                        : nil,
-                                    markOrder: marked.order(of: item.id),
-                                    anyMarked: !marked.isEmpty,
-                                    onDelete: { delete(item) }
-                                )
-                                .id(item.id)
-                                .background(
-                                    // Reports this card's on-screen frame so the
-                                    // preview panel can anchor above it. Color.clear
-                                    // keeps this purely observational — it doesn't
-                                    // intercept the tap/context-menu gestures below.
-                                    GeometryReader { proxy in
-                                        Color.clear.preference(
-                                            key: CardFramePreferenceKey.self,
-                                            value: [item.id: proxy.frame(in: .global)]
-                                        )
-                                    }
-                                )
-                                .onTapGesture {
-                                    // `onTapGesture` doesn't report modifiers,
-                                    // so ⌘ is read from the current event at
-                                    // the moment of the click — the same shape
-                                    // `pastesPlainText` already uses for ⇧.
-                                    //
-                                    // Three-way, not two: ⌘-click on a
-                                    // markable item toggles the mark; ⌘-click
-                                    // on one that isn't markable does nothing
-                                    // — it must not fall through to `pick`,
-                                    // which would paste it and close the
-                                    // drawer out from under a block the user
-                                    // is still assembling. Only a plain click,
-                                    // with no ⌘ at all, pastes. Mirrors ⌘M,
-                                    // which returns `.ignored` on the same
-                                    // gate instead of pasting.
-                                    if NSEvent.modifierFlags.contains(.command) {
-                                        if MultiPaste.isMarkable(item.type) {
-                                            marked.toggle(item.id)
-                                        }
-                                    } else {
-                                        pick(item)
-                                    }
-                                }
-                                .contextMenu {
-                                    ItemContextMenu(item: item,
-                                                    actions: itemActions,
-                                                    destinationAppName: destinationAppName(),
-                                                    isSearchNarrowed: search.hasContent,
-                                                    isMarked: marked.contains(item.id),
-                                                    onToggleMark: { marked.toggle(item.id) },
-                                                    onDelete: { delete(item) })
+                if filtered.isEmpty {
+                    // Two different empties: a board nobody filled yet, and a
+                    // search that found nothing. Saying "no results" inside an
+                    // untouched board would send the user hunting for a filter
+                    // that isn't there.
+                    Text(scope.isScoped && !search.hasContent ? "Empty Pinboard" : "No results")
+                        .font(.system(size: 15))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ScrollViewReader { proxy in
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            LazyHStack(spacing: 12) {
+                                ForEach(Array(filtered.enumerated()), id: \.element.id) { index, item in
+                                    cardCell(index: index, item: item)
                                 }
                             }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
-                    }
-                    .frame(maxHeight: .infinity)
-                    .onChange(of: selectedID) { _, newID in
-                        if let id = newID {
+                        .frame(maxHeight: .infinity)
+                        .onChange(of: selectedID) { _, newID in
+                            if let id = newID {
+                                withAnimation { proxy.scrollTo(id, anchor: .center) }
+                            }
+                            notifyPreviewSelection()
+                        }
+                        .onChange(of: scrollRequest) { _, id in
+                            guard let id else { return }
                             withAnimation { proxy.scrollTo(id, anchor: .center) }
+                            scrollRequest = nil
                         }
-                        notifyPreviewSelection()
-                    }
-                    .onChange(of: scrollRequest) { _, id in
-                        guard let id else { return }
-                        withAnimation { proxy.scrollTo(id, anchor: .center) }
-                        scrollRequest = nil
-                    }
-                    .onPreferenceChange(CardFramePreferenceKey.self) { frames in
-                        cardFrames.update(frames)
-                        notifyPreviewSelection()
+                        .onPreferenceChange(CardFramePreferenceKey.self) { frames in
+                            cardFrames.update(frames)
+                            notifyPreviewSelection()
+                        }
                     }
                 }
             }
@@ -381,15 +456,19 @@ struct OverlayView: View {
         .onChange(of: search.openCount) { _, _ in
             focusTarget = .list
         }
+    }
+
+    /// Every `onKeyPress` handler in the drawer, applied to `contentStack`.
+    @ViewBuilder
+    private func keyHandled<Content: View>(_ content: Content) -> some View {
+        content
         .onKeyPress(.escape) {
             switch SearchState.escapeAction(isFilterPanelOpen: search.isFilterPanelOpen,
                                             isPreviewOpen: isPreviewOpen(),
                                             isActive: search.isActive,
                                             hasContent: search.hasContent,
                                             hasMarks: !marked.isEmpty,
-                                            // OverlayView doesn't know about PinboardScope yet —
-                                            // Task 6 wires this up alongside the rest of the scope.
-                                            hasScope: false) {
+                                            hasScope: scope.isScoped) {
             case .closeFilterPanel:
                 search.isFilterPanelOpen = false
             case .hidePreview:
@@ -399,7 +478,7 @@ struct OverlayView: View {
             case .clearMarks:
                 marked.clear()
             case .leaveScope:
-                break
+                selectScope(nil)
             case .dismissOverlay:
                 onDismiss()
             }
@@ -456,6 +535,22 @@ struct OverlayView: View {
         }
         .onKeyPress(.leftArrow) { moveSelection(-1); return .handled }
         .onKeyPress(.rightArrow) { moveSelection(1); return .handled }
+        // ⌃Tab cycles scopes forward, ⌃⇧Tab back, History included in the
+        // cycle. Control rather than Command because the menu bar AppKit
+        // builds for the `Settings` scene owns a set of ⌘ keys — Phase 4
+        // learned that the hard way with ⌘M. If the system swallows these
+        // anyway (step E1 of the manual script), the fallback already chosen
+        // is ⌥→ / ⌥←, which is a one-line change here.
+        //
+        // `phases: .down` is required here for the same reason it is on ⌘↵
+        // above: the single-key `onKeyPress(_:action:)` overload only exposes
+        // a no-argument closure, and reading `press.modifiers` needs the
+        // `phases:` overload instead.
+        .onKeyPress(.tab, phases: .down) { press in
+            guard press.modifiers.contains(.control) else { return .ignored }
+            cycleScope(forward: !press.modifiers.contains(.shift))
+            return .handled
+        }
         .onKeyPress(keys: ["1", "2", "3", "4", "5", "6", "7", "8", "9"]) { press in
             // The index follows `filtered`, not the full list: with a search
             // active, ⌘3 has to paste the third card actually on screen.
@@ -853,6 +948,32 @@ struct OverlayView: View {
         } else {
             selectedID = list.first?.id
         }
+    }
+
+    private func selectScope(_ id: UUID?) {
+        scope.select(id)
+        // The selection follows the new list's first card, through the same
+        // path a search change already takes.
+        selectedID = nil
+    }
+
+    /// Creates a board, makes it the active scope and opens its pill for
+    /// renaming — the one flow `design-refs/14-pinboard-novo-vazio.png` shows.
+    private func createBoard() {
+        let board = pinboardActions.create()
+        scope.select(board.id)
+        renamingBoardID = board.id
+        selectedID = nil
+    }
+
+    /// Steps through History → board 1 → board 2 → … → History.
+    private func cycleScope(forward: Bool) {
+        let ids: [UUID?] = [nil] + boards.map { Optional($0.id) }
+        guard ids.count > 1 else { return }
+        let current = ids.firstIndex(of: scope.activeID) ?? 0
+        let step = forward ? 1 : -1
+        let next = (current + step + ids.count) % ids.count
+        selectScope(ids[next])
     }
 }
 

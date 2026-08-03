@@ -30,6 +30,11 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
     /// Owned here, not by `OverlayView`, for the same reason `searchState` is:
     /// the overlay is built once and reused for the life of the process.
     private let markedSelection = MarkedSelection()
+    /// Owned here, not by the view, and reset on every opening — the same rule
+    /// as `searchState` and `markedSelection`. Reopening the drawer inside a
+    /// pinboard would mean copying something and not seeing it appear, which
+    /// is the invisible-state failure the roadmap treats as the worst kind.
+    let pinboardScope = PinboardScope()
     // Task 19 spike: a second window of our own, so the click-outside
     // monitors below need to know about it too. See ItemPreviewPanel.
     private var previewPanel: NSPanel?
@@ -112,6 +117,7 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
             itemEditor: itemEditor,
             search: searchState,
             marked: markedSelection,
+            scope: pinboardScope,
             onPick: { [weak self] item, plainText in
                 guard let self else { return }
                 self.onPick(item, plainText)
@@ -183,6 +189,7 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         // teardown inside `OverlayView`.
         searchState.close()
         markedSelection.clear()
+        pinboardScope.reset()
         // Separate from `close()` on purpose: `close()` only changes anything
         // when there was a search to close, so it can't be what tells the view
         // to re-take the keyboard on an opening that follows an untouched one.
