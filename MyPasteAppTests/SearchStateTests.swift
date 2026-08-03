@@ -83,19 +83,22 @@ struct SearchStateTests {
     @Test("Escape closes the filter panel first")
     func escapeClosesPanelFirst() {
         #expect(SearchState.escapeAction(isFilterPanelOpen: true, isPreviewOpen: true,
-                                         isActive: true, hasContent: true) == .closeFilterPanel)
+                                         isActive: true, hasContent: true,
+                                         hasMarks: false) == .closeFilterPanel)
     }
 
     @Test("Then the preview")
     func escapeClosesPreviewSecond() {
         #expect(SearchState.escapeAction(isFilterPanelOpen: false, isPreviewOpen: true,
-                                         isActive: true, hasContent: true) == .hidePreview)
+                                         isActive: true, hasContent: true,
+                                         hasMarks: false) == .hidePreview)
     }
 
     @Test("Then the search, when it has something in it")
     func escapeClosesSearchThird() {
         #expect(SearchState.escapeAction(isFilterPanelOpen: false, isPreviewOpen: false,
-                                         isActive: true, hasContent: true) == .closeSearch)
+                                         isActive: true, hasContent: true,
+                                         hasMarks: false) == .closeSearch)
     }
 
     @Test("An empty search doesn't cost a second escape")
@@ -103,13 +106,54 @@ struct SearchStateTests {
         // Requiring two presses to close an empty field would be a tax on the
         // common case.
         #expect(SearchState.escapeAction(isFilterPanelOpen: false, isPreviewOpen: false,
-                                         isActive: true, hasContent: false) == .dismissOverlay)
+                                         isActive: true, hasContent: false,
+                                         hasMarks: false) == .dismissOverlay)
     }
 
     @Test("With nothing open, escape closes the overlay")
     func escapeDismisses() {
         #expect(SearchState.escapeAction(isFilterPanelOpen: false, isPreviewOpen: false,
-                                         isActive: false, hasContent: false) == .dismissOverlay)
+                                         isActive: false, hasContent: false,
+                                         hasMarks: false) == .dismissOverlay)
+    }
+
+    @Test("Marks are cleared before the drawer closes")
+    func escapeClearsMarksBeforeDismissing() {
+        #expect(SearchState.escapeAction(isFilterPanelOpen: false,
+                                         isPreviewOpen: false,
+                                         isActive: false,
+                                         hasContent: false,
+                                         hasMarks: true) == .clearMarks)
+    }
+
+    @Test("With nothing marked, escape still closes the drawer")
+    func escapeDismissesWithoutMarks() {
+        #expect(SearchState.escapeAction(isFilterPanelOpen: false,
+                                         isPreviewOpen: false,
+                                         isActive: false,
+                                         hasContent: false,
+                                         hasMarks: false) == .dismissOverlay)
+    }
+
+    @Test("Marks wait their turn behind the filter panel, the preview and the search")
+    func escapeOrderingWithMarks() {
+        // Always the most volatile thing first — the rule this function
+        // already followed before marks existed.
+        #expect(SearchState.escapeAction(isFilterPanelOpen: true,
+                                         isPreviewOpen: false,
+                                         isActive: false,
+                                         hasContent: false,
+                                         hasMarks: true) == .closeFilterPanel)
+        #expect(SearchState.escapeAction(isFilterPanelOpen: false,
+                                         isPreviewOpen: true,
+                                         isActive: false,
+                                         hasContent: false,
+                                         hasMarks: true) == .hidePreview)
+        #expect(SearchState.escapeAction(isFilterPanelOpen: false,
+                                         isPreviewOpen: false,
+                                         isActive: true,
+                                         hasContent: true,
+                                         hasMarks: true) == .closeSearch)
     }
 
     // MARK: - Backspace

@@ -379,13 +379,16 @@ struct OverlayView: View {
             switch SearchState.escapeAction(isFilterPanelOpen: search.isFilterPanelOpen,
                                             isPreviewOpen: isPreviewOpen(),
                                             isActive: search.isActive,
-                                            hasContent: search.hasContent) {
+                                            hasContent: search.hasContent,
+                                            hasMarks: !marked.isEmpty) {
             case .closeFilterPanel:
                 search.isFilterPanelOpen = false
             case .hidePreview:
                 onHidePreview()
             case .closeSearch:
                 closeSearch()
+            case .clearMarks:
+                marked.clear()
             case .dismissOverlay:
                 onDismiss()
             }

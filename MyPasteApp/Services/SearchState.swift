@@ -56,6 +56,8 @@ extension SearchState {
         case closeFilterPanel
         case hidePreview
         case closeSearch
+        /// Drop the multi-paste marks, leaving the drawer open.
+        case clearMarks
         case dismissOverlay
     }
 
@@ -71,13 +73,19 @@ extension SearchState {
     /// An empty search is skipped on purpose: making the user press escape
     /// twice to close a field they never typed into would tax the common case
     /// to serve the rare one.
+    ///
+    /// Marks come after the search: with both live, the first escape lets go
+    /// of the search, the second clears the marks, the third closes the
+    /// drawer — most volatile first, all the way down.
     static func escapeAction(isFilterPanelOpen: Bool,
                              isPreviewOpen: Bool,
                              isActive: Bool,
-                             hasContent: Bool) -> EscapeAction {
+                             hasContent: Bool,
+                             hasMarks: Bool) -> EscapeAction {
         if isFilterPanelOpen { return .closeFilterPanel }
         if isPreviewOpen { return .hidePreview }
         if isActive, hasContent { return .closeSearch }
+        if hasMarks { return .clearMarks }
         return .dismissOverlay
     }
 
