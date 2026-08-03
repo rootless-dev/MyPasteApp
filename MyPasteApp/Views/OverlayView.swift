@@ -276,7 +276,8 @@ struct OverlayView: View {
                                                     destinationAppName: destinationAppName(),
                                                     isSearchNarrowed: search.hasContent,
                                                     isMarked: marked.contains(item.id),
-                                                    onToggleMark: { marked.toggle(item.id) })
+                                                    onToggleMark: { marked.toggle(item.id) },
+                                                    onDelete: { delete(item) })
                                 }
                             }
                         }

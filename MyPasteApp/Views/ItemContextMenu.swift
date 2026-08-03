@@ -45,6 +45,10 @@ struct ItemContextMenu: View {
     /// Whether this item is currently marked for a multi-item paste.
     let isMarked: Bool
     let onToggleMark: () -> Void
+    /// Deletes the item. Not `actions.delete(item)` directly — `OverlayView`'s
+    /// own `delete(_:)` also unmarks the item and hands off `selectedID` to
+    /// its neighbour, bookkeeping this view has no notion of and shouldn't.
+    let onDelete: () -> Void
 
     @AppStorage(PreferenceKeys.alwaysPastePlainText) private var alwaysPastePlainText = false
 
@@ -97,7 +101,7 @@ struct ItemContextMenu: View {
 
         Divider()
 
-        Button(titled("Delete", "⌫")) { actions.delete(item) }
+        Button(titled("Delete", "⌫")) { onDelete() }
 
         Divider()
 
