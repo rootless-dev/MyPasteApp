@@ -263,6 +263,12 @@ struct OverlayView: View {
                       })
     }
 
+    /// The active board's colour, or nil in the history.
+    private var activeBoardColor: Color? {
+        guard let activeID = scope.activeID else { return nil }
+        return boards.first { $0.id == activeID }.flatMap { Color(hex: $0.colorHex) }
+    }
+
     /// One card in the strip, factored out of `body` for the same reason
     /// `topBar` was: the compiler couldn't type-check the `ForEach` closure
     /// and everything around it as a single expression once the pinboard
@@ -277,6 +283,10 @@ struct OverlayView: View {
                 : nil,
             markOrder: marked.order(of: item.id),
             anyMarked: !marked.isEmpty,
+            headerColorOverride: activeBoardColor,
+            boardDotColor: scope.isScoped
+                ? nil
+                : item.pinboard.flatMap { Color(hex: $0.colorHex) },
             onDelete: { delete(item) }
         )
         .id(item.id)

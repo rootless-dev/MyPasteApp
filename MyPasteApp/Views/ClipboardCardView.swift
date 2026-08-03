@@ -28,13 +28,23 @@ struct ClipboardCardView: View {
     /// it mirrors: a caller that decided instead would be a second place for
     /// the same rule to drift.
     var anyMarked: Bool = false
+    /// Replaces the source app's colour in the header while a pinboard is the
+    /// active scope.
+    ///
+    /// Decided by the caller, not here: `OverlayView` is what knows the scope,
+    /// and a card that looked it up itself would be a second home for the same
+    /// rule — the mistake `anyMarked` above exists to avoid.
+    var headerColorOverride: Color? = nil
+    /// A small dot marking which board this item belongs to, shown only in the
+    /// history — inside a board, every card is that colour already.
+    var boardDotColor: Color? = nil
     var onDelete: () -> Void = {}
     @AppStorage(PreferenceKeys.cardDensity) private var densityRaw: String = CardDensity.comfortable.rawValue
     @State private var isHoveringCard = false
     @State private var isHoveringDelete = false
 
     var body: some View {
-        let appColor = AppColorExtractor.color(for: item.sourceAppBundleID)
+        let appColor = headerColorOverride ?? AppColorExtractor.color(for: item.sourceAppBundleID)
         let density = CardDensity(rawValue: densityRaw) ?? .comfortable
 
         VStack(spacing: 0) {
@@ -113,6 +123,12 @@ struct ClipboardCardView: View {
                 }
             }
             Spacer(minLength: 0)
+            if let boardDotColor {
+                Circle()
+                    .fill(boardDotColor)
+                    .frame(width: 7, height: 7)
+                    .overlay(Circle().strokeBorder(.white.opacity(0.7), lineWidth: 0.5))
+            }
             if item.isPinned {
                 Image(systemName: "pin.fill")
                     .font(.system(size: 11))
