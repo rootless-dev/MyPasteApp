@@ -22,8 +22,8 @@ struct ManualItemTests {
         #expect(ItemActions.makeManualItem(text: "https://example.com").type == .url)
     }
 
-    @Test("The item is pinned on creation")
-    func startsPinned() {
+    @Test("The item is kept forever on creation, but not pinned")
+    func startsKeptButNotPinned() {
         // Hand-written items have to survive the pruner: they were never on a
         // pasteboard, so there's nothing to copy again if they're lost.
         // `keepForever` says that without also promoting them to the top of
