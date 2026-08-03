@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import SwiftData
 import Testing
 
 @testable import MyPasteApp
@@ -71,5 +72,74 @@ struct ItemRetentionTests {
         for offer in RetentionOffer.allCases {
             #expect(!offer.title.isEmpty)
         }
+    }
+}
+
+@MainActor
+@Suite("Item retention actions")
+final class ItemRetentionActionTests {
+    private let container: ModelContainer
+
+    init() throws {
+        container = try ModelContainer(
+            for: ClipboardItem.self, Pinboard.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+    }
+
+    private var context: ModelContext { container.mainContext }
+
+    private func makeItem() -> ClipboardItem {
+        let item = ClipboardItem(type: .text, preview: "a", contentHash: "a", textContent: "a")
+        context.insert(item)
+        return item
+    }
+
+    @Test("Setting forever clears any expiry date")
+    func foreverClearsTheDate() {
+        let item = makeItem()
+        item.expiresAt = .now.addingTimeInterval(3600)
+
+        ItemActions.setRetention(.forever, on: item)
+
+        #expect(item.keepForever)
+        #expect(item.expiresAt == nil)
+    }
+
+    @Test("Setting a date clears keep forever")
+    func dateClearsForever() {
+        let item = makeItem()
+        item.keepForever = true
+        let when = Date.now.addingTimeInterval(3600)
+
+        ItemActions.setRetention(.until(when), on: item)
+
+        #expect(item.keepForever == false)
+        #expect(item.expiresAt == when)
+    }
+
+    @Test("Going back to global clears both")
+    func globalClearsBoth() {
+        let item = makeItem()
+        item.keepForever = true
+        item.expiresAt = .now
+
+        ItemActions.setRetention(.global, on: item)
+
+        #expect(item.keepForever == false)
+        #expect(item.expiresAt == nil)
+    }
+
+    @Test("Assigning to a board fills the relationship, and nil clears it")
+    func assignAndClear() {
+        let item = makeItem()
+        let board = Pinboard(name: "Work", colorHex: PinboardPalette.colors[0])
+        context.insert(board)
+
+        ItemActions.assign(item, to: board)
+        #expect(item.pinboard?.id == board.id)
+
+        ItemActions.assign(item, to: nil)
+        #expect(item.pinboard == nil)
     }
 }

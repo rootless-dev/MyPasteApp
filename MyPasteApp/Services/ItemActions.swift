@@ -127,6 +127,30 @@ extension ItemActions {
         alwaysPlainText || shiftHeld
     }
 
+    /// Writes both retention fields at once.
+    ///
+    /// Static and free-standing because it needs nothing from an instance —
+    /// and because writing the two fields together is the whole point: a
+    /// caller that set only the one that changed is how the meaningless
+    /// "keep forever **and** expires on Tuesday" state would be born. See
+    /// `ItemRetention.fields`.
+    static func setRetention(_ retention: ItemRetention, on item: ClipboardItem) {
+        let fields = retention.fields
+        item.keepForever = fields.keepForever
+        item.expiresAt = fields.expiresAt
+        try? item.modelContext?.save()
+    }
+
+    /// Files an item under a board, or lets it go with nil.
+    ///
+    /// Doesn't touch `createdAt` or `lastUsedAt`: filing something is not
+    /// using it, and promoting it would reshuffle the history the user is
+    /// looking at while they organise it.
+    static func assign(_ item: ClipboardItem, to board: Pinboard?) {
+        item.pinboard = board
+        try? item.modelContext?.save()
+    }
+
     static func makeManualItem(text: String) -> ClipboardItem {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let isURL = URL(string: trimmed).map { $0.scheme != nil } ?? false

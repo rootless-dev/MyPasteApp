@@ -333,7 +333,13 @@ struct OverlayView: View {
                             isSearchNarrowed: search.hasContent,
                             isMarked: marked.contains(item.id),
                             onToggleMark: { marked.toggle(item.id) },
-                            onDelete: { delete(item) })
+                            onDelete: { delete(item) },
+                            boards: boards,
+                            onFileInNewBoard: {
+                                let board = pinboardActions.create()
+                                ItemActions.assign(item, to: board)
+                                renamingBoardID = board.id
+                            })
         }
     }
 
