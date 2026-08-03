@@ -202,6 +202,30 @@ struct SearchStateTests {
                                          hasScope: true) == .closeSearch)
     }
 
+    @Test("The filter panel outranks the scope too")
+    func escapeClosesFilterPanelBeforeScope() {
+        // Same reasoning as the search and the marks: the panel is the most
+        // volatile thing on screen, so it goes first even with a scope active.
+        #expect(SearchState.escapeAction(isFilterPanelOpen: true,
+                                         isPreviewOpen: false,
+                                         isActive: false,
+                                         hasContent: false,
+                                         hasMarks: false,
+                                         hasScope: true) == .closeFilterPanel)
+    }
+
+    @Test("So does the preview")
+    func escapeHidesPreviewBeforeScope() {
+        // Same reasoning again, one step down the chain: the preview closes
+        // before the scope is ever considered.
+        #expect(SearchState.escapeAction(isFilterPanelOpen: false,
+                                         isPreviewOpen: true,
+                                         isActive: false,
+                                         hasContent: false,
+                                         hasMarks: false,
+                                         hasScope: true) == .hidePreview)
+    }
+
     // MARK: - Backspace
 
     @Test("With the search closed, backspace deletes the selected item")
