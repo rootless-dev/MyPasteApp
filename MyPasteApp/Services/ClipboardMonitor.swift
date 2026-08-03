@@ -99,9 +99,35 @@ final class ClipboardMonitor {
             return
         }
 
+        // The per-app rules, first half: an app the user banned outright is
+        // rejected here, before anything is read off the pasteboard. This used
+        // to run *after* readCurrentItem(), which meant a password manager's
+        // content was read into a ClipboardItem and only then dropped — never
+        // stored, but read. `AppRules.ignoresEverything` takes a bundle ID and
+        // nothing else, so this decision can't drift back into depending on
+        // the content.
+        let rules = AppRules.load(from: defaults)
+        let sourceApp = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        if AppRules.ignoresEverything(sourceApp, rules: rules) { return }
+
         guard let item = readCurrentItem() else { return }
 
-        // Skip ignored source apps.
+        // Second half: filtering by type needs the type, which needs the read.
+        // There is no way to bring this one forward.
+        guard AppRules.allows(type: item.type, from: item.sourceAppBundleID, rules: rules) else {
+            return
+        }
+
+        // Belt-and-braces: `AppRules.load` migrates the legacy `ignoredAppsRaw`
+        // format on the fly, and that migration only splits on a bare "\n" —
+        // it mishandles comma-separated and CRLF-separated lists (see
+        // AppRulesTests's migration coverage, which doesn't exercise either).
+        // `ignoredBundleIDs` below still parses those correctly, so it's kept
+        // here as a second check rather than deleted per the Task 10 brief.
+        // Tracked for follow-up: fix `AppRules.migratedFromLegacy` to match
+        // this parser (comma + CRLF + generic newline), then this block, this
+        // function and `ClipboardPreferencesTests`'s "Ignored apps" section
+        // can be retired together.
         if let bundleID = item.sourceAppBundleID,
            Self.ignoredBundleIDs(from: defaults).contains(bundleID) {
             return

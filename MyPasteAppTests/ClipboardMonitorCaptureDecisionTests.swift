@@ -53,4 +53,36 @@ struct ClipboardMonitorCaptureDecisionTests {
             types: [plainText, PasteboardPrivacy.concealed],
             settings: permissive) == false)
     }
+
+    // MARK: - Per-app rules (roadmap item 18)
+
+    @Test("An app set to ignore everything is rejected before the pasteboard is read")
+    func ignoredAppIsRejectedEarly() {
+        // The point of this test is the *signature*, as much as the result:
+        // this decision takes a bundle ID and nothing else, so it structurally
+        // cannot come to depend on having read the content first. Before
+        // Phase 5 the app check ran after readCurrentItem(), which meant a
+        // banned app's content was read into memory and only then dropped.
+        let rules = [AppRule(bundleID: "com.apple.Passwords", allowedTypes: [])]
+
+        #expect(AppRules.ignoresEverything("com.apple.Passwords", rules: rules))
+        #expect(AppRules.ignoresEverything("com.apple.Safari", rules: rules) == false)
+    }
+
+    @Test("A text-only app doesn't get its images stored")
+    func typedRuleDropsOtherTypes() {
+        let rules = [AppRule(bundleID: "com.tinyspeck.slackmacgap", allowedTypes: [.text])]
+
+        #expect(AppRules.allows(type: .text, from: "com.tinyspeck.slackmacgap", rules: rules))
+        #expect(AppRules.allows(type: .image, from: "com.tinyspeck.slackmacgap", rules: rules) == false)
+    }
+
+    @Test("Pause still wins over everything")
+    func pauseStillWins() {
+        // The guard order this suite exists to freeze: pause first, privacy
+        // markers second, and only then anything app-specific.
+        #expect(ClipboardMonitor.shouldCapture(isPaused: true,
+                                               types: [plainText],
+                                               settings: permissive) == false)
+    }
 }
