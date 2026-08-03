@@ -386,7 +386,10 @@ struct OverlayView: View {
                                             isPreviewOpen: isPreviewOpen(),
                                             isActive: search.isActive,
                                             hasContent: search.hasContent,
-                                            hasMarks: !marked.isEmpty) {
+                                            hasMarks: !marked.isEmpty,
+                                            // OverlayView doesn't know about PinboardScope yet —
+                                            // Task 6 wires this up alongside the rest of the scope.
+                                            hasScope: false) {
             case .closeFilterPanel:
                 search.isFilterPanelOpen = false
             case .hidePreview:
@@ -395,6 +398,8 @@ struct OverlayView: View {
                 closeSearch()
             case .clearMarks:
                 marked.clear()
+            case .leaveScope:
+                break
             case .dismissOverlay:
                 onDismiss()
             }

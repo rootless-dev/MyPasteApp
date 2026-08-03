@@ -58,6 +58,8 @@ extension SearchState {
         case closeSearch
         /// Drop the multi-paste marks, leaving the drawer open.
         case clearMarks
+        /// Go back to the history, leaving the drawer open.
+        case leaveScope
         case dismissOverlay
     }
 
@@ -78,18 +80,21 @@ extension SearchState {
     /// twice to close a field they never typed into would tax the common case
     /// to serve the rare one.
     ///
-    /// Marks come after the search: with both live, the first escape lets go
-    /// of the search, the second clears the marks, the third closes the
+    /// Marks come after the search, and the scope after the marks: with all
+    /// three live, the first escape lets go of the search, the second clears
+    /// the marks, the third returns to the history, the fourth closes the
     /// drawer — most volatile first, all the way down.
     static func escapeAction(isFilterPanelOpen: Bool,
                              isPreviewOpen: Bool,
                              isActive: Bool,
                              hasContent: Bool,
-                             hasMarks: Bool) -> EscapeAction {
+                             hasMarks: Bool,
+                             hasScope: Bool) -> EscapeAction {
         if isFilterPanelOpen { return .closeFilterPanel }
         if isPreviewOpen { return .hidePreview }
         if isActive, hasContent { return .closeSearch }
         if hasMarks { return .clearMarks }
+        if hasScope { return .leaveScope }
         return .dismissOverlay
     }
 
