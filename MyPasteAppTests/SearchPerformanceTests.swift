@@ -31,7 +31,7 @@ struct SearchPerformanceTests {
     @Test("A full filtered pass over 500 items, measured against one frame")
     func filteredPassAgainstOneFrame() throws {
         let container = try ModelContainer(
-            for: ClipboardItem.self,
+            for: ClipboardItem.self, Pinboard.self,
             configurations: ModelConfiguration(isStoredInMemoryOnly: true)
         )
         let now = Date(timeIntervalSince1970: 1_800_000_000)
