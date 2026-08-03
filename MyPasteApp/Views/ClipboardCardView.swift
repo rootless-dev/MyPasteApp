@@ -11,6 +11,12 @@ struct ClipboardCardView: View {
     let isSelected: Bool
     /// Shown when this card is within reach of a ⌘1–⌘9 shortcut.
     var quickPasteLabel: String? = nil
+    /// This card's 1-based position in the multi-paste block, when marked.
+    ///
+    /// Replaces `quickPasteLabel` in the footer while set: one number per
+    /// card, always. While a block is being assembled the order is the useful
+    /// information; the shortcut comes back the moment the marks are cleared.
+    var markOrder: Int? = nil
     var onDelete: () -> Void = {}
     @AppStorage(PreferenceKeys.cardDensity) private var densityRaw: String = CardDensity.comfortable.rawValue
     @State private var isHoveringCard = false
@@ -30,8 +36,10 @@ struct ClipboardCardView: View {
         .overlay(alignment: .topTrailing) { deleteButton }
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(isSelected ? Color.accentColor : Color.black.opacity(0.08),
-                              lineWidth: isSelected ? 2.5 : 1)
+                .strokeBorder(isSelected || markOrder != nil
+                                ? Color.accentColor
+                                : Color.black.opacity(0.08),
+                              lineWidth: isSelected || markOrder != nil ? 2.5 : 1)
         )
         .shadow(color: .black.opacity(0.10), radius: 6, y: 3)
         .onHover { hovering in
@@ -175,7 +183,15 @@ struct ClipboardCardView: View {
         HStack(spacing: 0) {
             footerContent
             Spacer(minLength: 0)
-            if let quickPasteLabel {
+            if let markOrder {
+                Text("\(markOrder)")
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(Color.accentColor))
+                    .accessibilityLabel("Marked, position \(markOrder)")
+            } else if let quickPasteLabel {
                 Text(quickPasteLabel)
                     .font(.system(size: 10, weight: .semibold, design: .rounded))
                     .foregroundStyle(.secondary)
