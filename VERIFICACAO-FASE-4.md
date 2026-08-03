@@ -89,8 +89,9 @@ Anote o que achar estranho mesmo que pareça irrelevante.
       três saem na ordem, apesar de dois estarem fora do filtro no momento
       de colar.
 
-- [ ] **D2** Marcar 3, apagar um deles com `⌫`, colar: o bloco sai com dois,
-      sem erro.
+- [ ] **D2** Marcar 3, apagar um deles pelo botão × ao passar o mouse sobre o
+      card (`⌫` não apaga nada enquanto há marcação — ver D13), colar: o
+      bloco sai com dois, sem erro.
 
 - [ ] **D3 ⚠️ Apagar pelo menu de contexto também desmarca e mantém `↵`
       vivo.** Marque um único card com `⌘M` (a pílula mostra "1 marked").
@@ -157,6 +158,32 @@ Anote o que achar estranho mesmo que pareça irrelevante.
       telas estreitas; a janela da overlay não é redimensionável pelo
       usuário, então, se houver mais de um monitor à mão, repita a checagem
       no de menor resolução em vez de tentar estreitar a janela.*
+
+- [ ] **D11** Sem nada marcado, o card selecionado mantém a borda de destaque
+      de sempre — comportamento inalterado por esta correção.
+
+- [ ] **D12** Marque um item com `⌘M`. A borda de destaque some do card
+      selecionado (ele continua selecionado — só não desenha mais a borda) e
+      só o(s) card(s) marcado(s) ficam com a borda azul. Marque um segundo e
+      um terceiro item: cada um ganha a borda; o card selecionado, se não for
+      um deles, segue sem nenhuma.
+
+- [ ] **D13** Com pelo menos um item marcado e a busca **fechada**, aperte
+      `⌫`. Nada é apagado — nenhum card some, nenhuma borda muda. *A borda de
+      seleção sumiu no D12, e apagar pelo teclado dependia dela para nomear o
+      alvo; sem borda, `⌫` foi desligado enquanto durar a marcação. O × ao
+      passar o mouse e o "Delete" do menu de contexto continuam funcionando —
+      os dois nomeiam o card pelo clique, não pela seleção.*
+
+- [ ] **D14** Com pelo menos um item marcado, abra a busca (`⌘F`). Digite
+      algo e aperte `⌫`: apaga um caractere do campo, como sempre. Apague o
+      texto todo e, com um filtro de tipo/app/data ativo, aperte `⌫` de novo:
+      remove o último token, como sempre. A marcação não muda nada em
+      nenhuma das duas.
+
+- [ ] **D15** Com marcação ativa (busca fechada), aperte `⎋` para limpar as
+      marcas. Confira que a borda de destaque volta para o card selecionado
+      e que `⌫` volta a apagar o item selecionado.
 
 ## E. O que pode dar errado
 
@@ -248,12 +275,14 @@ Não são bugs a marcar certo/errado — são coisas já observadas em revisão 
 código, ou escolhas que ninguém tomou de propósito. Leia e diga se algum
 incomoda o suficiente para virar tarefa.
 
-1. **Marcar tudo e apagar tudo trava o `↵` até fechar a gaveta.** Marque
-   alguns itens e apague **todos eles** com `⌫`, um a um. Depois de o
-   último marcado sumir, `↵` para de fazer qualquer coisa pelo resto desta
-   sessão da overlay — nem cola, nem cai de volta para "colar o item
-   selecionado". A pílula de contagem continua dizendo "1 marked" (ou o que
-   sobrou) mesmo sem nenhum chip visível em nenhum card, porque
+1. **Marcar tudo e apagar tudo trava o `↵` até fechar a gaveta.** Desde esta
+   correção `⌫` não apaga mais nada enquanto há marcação (D13), então chegar
+   aqui exige o mouse: marque alguns itens e apague **todos eles** pelo botão
+   × ao passar o mouse (ou pelo "Delete" do menu de contexto), um a um.
+   Depois de o último marcado sumir, `↵` para de fazer qualquer coisa pelo
+   resto desta sessão da overlay — nem cola, nem cai de volta para "colar o
+   item selecionado". A pílula de contagem continua dizendo "1 marked" (ou o
+   que sobrou) mesmo sem nenhum chip visível em nenhum card, porque
    `MarkedSelection` só é limpa por `⎋`, por fechar a gaveta ou por um clique
    sem `⌘` — apagar os itens não passa por nenhum desses caminhos. A
    recuperação é `⎋` (limpa a marcação e mantém a gaveta aberta) ou fechar e
