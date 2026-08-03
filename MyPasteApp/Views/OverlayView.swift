@@ -249,9 +249,21 @@ struct OverlayView: View {
                                     // so ⌘ is read from the current event at
                                     // the moment of the click — the same shape
                                     // `pastesPlainText` already uses for ⇧.
-                                    if NSEvent.modifierFlags.contains(.command),
-                                       MultiPaste.isMarkable(item.type) {
-                                        marked.toggle(item.id)
+                                    //
+                                    // Three-way, not two: ⌘-click on a
+                                    // markable item toggles the mark; ⌘-click
+                                    // on one that isn't markable does nothing
+                                    // — it must not fall through to `pick`,
+                                    // which would paste it and close the
+                                    // drawer out from under a block the user
+                                    // is still assembling. Only a plain click,
+                                    // with no ⌘ at all, pastes. Mirrors ⌘M,
+                                    // which returns `.ignored` on the same
+                                    // gate instead of pasting.
+                                    if NSEvent.modifierFlags.contains(.command) {
+                                        if MultiPaste.isMarkable(item.type) {
+                                            marked.toggle(item.id)
+                                        }
                                     } else {
                                         pick(item)
                                     }
@@ -744,8 +756,8 @@ struct OverlayView: View {
     /// to **one** item", and its `paste` records `lastUsedAt` for a single
     /// item. The N-item bookkeeping happens inside `writeJoined`, in one
     /// place — see `MultiPaste.markUsed`.
-    private func pickMultiple(_ items: [ClipboardItem], plainText: Bool) {
-        onPickMultiple(items, plainText)
+    private func pickMultiple(_ block: [ClipboardItem], plainText: Bool) {
+        onPickMultiple(block, plainText)
     }
 
     /// Selects the item and opens the preview panel for it.
