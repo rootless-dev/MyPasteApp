@@ -15,6 +15,10 @@ struct PinboardBar: View {
     let activeID: UUID?
     /// True while the search field is open, so the pills give up their labels.
     let isCollapsed: Bool
+    /// Forwarded straight to `PinboardPill`, which is where the rename field
+    /// lives — the same reason `OverlayTopBar` forwards it to
+    /// `SearchFieldView` rather than applying it to a container.
+    @FocusState.Binding var focusTarget: OverlayFocusTarget?
     let onSelect: (UUID?) -> Void
     let onCreate: () -> Void
     /// Right-clicking a board pill. Wired in Task 5; a no-op until then.
@@ -28,13 +32,15 @@ struct PinboardBar: View {
             PinboardPill(title: "History",
                          colorHex: nil,
                          isSelected: activeID == nil,
-                         isCollapsed: isCollapsed) { onSelect(nil) }
+                         isCollapsed: isCollapsed,
+                         focusTarget: $focusTarget) { onSelect(nil) }
 
             ForEach(boards) { board in
                 PinboardPill(title: board.name,
                              colorHex: board.colorHex,
                              isSelected: board.id == activeID,
                              isCollapsed: isCollapsed,
+                             focusTarget: $focusTarget,
                              action: { onSelect(board.id) },
                              isEditing: board.id == editingID,
                              onCommitName: { onCommitName(board, $0) })

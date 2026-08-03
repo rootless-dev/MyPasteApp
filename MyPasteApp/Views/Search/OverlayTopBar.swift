@@ -13,11 +13,14 @@ import SwiftUI
 /// both states, collapsing to markers only while the search field is open.
 struct OverlayTopBar: View {
     @Bindable var state: SearchState
-    /// Passed in rather than declared here, and forwarded straight to
-    /// `SearchFieldView`, which puts `.focused` on the `SearchTextField`
-    /// itself. Applying it to a container that merely *contains* a field
-    /// doesn't move the keyboard into it — and for that field the tag is what
-    /// gives `focusTarget = .search` somewhere to land at all.
+    /// Passed in rather than declared here, and forwarded to the two views
+    /// that own a text field: `SearchFieldView`, which puts `.focused` on the
+    /// `SearchTextField` itself, and `PinboardBar`, whose pills hold the
+    /// inline rename field. Applying it to a container that merely *contains*
+    /// a field doesn't move the keyboard into it — and for the search field
+    /// the tag is what gives `focusTarget = .search` somewhere to land at all.
+    /// The rename field never takes the tag; it only hands the keyboard back
+    /// to `.list` when it leaves.
     @FocusState.Binding var focusTarget: OverlayFocusTarget?
     var onActivate: () -> Void
     var onOpenFilters: () -> Void
@@ -43,6 +46,7 @@ struct OverlayTopBar: View {
                 PinboardBar(boards: boards,
                             activeID: activeScopeID,
                             isCollapsed: true,
+                            focusTarget: $focusTarget,
                             onSelect: onSelectScope,
                             onCreate: onCreateBoard,
                             contextMenu: boardContextMenu,
@@ -62,6 +66,7 @@ struct OverlayTopBar: View {
                 PinboardBar(boards: boards,
                             activeID: activeScopeID,
                             isCollapsed: false,
+                            focusTarget: $focusTarget,
                             onSelect: onSelectScope,
                             onCreate: onCreateBoard,
                             contextMenu: boardContextMenu,

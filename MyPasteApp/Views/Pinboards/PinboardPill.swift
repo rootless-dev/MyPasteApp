@@ -17,6 +17,10 @@ struct PinboardPill: View {
     let colorHex: String?
     let isSelected: Bool
     let isCollapsed: Bool
+    /// Where the drawer's keyboard is pointed, so the rename field can hand it
+    /// back on the way out. Same contract as `SearchFieldView` — see the
+    /// `onDisappear` below.
+    @FocusState.Binding var focusTarget: OverlayFocusTarget?
     let action: () -> Void
     /// While true, the pill shows a text field instead of its label.
     var isEditing: Bool = false
@@ -44,6 +48,20 @@ struct PinboardPill: View {
                         // stays exactly as it was — cancelling a rename must
                         // never delete a board that was just created.
                         .onExitCommand { onCommitName(title) }
+                        // Gives the keyboard back on the way out, and this is
+                        // load-bearing for exactly the reason it is on
+                        // `SearchFieldView`'s field: this `TextField` leaving
+                        // the tree takes the focus with it, and SwiftUI does
+                        // not re-home focus on its own. Measured without it,
+                        // committing a name with `↵` left the drawer deaf —
+                        // `⎋` didn't close it, `←`/`→` didn't move the
+                        // selection, `⌘1`–`⌘9` pasted nothing — until a click
+                        // landed on a card. Phase 1's bug verbatim, through a
+                        // second door. `onDisappear` runs after the removal,
+                        // which is what makes the write stick; the same write
+                        // from `onSubmit`, in the turn of the removal itself,
+                        // is the one that gets dropped.
+                        .onDisappear { focusTarget = .list }
                 } else if !isCollapsed {
                     Text(title)
                         .font(.system(size: 12, weight: .medium))
