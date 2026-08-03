@@ -126,13 +126,17 @@ struct SearchStateTests {
                                          hasMarks: true) == .clearMarks)
     }
 
-    @Test("With nothing marked, escape still closes the drawer")
-    func escapeDismissesWithoutMarks() {
+    @Test("An empty search doesn't outrank the marks")
+    func escapeClearsMarksWithAnEmptySearchOpen() {
+        // The one combination the ordering test above doesn't reach: the field
+        // is open but empty, so `isActive, hasContent` doesn't fire and the
+        // marks are the most volatile thing left. Escape has to clear them
+        // before it dismisses the drawer.
         #expect(SearchState.escapeAction(isFilterPanelOpen: false,
                                          isPreviewOpen: false,
-                                         isActive: false,
+                                         isActive: true,
                                          hasContent: false,
-                                         hasMarks: false) == .dismissOverlay)
+                                         hasMarks: true) == .clearMarks)
     }
 
     @Test("Marks wait their turn behind the filter panel, the preview and the search")
