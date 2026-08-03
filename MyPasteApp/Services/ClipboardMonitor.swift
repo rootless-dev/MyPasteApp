@@ -87,33 +87,25 @@ final class ClipboardMonitor {
         }
 
         // `lastChangeCount` above has to be updated before this runs, so
-        // resuming doesn't recapture whatever was copied during the pause;
-        // and nothing here reads off the pasteboard before this decision
-        // either, so a password never travels through the app for a result
-        // about to be discarded. Delegated to a pure function so both
-        // orderings are covered by a test that doesn't need a real
-        // NSPasteboard.
-        guard Self.shouldCapture(isPaused: pauseController?.isPaused == true,
-                                 types: pasteboard.types ?? [],
-                                 settings: .current(from: defaults)) else {
+        // resuming doesn't recapture whatever was copied during the pause.
+        // Everything this decision needs is either state or metadata — the
+        // pasteboard's declared types and the frontmost app's bundle ID — so
+        // a password's *content* never travels through the app for a result
+        // about to be discarded.
+        let rules = AppRules.load(from: defaults)
+        let sourceApp = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        guard Self.shouldRead(isPaused: pauseController?.isPaused == true,
+                              types: pasteboard.types ?? [],
+                              settings: .current(from: defaults),
+                              sourceApp: sourceApp,
+                              rules: rules) else {
             return
         }
 
-        // The per-app rules, first half: an app the user banned outright is
-        // rejected here, before anything is read off the pasteboard. This used
-        // to run *after* readCurrentItem(), which meant a password manager's
-        // content was read into a ClipboardItem and only then dropped — never
-        // stored, but read. `AppRules.ignoresEverything` takes a bundle ID and
-        // nothing else, so this decision can't drift back into depending on
-        // the content.
-        let rules = AppRules.load(from: defaults)
-        let sourceApp = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-        if AppRules.ignoresEverything(sourceApp, rules: rules) { return }
-
         guard let item = readCurrentItem() else { return }
 
-        // Second half: filtering by type needs the type, which needs the read.
-        // There is no way to bring this one forward.
+        // The per-app rules, second half: filtering by type needs the type,
+        // which needs the read. There is no way to bring this one forward.
         guard AppRules.allows(type: item.type, from: item.sourceAppBundleID, rules: rules) else {
             return
         }
@@ -142,19 +134,45 @@ final class ClipboardMonitor {
     /// Whether a pasteboard change should turn into a capture, given the pause
     /// state and the privacy markers on the pasteboard.
     ///
-    /// Pure and static so it can be tested directly against `poll()`'s two
-    /// guards, in the order that matters: paused wins outright, then a
-    /// privacy marker, and only once both are clear does anything get read
-    /// off the pasteboard. `poll()` itself stays a thin caller of this —
-    /// updating `lastChangeCount` and consuming `ignoreNextChange` happen
-    /// before it and are deliberately not folded in here (see the comment at
-    /// the call site).
+    /// Pure and static so it can be tested directly: paused wins outright,
+    /// then a privacy marker. `poll()` itself stays a thin caller of
+    /// `shouldRead` below — updating `lastChangeCount` and consuming
+    /// `ignoreNextChange` happen before it and are deliberately not folded in
+    /// here (see the comment at the call site).
     static func shouldCapture(isPaused: Bool,
                               types: [NSPasteboard.PasteboardType],
                               settings: PasteboardPrivacy.Settings) -> Bool {
         if isPaused { return false }
         if PasteboardPrivacy.shouldIgnore(types: types, settings: settings) { return false }
         return true
+    }
+
+    /// Everything decided *before* a byte of content is read off the
+    /// pasteboard: the pause, the privacy markers, and an app the user banned
+    /// outright.
+    ///
+    /// The banned-app check used to run after `readCurrentItem()`, which meant
+    /// a password manager's content was read into a `ClipboardItem` and only
+    /// then dropped — never stored, but read. Its home is this signature: the
+    /// inputs here are state and metadata only (declared types, a bundle ID),
+    /// with no way to express a rule that needs the content, so the decision
+    /// cannot drift back into depending on the read.
+    ///
+    /// **What that does and does not guarantee.** A test can pin that the ban
+    /// belongs to this function — move it out and the test fails. Nothing
+    /// automated can pin that `poll()` still calls this *before*
+    /// `readCurrentItem()`; that is an ordering of side effects, and the suite
+    /// never runs `poll()` (it is private and wired to `NSPasteboard.general`).
+    /// That half is owned by code review and by step F6 of the manual script.
+    static func shouldRead(isPaused: Bool,
+                           types: [NSPasteboard.PasteboardType],
+                           settings: PasteboardPrivacy.Settings,
+                           sourceApp: String?,
+                           rules: [AppRule]) -> Bool {
+        guard shouldCapture(isPaused: isPaused, types: types, settings: settings) else {
+            return false
+        }
+        return !AppRules.ignoresEverything(sourceApp, rules: rules)
     }
 
     // MARK: - Link metadata
@@ -259,6 +277,24 @@ final class ClipboardMonitor {
 
     // MARK: - Persist
 
+    /// The expiry date a reused item keeps after being copied again.
+    ///
+    /// Copying something again is a new, later intention than a date set on it
+    /// before, so a deadline that has already gone by is dropped: the item is
+    /// being promoted to the top of the history as a fresh capture, and
+    /// leaving the stale date on it meant the next prune deleted something the
+    /// user had copied minutes earlier, with nothing on screen to explain it.
+    ///
+    /// A date still ahead is left alone — the user asked for that item to go
+    /// away at that time, and re-copying it is not a request to keep it
+    /// longer. It also still protects the item from the age and volume passes
+    /// (`RetentionPolicy.isProtected`), which is the other half of the same
+    /// rule.
+    static func expiryAfterRecapture(expiresAt: Date?, now: Date) -> Date? {
+        guard let expiresAt else { return nil }
+        return expiresAt > now ? expiresAt : nil
+    }
+
     @discardableResult
     private func insertIfNotDuplicate(_ item: ClipboardItem) -> ClipboardItem {
         let hash = item.contentHash
@@ -269,7 +305,10 @@ final class ClipboardMonitor {
         descriptor.fetchLimit = 1
 
         if let existing = try? modelContext.fetch(descriptor).first {
-            existing.createdAt = .now
+            let now = Date.now
+            existing.createdAt = now
+            existing.expiresAt = Self.expiryAfterRecapture(expiresAt: existing.expiresAt,
+                                                           now: now)
             return existing
         }
 
