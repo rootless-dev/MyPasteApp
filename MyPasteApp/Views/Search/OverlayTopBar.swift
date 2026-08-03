@@ -30,6 +30,8 @@ struct OverlayTopBar: View {
     var onSelectScope: (UUID?) -> Void = { _ in }
     var onCreateBoard: () -> Void = {}
     var boardContextMenu: (Pinboard) -> AnyView = { _ in AnyView(EmptyView()) }
+    var editingBoardID: UUID?
+    var onCommitBoardName: (Pinboard, String) -> Void = { _, _ in }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -43,7 +45,9 @@ struct OverlayTopBar: View {
                             isCollapsed: true,
                             onSelect: onSelectScope,
                             onCreate: onCreateBoard,
-                            contextMenu: boardContextMenu)
+                            contextMenu: boardContextMenu,
+                            editingID: editingBoardID,
+                            onCommitName: onCommitBoardName)
             } else {
                 Button(action: onActivate) {
                     Image(systemName: "magnifyingglass")
@@ -60,7 +64,9 @@ struct OverlayTopBar: View {
                             isCollapsed: false,
                             onSelect: onSelectScope,
                             onCreate: onCreateBoard,
-                            contextMenu: boardContextMenu)
+                            contextMenu: boardContextMenu,
+                            editingID: editingBoardID,
+                            onCommitName: onCommitBoardName)
             }
         }
         .frame(maxWidth: .infinity)

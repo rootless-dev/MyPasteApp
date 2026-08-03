@@ -19,6 +19,9 @@ struct PinboardBar: View {
     let onCreate: () -> Void
     /// Right-clicking a board pill. Wired in Task 5; a no-op until then.
     var contextMenu: (Pinboard) -> AnyView = { _ in AnyView(EmptyView()) }
+    /// The board currently being renamed inline, if any.
+    var editingID: UUID?
+    var onCommitName: (Pinboard, String) -> Void = { _, _ in }
 
     var body: some View {
         HStack(spacing: 8) {
@@ -31,7 +34,10 @@ struct PinboardBar: View {
                 PinboardPill(title: board.name,
                              colorHex: board.colorHex,
                              isSelected: board.id == activeID,
-                             isCollapsed: isCollapsed) { onSelect(board.id) }
+                             isCollapsed: isCollapsed,
+                             action: { onSelect(board.id) },
+                             isEditing: board.id == editingID,
+                             onCommitName: { onCommitName(board, $0) })
                     .contextMenu { contextMenu(board) }
             }
 

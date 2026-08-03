@@ -18,12 +18,33 @@ struct PinboardPill: View {
     let isSelected: Bool
     let isCollapsed: Bool
     let action: () -> Void
+    /// While true, the pill shows a text field instead of its label.
+    var isEditing: Bool = false
+    var onCommitName: (String) -> Void = { _ in }
+
+    @State private var draft = ""
+    @FocusState private var isFieldFocused: Bool
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 6) {
                 marker
-                if !isCollapsed {
+                if isEditing {
+                    TextField("", text: $draft)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12, weight: .medium))
+                        .frame(width: 90)
+                        .focused($isFieldFocused)
+                        .onSubmit { onCommitName(draft) }
+                        .onAppear {
+                            draft = title
+                            isFieldFocused = true
+                        }
+                        // Escape leaves the field without renaming. The board
+                        // stays exactly as it was — cancelling a rename must
+                        // never delete a board that was just created.
+                        .onExitCommand { onCommitName(title) }
+                } else if !isCollapsed {
                     Text(title)
                         .font(.system(size: 12, weight: .medium))
                         .lineLimit(1)
