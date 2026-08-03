@@ -118,21 +118,6 @@ final class ClipboardMonitor {
             return
         }
 
-        // Belt-and-braces: `AppRules.load` migrates the legacy `ignoredAppsRaw`
-        // format on the fly, and that migration only splits on a bare "\n" —
-        // it mishandles comma-separated and CRLF-separated lists (see
-        // AppRulesTests's migration coverage, which doesn't exercise either).
-        // `ignoredBundleIDs` below still parses those correctly, so it's kept
-        // here as a second check rather than deleted per the Task 10 brief.
-        // Tracked for follow-up: fix `AppRules.migratedFromLegacy` to match
-        // this parser (comma + CRLF + generic newline), then this block, this
-        // function and `ClipboardPreferencesTests`'s "Ignored apps" section
-        // can be retired together.
-        if let bundleID = item.sourceAppBundleID,
-           Self.ignoredBundleIDs(from: defaults).contains(bundleID) {
-            return
-        }
-
         let stored = insertIfNotDuplicate(item)
 
         if OCRScheduler.needsOCR(type: stored.type,
@@ -326,20 +311,5 @@ final class ClipboardMonitor {
 
     static func soundFeedbackEnabled(from defaults: UserDefaults = .standard) -> Bool {
         defaults.object(forKey: PreferenceKeys.enableSoundFeedback) as? Bool ?? true
-    }
-
-    /// Parses the user's ignored-apps list, stored as a string of bundle IDs
-    /// separated by newlines or commas.
-    static func ignoredBundleIDs(from defaults: UserDefaults = .standard) -> Set<String> {
-        let raw = defaults.string(forKey: PreferenceKeys.ignoredAppsRaw) ?? ""
-        // isNewline rather than == "\n": a CRLF pair is a single Character in
-        // Swift, so comparing against "\n" would miss a list pasted out of a
-        // Windows file and leave the separator glued to each bundle ID.
-        let parts = raw.split(whereSeparator: { $0.isNewline || $0 == "," })
-        return Set(
-            parts
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-        )
     }
 }
