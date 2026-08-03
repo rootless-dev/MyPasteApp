@@ -339,42 +339,58 @@ struct OverlayView: View {
             VStack(spacing: 0) {
                 topBar
 
-                if filtered.isEmpty {
-                    // Two different empties: a board nobody filled yet, and a
-                    // search that found nothing. Saying "no results" inside an
-                    // untouched board would send the user hunting for a filter
-                    // that isn't there.
-                    Text(scope.isScoped && !search.hasContent ? "Empty Pinboard" : "No results")
-                        .font(.system(size: 15))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    ScrollViewReader { proxy in
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            LazyHStack(spacing: 12) {
-                                ForEach(Array(filtered.enumerated()), id: \.element.id) { index, item in
-                                    cardCell(index: index, item: item)
-                                }
+                // The `ScrollViewReader` stays mounted even when `filtered`
+                // is empty — the empty-state text is an `.overlay`, not a
+                // sibling branch that would replace this subtree. Swapping it
+                // out here (an `if filtered.isEmpty { Text(...) } else {
+                // ScrollViewReader {...} }`) used to remove the whole
+                // subtree, including the `ForEach`, in the same update that
+                // emptied the list — and SwiftUI gives no guarantee that an
+                // `onChange`/`onPreferenceChange` on a view leaving the tree
+                // still fires. `notifyPreviewSelection()` below is exactly
+                // that: `OverlayWindowController.updatePreviewSelection`
+                // depends on receiving `item: nil` to close a preview panel
+                // that's anchored to a card no longer on screen (search
+                // narrowed to nothing, or `⌃Tab` into an empty board), and a
+                // dropped notification left the panel open, anchored to a
+                // stale `cardFrames` entry.
+                ScrollViewReader { proxy in
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        LazyHStack(spacing: 12) {
+                            ForEach(Array(filtered.enumerated()), id: \.element.id) { index, item in
+                                cardCell(index: index, item: item)
                             }
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 12)
                         }
-                        .frame(maxHeight: .infinity)
-                        .onChange(of: selectedID) { _, newID in
-                            if let id = newID {
-                                withAnimation { proxy.scrollTo(id, anchor: .center) }
-                            }
-                            notifyPreviewSelection()
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                    }
+                    .frame(maxHeight: .infinity)
+                    .overlay {
+                        if filtered.isEmpty {
+                            // Two different empties: a board nobody filled
+                            // yet, and a search that found nothing. Saying
+                            // "no results" inside an untouched board would
+                            // send the user hunting for a filter that isn't
+                            // there.
+                            Text(scope.isScoped && !search.hasContent ? "Empty Pinboard" : "No results")
+                                .font(.system(size: 15))
+                                .foregroundStyle(.secondary)
                         }
-                        .onChange(of: scrollRequest) { _, id in
-                            guard let id else { return }
+                    }
+                    .onChange(of: selectedID) { _, newID in
+                        if let id = newID {
                             withAnimation { proxy.scrollTo(id, anchor: .center) }
-                            scrollRequest = nil
                         }
-                        .onPreferenceChange(CardFramePreferenceKey.self) { frames in
-                            cardFrames.update(frames)
-                            notifyPreviewSelection()
-                        }
+                        notifyPreviewSelection()
+                    }
+                    .onChange(of: scrollRequest) { _, id in
+                        guard let id else { return }
+                        withAnimation { proxy.scrollTo(id, anchor: .center) }
+                        scrollRequest = nil
+                    }
+                    .onPreferenceChange(CardFramePreferenceKey.self) { frames in
+                        cardFrames.update(frames)
+                        notifyPreviewSelection()
                     }
                 }
             }
@@ -952,9 +968,17 @@ struct OverlayView: View {
 
     private func selectScope(_ id: UUID?) {
         scope.select(id)
-        // The selection follows the new list's first card, through the same
-        // path a search change already takes.
-        selectedID = nil
+        // Synchronous, not deferred through `onChange(of: filtered.first?.id)`
+        // the way a search change is: `filtered` already reads
+        // `scope.activeID`, so the new list's first card is knowable in this
+        // same turn. Routing through that `onChange` instead (by zeroing
+        // `selectedID` here and waiting) breaks whenever the two scopes share
+        // a first item — a card that's both in this board and the
+        // newest/pinned card in the full history — because the id doesn't
+        // change and the `onChange` never fires, leaving `selectedID` at nil
+        // and every single-item shortcut (↵, ⌘C, ⌘P, ⌘E, ⌘R, ⌘J, ⌫) ignored
+        // until an arrow key is pressed.
+        selectedID = filtered.first?.id
     }
 
     /// Creates a board, makes it the active scope and opens its pill for
