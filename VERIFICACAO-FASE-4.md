@@ -92,19 +92,38 @@ Anote o que achar estranho mesmo que pareça irrelevante.
 - [ ] **D2** Marcar 3, apagar um deles com `⌫`, colar: o bloco sai com dois,
       sem erro.
 
-- [ ] **D3** `⎋` com marcação ativa limpa a marcação e mantém a gaveta
+- [ ] **D3 ⚠️ Apagar pelo menu de contexto também desmarca e mantém `↵`
+      vivo.** Marque um único card com `⌘M` (a pílula mostra "1 marked").
+      Clique com o botão direito nesse mesmo card e escolha "Delete" no menu
+      — não use `⌫`, o teste é especificamente pelo menu. Confira duas
+      coisas: a pílula de contagem sai do "1 marked" (volta a mostrar só a
+      lupa, ou o número de `⌘1`–`⌘9` se a busca estiver fechada) **e** `↵`
+      ainda cola o card que ficou selecionado no lugar do apagado — não fica
+      mudo. *Este é o achado da revisão final da fase: o menu de contexto
+      sempre chamou `ItemActions.delete` direto, pulando o `delete(_:)` de
+      `OverlayView`, que é onde mora tanto o `marked.remove` quanto a escolha
+      de quem herda `selectedID`. Sem o primeiro, o card apagado continua
+      marcado nos bastidores — `MultiPaste.resolve` devolve uma lista vazia,
+      o handler de `↵` recusa a tecla, e nada acontece, enquanto a pílula
+      segue dizendo "1 marked ↵ paste ⎋ clear". Sem o segundo,
+      `selectedID` aponta para um item que não existe mais. Os outros dois
+      caminhos de apagar — `⌫` e o botão de apagar ao passar o mouse sobre o
+      card — já passavam por `delete(_:)` antes desta correção; só o menu de
+      contexto ficava de fora.*
+
+- [ ] **D4** `⎋` com marcação ativa limpa a marcação e mantém a gaveta
       aberta; `⎋` de novo fecha a gaveta.
 
-- [ ] **D4** Com busca **e** marcação ativas ao mesmo tempo: primeiro `⎋`
+- [ ] **D5** Com busca **e** marcação ativas ao mesmo tempo: primeiro `⎋`
       larga a busca, segundo `⎋` limpa a marcação, terceiro `⎋` fecha a
       gaveta.
 
-- [ ] **D5** Fechar e reabrir a overlay: nada marcado.
+- [ ] **D6** Fechar e reabrir a overlay: nada marcado.
 
-- [ ] **D6** Colar um item avulso (sem usar a marcação) com marcação ativa
+- [ ] **D7** Colar um item avulso (sem usar a marcação) com marcação ativa
       em outros cards, reabrir a gaveta: nada marcado.
 
-- [ ] **D7 ⚠️ A pílula de contagem não pode deslocar a barra do topo — barra
+- [ ] **D8 ⚠️ A pílula de contagem não pode deslocar a barra do topo — barra
       fechada.** Com a busca **fechada** (só a lupa aparece), marque um item
       com `⌘M`. Observe a lupa: ela tem que **continuar exatamente onde
       estava**, centralizada na barra. Desmarque (`⌘M` de novo): a lupa
@@ -116,7 +135,7 @@ Anote o que achar estranho mesmo que pareça irrelevante.
       confirmar — isto foi raciocinado a partir da semântica de layout do
       SwiftUI, não observado.*
 
-- [ ] **D8 ⚠️ A pílula de contagem não pode deslocar a barra do topo — barra
+- [ ] **D9 ⚠️ A pílula de contagem não pode deslocar a barra do topo — barra
       aberta.** Abra a busca (`⌘F`) e marque um item. Observe o campo de
       busca: ele tem que continuar centralizado e do mesmo tamanho, sem
       encolher nem se mover para a esquerda quando a pílula aparece.
@@ -124,8 +143,8 @@ Anote o que achar estranho mesmo que pareça irrelevante.
       contagem muda de "1 marked" para "2 marked" etc.) e confirme que o
       texto mais longo da pílula também não afeta a posição do campo.
 
-- [ ] **D9 A pílula não pode tocar nem sobrepor o campo de busca.** Com a
-      busca aberta e pelo menos um item marcado (estado do D8), olhe o
+- [ ] **D10 A pílula não pode tocar nem sobrepor o campo de busca.** Com a
+      busca aberta e pelo menos um item marcado (estado do D9), olhe o
       espaço entre a borda direita do campo de busca e a borda esquerda da
       pílula "N marked". **Critério binário:** as duas bordas se tocam ou se
       cruzam, sim ou não — não precisa medir distância nenhuma, só constatar
