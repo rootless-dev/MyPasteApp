@@ -13,6 +13,7 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
     private let modelContainer: ModelContainer
     private let writer: ClipboardWriter
     private let onPick: (ClipboardItem, Bool) -> Void
+    private let onPickMultiple: ([ClipboardItem], Bool) -> Void
     private let itemEditor: ItemEditorWindowController
     private var globalMouseMonitor: Any?
     private var localMouseMonitor: Any?
@@ -26,6 +27,9 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
     /// here, `show()` can reset it on every opening — the one place that
     /// covers Escape, paste and click-outside alike.
     private let searchState = SearchState()
+    /// Owned here, not by `OverlayView`, for the same reason `searchState` is:
+    /// the overlay is built once and reused for the life of the process.
+    private let markedSelection = MarkedSelection()
     // Task 19 spike: a second window of our own, so the click-outside
     // monitors below need to know about it too. See ItemPreviewPanel.
     private var previewPanel: NSPanel?
@@ -51,11 +55,13 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
     init(modelContainer: ModelContainer,
          writer: ClipboardWriter,
          itemEditor: ItemEditorWindowController,
-         onPick: @escaping (ClipboardItem, Bool) -> Void) {
+         onPick: @escaping (ClipboardItem, Bool) -> Void,
+         onPickMultiple: @escaping ([ClipboardItem], Bool) -> Void) {
         self.modelContainer = modelContainer
         self.writer = writer
         self.itemEditor = itemEditor
         self.onPick = onPick
+        self.onPickMultiple = onPickMultiple
         super.init()
     }
 
@@ -105,6 +111,7 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
             writer: writer,
             itemEditor: itemEditor,
             search: searchState,
+            marked: markedSelection,
             onPick: { [weak self] item, plainText in
                 guard let self else { return }
                 self.onPick(item, plainText)
@@ -114,6 +121,20 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
                 // `pasteDelayMs` (50ms by default). The panel would still be
                 // key and would receive the paste itself — the text landing in
                 // the search field instead of the target app.
+                self.hideImmediately()
+                let autoPaste = UserDefaults.standard.object(forKey: PreferenceKeys.autoPasteEnabled) as? Bool ?? true
+                if autoPaste {
+                    let delayMs = UserDefaults.standard.object(forKey: PreferenceKeys.pasteDelayMs) as? Int ?? 50
+                    PasteSimulator.paste(activating: target, delay: Double(delayMs) / 1000.0)
+                }
+            },
+            onPickMultiple: { [weak self] items, plainText in
+                guard let self else { return }
+                self.onPickMultiple(items, plainText)
+                let target = self.previousApp
+                // Not `hide()`, for the same reason `onPick` isn't: its 0.18s
+                // fade outlives the paste delay, and the panel would still be
+                // key when the synthetic ⌘V arrives.
                 self.hideImmediately()
                 let autoPaste = UserDefaults.standard.object(forKey: PreferenceKeys.autoPasteEnabled) as? Bool ?? true
                 if autoPaste {
@@ -180,6 +201,11 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         // (`hideImmediately`) and a click outside — none of which run any
         // teardown inside `OverlayView`.
         searchState.close()
+        // Every opening starts with nothing marked. Same single point of reset
+        // as the search, covering all three ways the drawer goes away —
+        // Escape, a paste (`hideImmediately`), and a click outside — none of
+        // which run any teardown inside `OverlayView`.
+        markedSelection.clear()
         // Separate from `close()` on purpose: `close()` only changes anything
         // when there was a search to close, so it can't be what tells the view
         // to re-take the keyboard on an opening that follows an untouched one.

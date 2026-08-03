@@ -51,7 +51,11 @@ struct OverlayView: View {
     /// reading its properties during `body` registers the dependency
     /// regardless of how the reference is stored.
     let search: SearchState
+    /// Owned by `OverlayWindowController`, like `search` and for the same
+    /// reason. The controller clears it on every `show()`.
+    let marked: MarkedSelection
     let onPick: (ClipboardItem, Bool) -> Void
+    let onPickMultiple: ([ClipboardItem], Bool) -> Void
     let onDismiss: () -> Void
     /// Resolves the name of the app a paste would land in, read fresh at menu
     /// build time.
@@ -94,7 +98,9 @@ struct OverlayView: View {
     init(writer: ClipboardWriter,
          itemEditor: ItemEditorWindowController,
          search: SearchState,
+         marked: MarkedSelection,
          onPick: @escaping (ClipboardItem, Bool) -> Void,
+         onPickMultiple: @escaping ([ClipboardItem], Bool) -> Void,
          onDismiss: @escaping () -> Void,
          destinationAppName: @escaping () -> String? = { nil },
          onPreviewSelectionChange: @escaping (ClipboardItem?, CGRect?) -> Void = { _, _ in },
@@ -104,7 +110,9 @@ struct OverlayView: View {
         self.writer = writer
         self.itemEditor = itemEditor
         self.search = search
+        self.marked = marked
         self.onPick = onPick
+        self.onPickMultiple = onPickMultiple
         self.onDismiss = onDismiss
         self.destinationAppName = destinationAppName
         self.onPreviewSelectionChange = onPreviewSelectionChange
@@ -236,7 +244,18 @@ struct OverlayView: View {
                                         )
                                     }
                                 )
-                                .onTapGesture { pick(item) }
+                                .onTapGesture {
+                                    // `onTapGesture` doesn't report modifiers,
+                                    // so ⌘ is read from the current event at
+                                    // the moment of the click — the same shape
+                                    // `pastesPlainText` already uses for ⇧.
+                                    if NSEvent.modifierFlags.contains(.command),
+                                       MultiPaste.isMarkable(item.type) {
+                                        marked.toggle(item.id)
+                                    } else {
+                                        pick(item)
+                                    }
+                                }
                                 .contextMenu {
                                     ItemContextMenu(item: item,
                                                     actions: itemActions,
@@ -388,13 +407,25 @@ struct OverlayView: View {
         // overload only exposes a no-argument closure, so reading
         // `press.modifiers` (for ⇧↵) needs the `phases:` overload instead.
         .onKeyPress(.return, phases: .down) { press in
+            let plain = ItemActions.resolvePastePlainText(
+                alwaysPlainText: alwaysPastePlainText,
+                shiftHeld: press.modifiers.contains(.shift)
+            )
+            // With marks live, they *are* the selection — the same way ↵ in
+            // the Finder acts on what's selected. Resolved against `items`,
+            // the full list, never `filtered`: marks survive the search by
+            // design, and resolving against the filtered list would make the
+            // block shrink on its own as the user typed.
+            if !marked.isEmpty {
+                let block = MultiPaste.resolve(ids: marked.ids, in: items)
+                guard !block.isEmpty else { return .ignored }
+                pickMultiple(block, plainText: plain)
+                return .handled
+            }
             guard let item = filtered.first(where: { $0.id == selectedID }) else {
                 return .ignored
             }
-            pick(item, plainText: ItemActions.resolvePastePlainText(
-                alwaysPlainText: alwaysPastePlainText,
-                shiftHeld: press.modifiers.contains(.shift)
-            ))
+            pick(item, plainText: plain)
             return .handled
         }
         .onKeyPress(.leftArrow) { moveSelection(-1); return .handled }
@@ -437,6 +468,17 @@ struct OverlayView: View {
                 return .handled
             }
             return .ignored
+        }
+        // Marks the selected card for a multi-item paste. Only "m" lowercase:
+        // with no ⇧ in the combination there's no uppercase variant to
+        // register — the trap that left ⌘⇧K silently dead in Phase 2 — and
+        // with no ⌥ there's no layout-dependent alternate character either.
+        .onKeyPress(keys: ["m"]) { press in
+            guard press.modifiers.contains(.command) else { return .ignored }
+            guard let item = filtered.first(where: { $0.id == selectedID }),
+                  MultiPaste.isMarkable(item.type) else { return .ignored }
+            marked.toggle(item.id)
+            return .handled
         }
         .onKeyPress(.delete) {
             // Second of the three keys sharing `typesIntoDetachedField`.
@@ -694,6 +736,16 @@ struct OverlayView: View {
 
     private func pick(_ item: ClipboardItem, plainText: Bool? = nil) {
         itemActions.paste(item, plainText: plainText ?? pastesPlainText)
+    }
+
+    /// The block counterpart of `pick`.
+    ///
+    /// Doesn't go through `ItemActions`: that type is "everything you can do
+    /// to **one** item", and its `paste` records `lastUsedAt` for a single
+    /// item. The N-item bookkeeping happens inside `writeJoined`, in one
+    /// place — see `MultiPaste.markUsed`.
+    private func pickMultiple(_ items: [ClipboardItem], plainText: Bool) {
+        onPickMultiple(items, plainText)
     }
 
     /// Selects the item and opens the preview panel for it.
