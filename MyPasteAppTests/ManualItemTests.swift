@@ -24,11 +24,12 @@ struct ManualItemTests {
 
     @Test("The item is pinned on creation")
     func startsPinned() {
-        // isPinned is the only thing RetentionPolicy protects from pruning
-        // today, in both passes. Without it a hand-written snippet unused for
-        // 30 days is deleted — the one case in this phase where the app would
-        // destroy authored work. Roadmap item 17 replaces this with expiresAt.
-        #expect(ItemActions.makeManualItem(text: "note").isPinned)
+        // Hand-written items have to survive the pruner: they were never on a
+        // pasteboard, so there's nothing to copy again if they're lost.
+        // `keepForever` says that without also promoting them to the top of
+        // the list, which is what `isPinned` did before Phase 5.
+        #expect(ItemActions.makeManualItem(text: "note").keepForever)
+        #expect(ItemActions.makeManualItem(text: "note").isPinned == false)
     }
 
     @Test("The source app is this app")

@@ -214,4 +214,156 @@ final class RetentionPolicyTests {
         #expect(afterFirst == ["keep-a", "keep-b"])
         #expect(try remainingTags() == afterFirst)
     }
+
+    // MARK: - Helpers (Phase 5)
+
+    private func insertProtected(tag: String,
+                                 daysAgo: Int,
+                                 pinned: Bool = false,
+                                 keepForever: Bool = false,
+                                 inBoard board: Pinboard? = nil,
+                                 expiresAt: Date? = nil) {
+        let createdAt = Calendar.current.date(byAdding: .day, value: -daysAgo, to: .now) ?? .now
+        let item = ClipboardItem(
+            createdAt: createdAt,
+            type: .text,
+            preview: tag,
+            contentHash: tag,
+            textContent: tag,
+            isPinned: pinned,
+            keepForever: keepForever
+        )
+        item.expiresAt = expiresAt
+        item.pinboard = board
+        context.insert(item)
+    }
+
+    private func makeBoard() -> Pinboard {
+        let board = Pinboard(name: "Work", colorHex: PinboardPalette.colors[0])
+        context.insert(board)
+        return board
+    }
+
+    // MARK: - Expiry (roadmap item 17)
+
+    @Test("An item past its expiry date is deleted")
+    func expiredItemIsDeleted() throws {
+        insertProtected(tag: "expired", daysAgo: 0,
+                        expiresAt: Date.now.addingTimeInterval(-60))
+        insertProtected(tag: "future", daysAgo: 0,
+                        expiresAt: Date.now.addingTimeInterval(3600))
+
+        policy.prune()
+
+        #expect(try remainingTags() == ["future"])
+    }
+
+    @Test("Expiry beats pinning")
+    func expiryBeatsPinning() throws {
+        // An explicit, dated choice by the user outranks an automatic rule.
+        // The alternative leaves an item the user marked for deletion alive
+        // indefinitely because it happens to be pinned.
+        insertProtected(tag: "pinned-expired", daysAgo: 0, pinned: true,
+                        expiresAt: Date.now.addingTimeInterval(-60))
+
+        policy.prune()
+
+        #expect(try remainingTags().isEmpty)
+    }
+
+    @Test("Expiry beats keep forever")
+    func expiryBeatsKeepForever() throws {
+        insertProtected(tag: "forever-expired", daysAgo: 0, keepForever: true,
+                        expiresAt: Date.now.addingTimeInterval(-60))
+
+        policy.prune()
+
+        #expect(try remainingTags().isEmpty)
+    }
+
+    @Test("Expiry beats being in a pinboard")
+    func expiryBeatsPinboard() throws {
+        let board = makeBoard()
+        insertProtected(tag: "board-expired", daysAgo: 0, inBoard: board,
+                        expiresAt: Date.now.addingTimeInterval(-60))
+
+        policy.prune()
+
+        #expect(try remainingTags().isEmpty)
+    }
+
+    // MARK: - Keep forever
+
+    @Test("Keep forever survives the age pass")
+    func keepForeverSurvivesAge() throws {
+        defaults.store.set(10, forKey: PreferenceKeys.retentionDays)
+        insertProtected(tag: "kept", daysAgo: 900, keepForever: true)
+        insertProtected(tag: "dropped", daysAgo: 900)
+
+        policy.prune()
+
+        #expect(try remainingTags() == ["kept"])
+    }
+
+    @Test("Keep forever doesn't consume the maxItems budget")
+    func keepForeverIsExemptFromTheCap() throws {
+        defaults.store.set(1, forKey: PreferenceKeys.maxItems)
+        insertProtected(tag: "kept-a", daysAgo: 1, keepForever: true)
+        insertProtected(tag: "kept-b", daysAgo: 2, keepForever: true)
+        insertProtected(tag: "loose-new", daysAgo: 0)
+        insertProtected(tag: "loose-old", daysAgo: 3)
+
+        policy.prune()
+
+        #expect(try remainingTags() == ["kept-a", "kept-b", "loose-new"])
+    }
+
+    // MARK: - Pinboards (roadmap item 16)
+
+    @Test("An item in a pinboard survives the age pass")
+    func pinboardSurvivesAge() throws {
+        // Without this the collection the user curated empties itself in
+        // thirty days, with no warning and no undo.
+        defaults.store.set(10, forKey: PreferenceKeys.retentionDays)
+        let board = makeBoard()
+        insertProtected(tag: "filed", daysAgo: 900, inBoard: board)
+        insertProtected(tag: "loose", daysAgo: 900)
+
+        policy.prune()
+
+        #expect(try remainingTags() == ["filed"])
+    }
+
+    @Test("Items in a pinboard don't push loose items out of the cap")
+    func pinboardIsExemptFromTheCap() throws {
+        defaults.store.set(3, forKey: PreferenceKeys.maxItems)
+        let board = makeBoard()
+        insertProtected(tag: "filed-a", daysAgo: 4, inBoard: board)
+        insertProtected(tag: "filed-b", daysAgo: 5, inBoard: board)
+        insertProtected(tag: "filed-c", daysAgo: 6, inBoard: board)
+        insertProtected(tag: "loose-1", daysAgo: 0)
+        insertProtected(tag: "loose-2", daysAgo: 1)
+        insertProtected(tag: "loose-3", daysAgo: 2)
+
+        policy.prune()
+
+        #expect(try remainingTags() == ["filed-a", "filed-b", "filed-c",
+                                        "loose-1", "loose-2", "loose-3"])
+    }
+
+    // MARK: - isProtected
+
+    @Test("isProtected covers exactly the three shields")
+    func isProtectedCoversTheThree() throws {
+        let board = makeBoard()
+        insertProtected(tag: "pinned", daysAgo: 0, pinned: true)
+        insertProtected(tag: "forever", daysAgo: 0, keepForever: true)
+        insertProtected(tag: "filed", daysAgo: 0, inBoard: board)
+        insertProtected(tag: "plain", daysAgo: 0)
+
+        let items = try context.fetch(FetchDescriptor<ClipboardItem>())
+        let protectedTags = Set(items.filter(RetentionPolicy.isProtected).map(\.preview))
+
+        #expect(protectedTags == ["pinned", "forever", "filed"])
+    }
 }

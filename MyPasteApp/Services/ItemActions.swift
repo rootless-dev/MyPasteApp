@@ -110,9 +110,10 @@ final class ItemActions {
 
 /// Builds an item the user wrote by hand.
 ///
-/// Pinned on creation because `isPinned` is the only thing
-/// `RetentionPolicy.prune()` protects today, in both passes. Roadmap item
-/// 17 (`expiresAt`) is the proper answer and replaces this when it exists.
+/// Born with `keepForever` rather than `isPinned`: hand-written items should
+/// survive the pruner — that was always the intent — but pinning also sorts
+/// them to the front of the history, which nobody asked for. Roadmap item 17
+/// gave the app the field that says exactly what was meant.
 extension ItemActions {
     /// Resolves whether a paste should hand over plain text.
     ///
@@ -137,7 +138,7 @@ extension ItemActions {
             // This app really is where the item came from, which is also what
             // gives the card its colour and icon with no extra code.
             sourceAppBundleID: Bundle.main.bundleIdentifier,
-            isPinned: true
+            keepForever: true
         )
     }
 }

@@ -36,31 +36,61 @@ final class RetentionPolicy {
         self.defaults = defaults
     }
 
-    func prune() {
-        // 1) Delete old non-pinned items — skipped entirely when the user
-        //    asked to keep the history forever.
-        if let days = retentionDays {
-            let cutoff = Calendar.current.date(
-                byAdding: .day, value: -days, to: .now
-            ) ?? .now
+    /// Whether an item survives the two global passes.
+    ///
+    /// One rule, in one place, consulted by both passes here **and** by the
+    /// "Clear history" button in Settings — which used to carry its own
+    /// `!isPinned` predicate and would otherwise wipe every pinboard the user
+    /// had just filled.
+    ///
+    /// Deliberately not expressed as a `#Predicate`: `$0.pinboard == nil`
+    /// leans on SwiftData's handling of relationships inside predicates, and a
+    /// predicate copy of this rule would be a second place for it to drift.
+    /// The pruner runs at launch over at most `maxItems` rows (5000 ceiling,
+    /// 500 by default), and the heavy fields — `imageData`, `richTextData`,
+    /// the link blobs — are `.externalStorage`, so fetching a row doesn't
+    /// bring them along.
+    static func isProtected(_ item: ClipboardItem) -> Bool {
+        item.isPinned || item.keepForever || item.pinboard != nil
+    }
 
-            let oldDescriptor = FetchDescriptor<ClipboardItem>(
-                predicate: #Predicate { !$0.isPinned && $0.createdAt < cutoff }
-            )
-            if let old = try? modelContext.fetch(oldDescriptor) {
-                for item in old { modelContext.delete(item) }
+    func prune() {
+        let now = Date.now
+        let all = (try? modelContext.fetch(FetchDescriptor<ClipboardItem>())) ?? []
+
+        // 1) Items the user gave an explicit expiry date, now past. This pass
+        //    ignores every shield above: a dated choice outranks pinning,
+        //    "keep forever" and pinboard membership alike.
+        var survivors: [ClipboardItem] = []
+        for item in all {
+            if let expiresAt = item.expiresAt, expiresAt < now {
+                modelContext.delete(item)
+            } else {
+                survivors.append(item)
             }
         }
 
-        // 2) Cap at maxItems (keeps the most recent non-pinned ones). This
+        // 2) Delete old unprotected items — skipped entirely when the user
+        //    asked to keep the history forever.
+        var prunable = survivors.filter { !Self.isProtected($0) }
+        if let days = retentionDays {
+            let cutoff = Calendar.current.date(
+                byAdding: .day, value: -days, to: now
+            ) ?? now
+            for item in prunable where item.createdAt < cutoff {
+                modelContext.delete(item)
+            }
+            prunable = prunable.filter { $0.createdAt >= cutoff }
+        }
+
+        // 3) Cap at maxItems (keeps the most recent unprotected ones). This
         //    runs even with "keep forever": that setting is about age, not
         //    about quantity, and without this the store grows without bound.
-        let allDescriptor = FetchDescriptor<ClipboardItem>(
-            predicate: #Predicate { !$0.isPinned },
-            sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
-        )
-        if let all = try? modelContext.fetch(allDescriptor), all.count > maxItems {
-            for item in all[maxItems...] { modelContext.delete(item) }
+        //    Protected items are outside this count entirely — otherwise a
+        //    full pinboard would push the recent history out to make room.
+        let ordered = prunable.sorted { $0.createdAt > $1.createdAt }
+        if ordered.count > maxItems {
+            for item in ordered[maxItems...] { modelContext.delete(item) }
         }
 
         try? modelContext.save()
