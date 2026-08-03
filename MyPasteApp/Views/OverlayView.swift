@@ -206,6 +206,28 @@ struct OverlayView: View {
         isPreviewOpen
     }
 
+    /// What the card strip says when it has nothing to show.
+    ///
+    /// Three different empties, and naming the wrong one sends the user
+    /// looking for something that isn't there:
+    ///
+    /// - a board nobody has filled yet — "no results" would have them hunting
+    ///   for a filter that doesn't exist
+    /// - a history nobody has copied into yet, on a fresh install — "no
+    ///   results" names a search that was never made
+    /// - a search or a filter that matched nothing, which is the only one of
+    ///   the three that really is a result count
+    ///
+    /// A scoped board answers first even when the history is empty: the user
+    /// is standing inside the board and that is what the message is about.
+    static func emptyStateMessage(isScoped: Bool,
+                                  hasSearchContent: Bool,
+                                  historyIsEmpty: Bool) -> String {
+        if isScoped && !hasSearchContent { return "Empty Pinboard" }
+        if historyIsEmpty && !hasSearchContent { return "Nothing copied yet" }
+        return "No results"
+    }
+
     /// Which card should be selected after the list changes shape.
     ///
     /// The plain behaviour is "follow the top card", which is right when items
@@ -382,12 +404,9 @@ struct OverlayView: View {
                     .frame(maxHeight: .infinity)
                     .overlay {
                         if filtered.isEmpty {
-                            // Two different empties: a board nobody filled
-                            // yet, and a search that found nothing. Saying
-                            // "no results" inside an untouched board would
-                            // send the user hunting for a filter that isn't
-                            // there.
-                            Text(scope.isScoped && !search.hasContent ? "Empty Pinboard" : "No results")
+                            Text(Self.emptyStateMessage(isScoped: scope.isScoped,
+                                                        hasSearchContent: search.hasContent,
+                                                        historyIsEmpty: items.isEmpty))
                                 .font(.system(size: 15))
                                 .foregroundStyle(.secondary)
                         }
@@ -579,6 +598,10 @@ struct OverlayView: View {
         // `phases:` overload instead.
         .onKeyPress(.tab, phases: .down) { press in
             guard press.modifiers.contains(.control) else { return .ignored }
+            // With no board yet there is only the History scope, so there is
+            // nothing to cycle to and the key belongs to whoever wants it
+            // next. Answering `.handled` here would swallow it for nothing.
+            guard !boards.isEmpty else { return .ignored }
             cycleScope(forward: !press.modifiers.contains(.shift))
             return .handled
         }
@@ -1006,9 +1029,12 @@ struct OverlayView: View {
     }
 
     /// Steps through History → board 1 → board 2 → … → History.
+    ///
+    /// "Is there anywhere to step to" is the caller's question, not this one's
+    /// — the `⌃Tab` handler has to answer `.ignored` in that case rather than
+    /// eat the key, so the check lives there.
     private func cycleScope(forward: Bool) {
         let ids: [UUID?] = [nil] + boards.map { Optional($0.id) }
-        guard ids.count > 1 else { return }
         let current = ids.firstIndex(of: scope.activeID) ?? 0
         let step = forward ? 1 : -1
         let next = (current + step + ids.count) % ids.count
