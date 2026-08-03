@@ -78,10 +78,23 @@ final class MultiPasteTests {
     @Test("No separator before the first or after the last")
     func noTrailingSeparator() {
         let pieces = ["a", "b"].map { NSAttributedString(string: $0) }
-        let result = MultiPaste.joined(pieces, separator: .comma).string
-        #expect(result == "a, b")
-        #expect(!result.hasPrefix(", "))
-        #expect(!result.hasSuffix(", "))
+        // The exact string already says everything a prefix/suffix check
+        // could.
+        #expect(MultiPaste.joined(pieces, separator: .comma).string == "a, b")
+    }
+
+    @Test("Joining is verbatim: a piece that ends in a newline keeps it")
+    func joinsPiecesThatEndInNewlines() {
+        // `joined` inserts exactly `separator.text` and nothing else — it must
+        // not try to be clever about pieces that end in a break. Keeping the
+        // pieces clean is `attributed`'s job (it drops the newline AppKit's
+        // HTML importer appends); this pins the other half of that contract:
+        // whatever arrives here is joined verbatim, so a piece that genuinely
+        // ends in a newline keeps it and the separator still lands right
+        // after.
+        let pieces = ["a\n", "b\n"].map { NSAttributedString(string: $0) }
+        #expect(MultiPaste.joined(pieces, separator: .comma).string == "a\n, b\n")
+        #expect(MultiPaste.joined(pieces, separator: .newline).string == "a\n\nb\n")
     }
 
     @Test("One piece comes back untouched, zero pieces come back empty")
@@ -105,12 +118,18 @@ final class MultiPasteTests {
         // Inheriting the previous piece's attributes would make the break
         // carry the font and colour of the text above it, so the block would
         // change appearance depending on the order things were marked.
-        let styled = NSAttributedString(string: "a",
-                                        attributes: [.foregroundColor: NSColor.red])
-        let plain = NSAttributedString(string: "b")
-        let joined = MultiPaste.joined([styled, plain], separator: .newline)
+        // Both sides styled, and differently: with only the leading piece
+        // styled, the separator inheriting from the piece *after* it would go
+        // unnoticed.
+        let leading = NSAttributedString(string: "a",
+                                         attributes: [.foregroundColor: NSColor.red])
+        let trailing = NSAttributedString(string: "b",
+                                          attributes: [.foregroundColor: NSColor.blue])
+        let joined = MultiPaste.joined([leading, trailing], separator: .newline)
         var range = NSRange(location: 0, length: 0)
-        let attributes = joined.attributes(at: 1, effectiveRange: &range)
-        #expect(attributes[.foregroundColor] == nil)
+        #expect(joined.attributes(at: 1, effectiveRange: &range)[.foregroundColor] == nil)
+        // And the pieces themselves keep what they came with.
+        #expect(joined.attributes(at: 0, effectiveRange: &range)[.foregroundColor] as? NSColor == .red)
+        #expect(joined.attributes(at: 2, effectiveRange: &range)[.foregroundColor] as? NSColor == .blue)
     }
 }

@@ -57,6 +57,20 @@ enum MultiPaste {
     ///
     /// Main-actor bound because AppKit's HTML importer requires it, which
     /// `RichText.decode` documents.
+    ///
+    /// The two branches treat a trailing newline differently **on purpose** —
+    /// do not "unify" them:
+    ///
+    /// * The decoded branch drops one. AppKit's HTML importer terminates
+    ///   block-level content with a newline the source never had:
+    ///   `<p>Hello world</p>` imports as `"Hello world\n"`, and
+    ///   `<ul><li>one</li><li>two</li></ul>` as `"\t•\tone\n\t•\ttwo\n"`
+    ///   (measured, not assumed). Left in place, `joined` inserts the
+    ///   separator *after* that break — a comma alone on its own line, a
+    ///   stray leading space, or a blank line between every pair.
+    /// * The plain fallback keeps it. There, a trailing newline is content the
+    ///   user actually copied, and dropping it would silently alter the
+    ///   capture.
     @MainActor
     static func attributed(for item: ClipboardItem) -> NSAttributedString {
         let plain = item.textContent ?? ""
@@ -64,7 +78,26 @@ enum MultiPaste {
               let format = item.richTextFormat,
               let decoded = RichText.decode(data: data, format: format)
         else { return NSAttributedString(string: plain) }
-        return decoded
+        return droppingOneTrailingNewline(decoded)
+    }
+
+    /// Removes a single trailing newline, if there is one.
+    ///
+    /// "At most one": two trailing newlines in a decoded capture mean the
+    /// source really had a blank line at the end, and only the importer's own
+    /// terminator is an artefact. The empty case returns early so the delete
+    /// below can never be handed an out-of-range location, and the range comes
+    /// from `rangeOfComposedCharacterSequence` so a CRLF ending goes as one
+    /// unit instead of leaving a bare `\r` behind.
+    private static func droppingOneTrailingNewline(
+        _ text: NSAttributedString
+    ) -> NSAttributedString {
+        guard text.length > 0, text.string.hasSuffix("\n") else { return text }
+        let last = (text.string as NSString)
+            .rangeOfComposedCharacterSequence(at: text.length - 1)
+        let trimmed = NSMutableAttributedString(attributedString: text)
+        trimmed.deleteCharacters(in: last)
+        return trimmed
     }
 
     /// Records that these items were used, **without promoting them**.

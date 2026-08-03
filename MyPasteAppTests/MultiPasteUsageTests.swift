@@ -37,6 +37,20 @@ final class MultiPasteUsageTests {
         return item
     }
 
+    /// An item captured as HTML, with a `textContent` that can deliberately
+    /// differ from what the markup renders to — which is what a real browser
+    /// capture looks like.
+    @discardableResult
+    private func html(_ markup: String, plain: String) -> ClipboardItem {
+        let item = ClipboardItem(
+            type: .text, preview: plain, contentHash: markup,
+            textContent: plain,
+            richTextData: Data(markup.utf8), richTextFormat: .html
+        )
+        container.mainContext.insert(item)
+        return item
+    }
+
     /// RTF bytes for a piece of text, produced the same way `ItemEdit.apply`
     /// produces them.
     private func rtf(_ text: String) throws -> Data {
@@ -102,10 +116,51 @@ final class MultiPasteUsageTests {
         #expect(MultiPaste.attributed(for: subject).string == "")
     }
 
+    // MARK: - Trailing newlines
+
+    @Test("Block-level HTML loses the newline the importer appends")
+    func htmlBlockLosesTrailingNewline() {
+        // AppKit's HTML importer terminates block content with a newline the
+        // source never had: `<p>Hello world</p>` renders as "Hello world\n".
+        // Left in, `joined` puts the separator *after* that break — a comma
+        // alone on its own line.
+        let subject = html("<p>Hello world</p>", plain: "Hello world")
+        #expect(MultiPaste.attributed(for: subject).string == "Hello world")
+    }
+
+    @Test("Two HTML paragraphs join with the separator between them, not after a break")
+    func htmlBlockJoinsCleanly() {
+        // The end-to-end shape of the bug: two paragraphs copied from a
+        // browser (captured as HTML — no browser offers RTF) marked and pasted
+        // with the Comma separator.
+        let first = html("<p>Hello world</p>", plain: "Hello world")
+        let second = html("<p>Second one</p>", plain: "Second one")
+        let block = MultiPaste.joined([MultiPaste.attributed(for: first),
+                                       MultiPaste.attributed(for: second)],
+                                      separator: .comma)
+        #expect(block.string == "Hello world, Second one")
+    }
+
+    @Test("Only one trailing newline goes, never two")
+    func stripsAtMostOneNewline() throws {
+        // Two of them mean the source really did end with a blank line; only
+        // the importer's own terminator is an artefact.
+        let subject = item("x", richTextData: try rtf("x\n\n"), richTextFormat: .rtf)
+        #expect(MultiPaste.attributed(for: subject).string == "x\n")
+    }
+
+    @Test("A plain item keeps a trailing newline it actually captured")
+    func plainKeepsTrailingNewline() {
+        // The fallback branch must NOT strip: with no rich data there is no
+        // importer to blame, so the newline is content the user copied and
+        // dropping it would silently alter the capture.
+        #expect(MultiPaste.attributed(for: item("line\n")).string == "line\n")
+    }
+
     // MARK: - Usage
 
     @Test("Marking used writes lastUsedAt and leaves createdAt alone")
-    func markUsedDoesNotPromote() {
+    func markUsedDoesNotPromote() throws {
         // The whole point of the multi-paste path: pasting five items must not
         // reorder the history, and must not shift the ⌘1–⌘9 numbering with it.
         let old = Date(timeIntervalSince1970: 1_700_000_000)
@@ -114,10 +169,17 @@ final class MultiPasteUsageTests {
 
         MultiPaste.markUsed([first, second], now: now)
 
-        #expect(first.createdAt == old)
-        #expect(second.createdAt == old)
-        #expect(first.lastUsedAt == now)
-        #expect(second.lastUsedAt == now)
+        // Read back through a *separate* context on the same container, not
+        // off the objects in memory: `mainContext` would hand back the very
+        // instances just mutated, so the assertions would hold with the
+        // `save()` inside `markUsed` deleted and the paste would be forgotten
+        // on the next launch. A fresh context sees only what reached the
+        // store.
+        let stored = try ModelContext(container)
+            .fetch(FetchDescriptor<ClipboardItem>())
+        #expect(stored.count == 2)
+        #expect(stored.allSatisfy { $0.createdAt == old })
+        #expect(stored.allSatisfy { $0.lastUsedAt == now })
     }
 
     @Test("Marking an empty list used does nothing and doesn't crash")
