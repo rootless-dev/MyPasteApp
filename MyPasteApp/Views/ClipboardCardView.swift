@@ -19,6 +19,15 @@ struct ClipboardCardView: View {
     /// card, always. While a block is being assembled the order is the useful
     /// information; the shortcut comes back the moment the marks are cleared.
     var markOrder: Int? = nil
+    /// Whether *any* card in the list is currently marked, not just this one.
+    ///
+    /// While a block is being assembled, the accent border has to mean one
+    /// thing only — "in the block" — so the selected card must stop drawing
+    /// it even when this particular card isn't the one marked. That decision
+    /// belongs here, next to the `markOrder`/`quickPasteLabel` substitution
+    /// it mirrors: a caller that decided instead would be a second place for
+    /// the same rule to drift.
+    var anyMarked: Bool = false
     var onDelete: () -> Void = {}
     @AppStorage(PreferenceKeys.cardDensity) private var densityRaw: String = CardDensity.comfortable.rawValue
     @State private var isHoveringCard = false
@@ -36,13 +45,16 @@ struct ClipboardCardView: View {
         .frame(width: density.width, height: density.height)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(alignment: .topTrailing) { deleteButton }
-        .overlay(
+        .overlay {
+            // While nothing is marked, selection alone earns the accent
+            // border, same as before marks existed. The moment a block is
+            // being assembled, that border means only "in the block" — the
+            // selected card keeps its selection, it just stops drawing it.
+            let isOutlined = markOrder != nil || (isSelected && !anyMarked)
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(isSelected || markOrder != nil
-                                ? Color.accentColor
-                                : Color.black.opacity(0.08),
-                              lineWidth: isSelected || markOrder != nil ? 2.5 : 1)
-        )
+                .strokeBorder(isOutlined ? Color.accentColor : Color.black.opacity(0.08),
+                              lineWidth: isOutlined ? 2.5 : 1)
+        }
         .shadow(color: .black.opacity(0.10), radius: 6, y: 3)
         .onHover { hovering in
             isHoveringCard = hovering

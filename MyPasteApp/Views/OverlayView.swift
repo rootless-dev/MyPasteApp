@@ -231,6 +231,7 @@ struct OverlayView: View {
                                         ? QuickPaste.label(forIndex: index)
                                         : nil,
                                     markOrder: marked.order(of: item.id),
+                                    anyMarked: !marked.isEmpty,
                                     onDelete: { delete(item) }
                                 )
                                 .id(item.id)
