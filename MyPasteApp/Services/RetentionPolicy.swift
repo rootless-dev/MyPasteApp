@@ -43,15 +43,31 @@ final class RetentionPolicy {
     /// `!isPinned` predicate and would otherwise wipe every pinboard the user
     /// had just filled.
     ///
+    /// A *future* `expiresAt` shields the item, which is the same principle
+    /// pass 1 applies in the other direction: an explicit, dated choice beats
+    /// an automatic rule, so the date says both "delete me after this" **and**
+    /// "don't delete me before it". Without this, "Expire in 1 hour" on an
+    /// item older than `retentionDays` — or on a history already at
+    /// `maxItems` — was a shorter life, never a longer one, and the age and
+    /// volume passes could take the item away hours before the date the user
+    /// picked. Decided in the Phase 5 branch review; the spec's precedence
+    /// table carries the same note.
+    ///
+    /// The instant `expiresAt == now` is deliberately neither: pass 1 deletes
+    /// on `< now` and this shields on `> now`, so an item exactly at its
+    /// deadline is treated as ordinary by both — it has no future left to
+    /// protect and the next tick of the pruner deletes it anyway.
+    ///
     /// Deliberately not expressed as a `#Predicate`: `$0.pinboard == nil`
     /// leans on SwiftData's handling of relationships inside predicates, and a
     /// predicate copy of this rule would be a second place for it to drift.
-    /// The pruner runs at launch over at most `maxItems` rows (5000 ceiling,
-    /// 500 by default), and the heavy fields — `imageData`, `richTextData`,
-    /// the link blobs — are `.externalStorage`, so fetching a row doesn't
-    /// bring them along.
-    static func isProtected(_ item: ClipboardItem) -> Bool {
-        item.isPinned || item.keepForever || item.pinboard != nil
+    /// The pruner runs over at most `maxItems` rows (5000 ceiling, 500 by
+    /// default), and the heavy fields — `imageData`, `richTextData`, the link
+    /// blobs — are `.externalStorage`, so fetching a row doesn't bring them
+    /// along.
+    static func isProtected(_ item: ClipboardItem, now: Date) -> Bool {
+        if let expiresAt = item.expiresAt, expiresAt > now { return true }
+        return item.isPinned || item.keepForever || item.pinboard != nil
     }
 
     func prune() {
@@ -72,7 +88,7 @@ final class RetentionPolicy {
 
         // 2) Delete old unprotected items — skipped entirely when the user
         //    asked to keep the history forever.
-        var prunable = survivors.filter { !Self.isProtected($0) }
+        var prunable = survivors.filter { !Self.isProtected($0, now: now) }
         if let days = retentionDays {
             let cutoff = Calendar.current.date(
                 byAdding: .day, value: -days, to: now

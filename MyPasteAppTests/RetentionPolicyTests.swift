@@ -351,19 +351,98 @@ final class RetentionPolicyTests {
                                         "loose-1", "loose-2", "loose-3"])
     }
 
+    // MARK: - A future expiry date protects (branch-review decision)
+
+    @Test("An item with a future expiry survives the age pass")
+    func futureExpirySurvivesAge() throws {
+        // The date is a promise in both directions: it says when the item goes
+        // away, which also says it doesn't go away before then. Without this
+        // the age pass takes it hours early and the user never learns why.
+        defaults.store.set(10, forKey: PreferenceKeys.retentionDays)
+        insertProtected(tag: "dated", daysAgo: 900,
+                        expiresAt: Date.now.addingTimeInterval(3600))
+        insertProtected(tag: "loose", daysAgo: 900)
+
+        policy.prune()
+
+        #expect(try remainingTags() == ["dated"])
+    }
+
+    @Test("An item with a future expiry doesn't consume the maxItems budget")
+    func futureExpiryIsExemptFromTheCap() throws {
+        defaults.store.set(1, forKey: PreferenceKeys.maxItems)
+        insertProtected(tag: "dated-a", daysAgo: 1,
+                        expiresAt: Date.now.addingTimeInterval(3600))
+        insertProtected(tag: "dated-b", daysAgo: 2,
+                        expiresAt: Date.now.addingTimeInterval(3600))
+        insertProtected(tag: "loose-new", daysAgo: 0)
+        insertProtected(tag: "loose-old", daysAgo: 3)
+
+        policy.prune()
+
+        #expect(try remainingTags() == ["dated-a", "dated-b", "loose-new"])
+    }
+
+    @Test("A past expiry is still deleted by the first pass")
+    func pastExpiryStillDies() throws {
+        // The shield above must not leak backwards into pass 1: a date that
+        // already went by deletes the item however protected it otherwise is.
+        let board = makeBoard()
+        defaults.store.set(0, forKey: PreferenceKeys.retentionDays)
+        insertProtected(tag: "past", daysAgo: 0, pinned: true, inBoard: board,
+                        expiresAt: Date.now.addingTimeInterval(-60))
+        insertProtected(tag: "future", daysAgo: 0,
+                        expiresAt: Date.now.addingTimeInterval(60))
+
+        policy.prune()
+
+        #expect(try remainingTags() == ["future"])
+    }
+
     // MARK: - isProtected
 
-    @Test("isProtected covers exactly the three shields")
-    func isProtectedCoversTheThree() throws {
+    @Test("isProtected covers exactly the four shields")
+    func isProtectedCoversTheFour() throws {
         let board = makeBoard()
+        let now = Date.now
         insertProtected(tag: "pinned", daysAgo: 0, pinned: true)
         insertProtected(tag: "forever", daysAgo: 0, keepForever: true)
         insertProtected(tag: "filed", daysAgo: 0, inBoard: board)
+        insertProtected(tag: "dated-ahead", daysAgo: 0,
+                        expiresAt: now.addingTimeInterval(3600))
+        insertProtected(tag: "dated-past", daysAgo: 0,
+                        expiresAt: now.addingTimeInterval(-3600))
         insertProtected(tag: "plain", daysAgo: 0)
 
         let items = try context.fetch(FetchDescriptor<ClipboardItem>())
-        let protectedTags = Set(items.filter(RetentionPolicy.isProtected).map(\.preview))
+        let protectedTags = Set(
+            items.filter { RetentionPolicy.isProtected($0, now: now) }.map(\.preview)
+        )
 
-        #expect(protectedTags == ["pinned", "forever", "filed"])
+        #expect(protectedTags == ["pinned", "forever", "filed", "dated-ahead"])
+    }
+
+    // MARK: - Clear history
+
+    @Test("Clear history keeps everything isProtected protects")
+    func clearHistoryKeepsProtected() throws {
+        // `HistorySettingsView.clearHistory` is a `View` method, so what runs
+        // here is the rule it delegates to — the whole point of that button
+        // owning no predicate of its own.
+        let board = makeBoard()
+        let now = Date.now
+        insertProtected(tag: "pinned", daysAgo: 0, pinned: true)
+        insertProtected(tag: "forever", daysAgo: 0, keepForever: true)
+        insertProtected(tag: "filed", daysAgo: 0, inBoard: board)
+        insertProtected(tag: "dated-ahead", daysAgo: 0,
+                        expiresAt: now.addingTimeInterval(3600))
+        insertProtected(tag: "plain", daysAgo: 0)
+
+        let items = try context.fetch(FetchDescriptor<ClipboardItem>())
+        for item in items where !RetentionPolicy.isProtected(item, now: now) {
+            context.delete(item)
+        }
+
+        #expect(try remainingTags() == ["pinned", "forever", "filed", "dated-ahead"])
     }
 }

@@ -28,7 +28,7 @@ struct HistorySettingsView: View {
             }
             Section {
                 Button("Clear history") { clearHistory() }
-                Text("Keeps pinned items, items in pinboards, and items set to never expire.")
+                Text("Keeps pinned items, items in pinboards, items set to never expire, and items whose expiry date is still ahead.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -42,8 +42,9 @@ struct HistorySettingsView: View {
     /// would have emptied every pinboard the user had just filled — the button
     /// promised "non-pinned" and would have deleted curated collections.
     private func clearHistory() {
+        let now = Date.now
         let items = (try? modelContext.fetch(FetchDescriptor<ClipboardItem>())) ?? []
-        for item in items where !RetentionPolicy.isProtected(item) {
+        for item in items where !RetentionPolicy.isProtected(item, now: now) {
             modelContext.delete(item)
         }
         try? modelContext.save()

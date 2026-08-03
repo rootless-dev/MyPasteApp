@@ -58,7 +58,7 @@ Fora de escopo, com o lugar marcado:
 | Confirmação de exclusão | **Nenhum diálogo. A consequência vai no rótulo** | `OverlayWindowController.windowDidResignKey` chama `hide()`: qualquer `NSAlert` vira key window e fecharia a gaveta inteira, levando junto busca, marcação e escopo. A entrada do menu diz "Excluir — os 12 itens voltam ao histórico" |
 | Forma da retenção por item | **Tri-estado**: global (padrão) · nunca · expira em `<data>` | Permanência já tem dois caminhos (fixar, pinboard); a lacuna real que nada cobre hoje é o oposto — um token que deve sumir **antes** dos 30 dias. O tri-estado cobre os dois e ainda dá "permanecer sem ser promovido ao topo da lista", que fixar não dá |
 | Âncora da expiração | **`expiresAt: Date?` absoluto**, gravado na escolha | A poda por idade compara `createdAt`, que é reescrito a cada colagem: uma expiração relativa reiniciaria a cada uso, que é exatamente o errado para uma expiração curta |
-| Expiração × proteções | **`expiresAt` vencido apaga o item mesmo fixado ou em pinboard** | Escolha explícita e datada do usuário vence regra automática. O contrário deixaria um item marcado para sumir vivendo indefinidamente por estar fixado |
+| Expiração × proteções | **`expiresAt` vencido apaga o item mesmo fixado ou em pinboard; `expiresAt` futuro protege o item das passadas 2 e 3** | Escolha explícita e datada do usuário vence regra automática, **nos dois sentidos**. O contrário deixaria um item marcado para sumir vivendo indefinidamente por estar fixado — e, na outra ponta, faria "expira em 1 hora" significar só um prazo mais curto, com a poda por idade ou por volume levando o item horas antes da data escolhida. *(A metade "futuro protege" foi decidida na revisão de branch, depois da implementação; ver a tabela de passadas na seção 2.)* |
 | Cor do cabeçalho | **Dentro do pinboard, a cor do pinboard; no Histórico, a cor do app + ponto de filiação** | A premissa "o cabeçalho identifica a origem" continua valendo onde ela importa, e a filiação fica visível sem ocupar espaço. Não altera a precedência do rótulo (item 9), que segue substituindo tipo + hora |
 | Como um item entra num pinboard | **Só pelo menu de contexto** (`Add to Pinboard ▸`) | Escopo mínimo e zero risco novo. O menu já é onde o usuário procura tudo que não é colar |
 | Atalho para pôr em pinboard | **Nenhum** | `⌘M`, `⌘P`, `⌘E`, `⌘R`, `⌘C`, `⌘J` estão tomados, e a Fase 4 acabou de descobrir que este app **tem** barra de menus disputando teclas |
@@ -201,11 +201,25 @@ durações e convertidas para data absoluta no momento da escolha.
 
 ```swift
 /// Um item sobrevive às podas globais quando está fixado, quando o usuário
-/// pediu para mantê-lo, ou quando está num pinboard. Uma função, porque a
-/// mesma condição governa as passadas 2 e 3 — e a Fase 1 já pagou o preço de
-/// uma regra de captura escrita em dois lugares.
-static func isProtected(_ item: ClipboardItem) -> Bool
+/// pediu para mantê-lo, quando está num pinboard, ou quando tem uma data de
+/// expiração ainda no futuro. Uma função, porque a mesma condição governa as
+/// passadas 2 e 3 — e a Fase 1 já pagou o preço de uma regra de captura
+/// escrita em dois lugares.
+static func isProtected(_ item: ClipboardItem, now: Date) -> Bool
 ```
+
+**Decidido na revisão de branch (depois da implementação):** uma `expiresAt`
+**no futuro** é a quarta proteção. O princípio que a fase adotou — escolha
+explícita e datada vence regra automática — vale nos dois sentidos: a data
+manda apagar **depois** dela e manda **não** apagar antes. Sem isso, "expira
+em 1 hora" só conseguia encurtar a vida do item, nunca prolongá-la: um item
+mais velho que `retentionDays`, ou um histórico já no teto de `maxItems`,
+levava o item embora horas antes da data escolhida. É também por isso que
+`isProtected` passa a receber `now` — as duas chamadas (`prune()` e o botão
+"Clear history") passam a data corrente, e a regra continua num lugar só. O
+instante exato `expiresAt == now` não é nem apagado pela passada 1 (`< now`)
+nem protegido (`> now`): não sobra futuro para proteger e a próxima passada o
+apaga.
 
 **O terceiro lugar que apaga por `!isPinned`** não está em `RetentionPolicy`:
 é o botão "Clear non-pinned history" de `HistorySettingsView`, que faz seu
@@ -234,8 +248,10 @@ memória com `isProtected`**:
 - é **uma** regra, escrita em Swift puro, num lugar só. Um `#Predicate` que
   duplicasse `isProtected` seria uma segunda cópia da mesma regra, livre para
   divergir — a classe de erro que a Fase 1 já pagou
-- `maxItems` tem teto de 5000 e default 500, e a poda roda no launch, não num
-  laço quente
+- `maxItems` tem teto de 5000 e default 500, e a poda roda no launch e a cada
+  5 minutos (decidido na revisão de branch — sem um timer, "expira em 1 hora"
+  significava "expira no próximo relançamento" num app de barra de status que
+  fica semanas ligado), não num laço quente
 - `imageData`, `richTextData` e os dados de link são `.externalStorage`: o fetch
   traz os objetos sem carregar esses blobs, então "buscar tudo" não é o que
   parece
