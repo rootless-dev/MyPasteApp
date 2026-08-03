@@ -227,8 +227,11 @@ próprio `#Predicate { !$0.isPinned }`. Sem tocá-lo, o usuário limpa o histór
 e leva junto todas as coleções que acabou de montar — a mesma falha da poda,
 por um caminho que a poda não cobre. Passa a usar `isProtected`, e o rótulo
 passa a **"Clear history"** com uma legenda dizendo o que sobrevive: fixados,
-itens em pinboards e itens marcados para nunca expirar. O rótulo atual promete
-uma regra que deixa de ser verdade.
+itens em pinboards, itens marcados para nunca expirar e itens com data de
+expiração ainda no futuro (esta última entrou com a decisão da revisão de
+branch, acima — a legenda é o único texto que o usuário lê antes de apertar um
+botão destrutivo, então ela lista as quatro). O rótulo atual promete uma regra
+que deixa de ser verdade.
 
 **Um paliativo que esta tarefa remove.** `ItemActions.makeManualItem` cria todo
 item escrito à mão com `isPinned: true`, e o comentário ao lado diz por quê:
@@ -625,7 +628,7 @@ Blocos previstos:
 | A | **Migração do store**: abrir com o banco da versão anterior, histórico intacto, fixados ainda fixados. Sem isso, nada mais importa |
 | B | Faixa de pílulas: criar, renomear, cancelar renomeação, recolorir, excluir com e sem itens, colapso na busca |
 | C | Escopo: trocar por clique e por `⌃Tab`, buscar dentro do pinboard, `⎋` percorrendo os seis degraus, reabrir voltando ao Histórico |
-| D | Retenção: marcar "nunca", marcar "expira em 1 hora", verificar sobrevivência e morte com o relógio adiantado; e "Clear history" em Ajustes deixando de pé fixados, itens em pinboard e itens "nunca" |
+| D | Retenção: marcar "nunca", marcar "expira em 1 hora", verificar sobrevivência e morte com o relógio adiantado (inclusive sem reiniciar o app, pelo timer de 5 minutos); e "Clear history" em Ajustes deixando de pé fixados, itens em pinboard, itens "nunca" e itens com data ainda no futuro |
 | E | Teclado: **E1 — `⌃Tab` não é engolido pelo sistema nem pela barra de menus.** Mesmo peso do E1 da Fase 4, e pela mesma razão |
 | F | Regras por app: adicionar pelo seletor, "só texto", copiar imagem do app regulado e não ver item; e as exclusões antigas ainda valendo depois da migração |
 

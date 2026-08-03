@@ -48,19 +48,30 @@ struct PinboardPill: View {
                         // stays exactly as it was — cancelling a rename must
                         // never delete a board that was just created.
                         .onExitCommand { onCommitName(title) }
-                        // Gives the keyboard back on the way out, and this is
-                        // load-bearing for exactly the reason it is on
-                        // `SearchFieldView`'s field: this `TextField` leaving
-                        // the tree takes the focus with it, and SwiftUI does
-                        // not re-home focus on its own. Measured without it,
-                        // committing a name with `↵` left the drawer deaf —
-                        // `⎋` didn't close it, `←`/`→` didn't move the
-                        // selection, `⌘1`–`⌘9` pasted nothing — until a click
-                        // landed on a card. Phase 1's bug verbatim, through a
-                        // second door. `onDisappear` runs after the removal,
-                        // which is what makes the write stick; the same write
-                        // from `onSubmit`, in the turn of the removal itself,
-                        // is the one that gets dropped.
+                        // Gives the keyboard back on the way out. Same
+                        // mechanism as `SearchFieldView`'s field, which
+                        // carries this line for the same reason: a `TextField`
+                        // leaving the tree takes the focus with it, and
+                        // SwiftUI does not re-home focus on its own — the
+                        // drawer then answers nothing until a click lands on a
+                        // card, which is Phase 1's bug.
+                        //
+                        // **Not measured here.** That failure was measured on
+                        // the search field (see the comment on
+                        // `SearchFieldView`'s `.onDisappear`), and this field
+                        // is removed by the same kind of event — committing
+                        // with `↵`, cancelling with `⎋`, or the drawer
+                        // reopening. Whether it actually reproduced on this
+                        // pill is unverified: nothing in `Views/` has a test,
+                        // and steps B9 and B10 of `VERIFICACAO-FASE-5.md` are
+                        // what will exercise it.
+                        //
+                        // `onDisappear` rather than a write from `onSubmit`
+                        // for the same reason given there: it runs after the
+                        // removal, so the write survives it. That is a reading
+                        // of documented SwiftUI ordering plus the measurement
+                        // on the search field — it was not re-measured on this
+                        // view.
                         .onDisappear { focusTarget = .list }
                 } else if !isCollapsed {
                     Text(title)

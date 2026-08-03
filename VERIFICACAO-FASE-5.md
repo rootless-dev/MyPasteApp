@@ -100,7 +100,18 @@ sandboxado, não há um container por bundle ID.
       com `⎋` em vez de `↵`, e uma terceira vez entrando pela entrada "Rename"
       do menu da pílula.
 
-- [ ] **B10 ⚠️ A renomeação não sobrevive ao fechamento da gaveta.** Aperte
+- [ ] **B10 ⚠️ Abrir a busca no meio de uma renomeação.** Aperte `+` para
+      criar uma pílula e, **com o campo de renomeação ainda aberto**, aperte
+      `⌘F`. Abrir a busca troca o ramo inteiro do `OverlayTopBar`, o que tira
+      o campo da pílula da tela e faz o `.onDisappear` dele mandar o foco para
+      a lista — logo depois de `⌘F` já ter mandado o foco para a busca.
+      **Critério:** o campo de busca abre **com o foco**, e o que você digitar
+      em seguida aparece nele. Se as letras não aparecerem, ou aparecerem só
+      depois de clicar no campo, o foco foi sobrescrito pela pílula saindo —
+      anote, é o mesmo conflito de duas escritas de foco na mesma volta, por
+      um caminho novo.
+
+- [ ] **B11 ⚠️ A renomeação não sobrevive ao fechamento da gaveta.** Aperte
       `+` e, **sem confirmar nome nenhum**, feche a gaveta (hotkey de novo ou
       clique fora). Reabra. **Critério:** a pílula aparece com o nome que
       tinha ("Untitled"), como rótulo de texto normal — **não** em modo de
@@ -109,11 +120,11 @@ sandboxado, não há um container por bundle ID.
       do menu do card ("New Pinboard…", passo H1), que também abre a pílula em
       edição.
 
-- [ ] **B11** Sem nenhum pinboard criado (exclua todos, se houver), com a
+- [ ] **B12** Sem nenhum pinboard criado (exclua todos, se houver), com a
       gaveta aberta, aperte `⌃Tab`: nada acontece e nada quebra — não há para
       onde ciclar, e a tecla não é engolida.
 
-- [ ] **B12** Com o histórico realmente vazio — instalação nova, ou logo
+- [ ] **B13** Com o histórico realmente vazio — instalação nova, ou logo
       depois de um "Clear history" que não deixou nada —, a área de cards diz
       **"Nothing copied yet"**, não "No results". "No results" nomeia uma
       busca que ninguém fez.
@@ -196,8 +207,9 @@ sandboxado, não há um container por bundle ID.
       history" agora é **"Clear history"**, com a legenda "Keeps pinned
       items, items in pinboards, items set to never expire, and items whose
       expiry date is still ahead." Clique nele: itens fixados, itens em
-      qualquer pinboard e itens "never expire" continuam na lista depois;
-      todo o resto (sem nenhuma das quatro marcas) some.
+      qualquer pinboard, itens "never expire" e itens com data de expiração
+      ainda no futuro continuam na lista depois; todo o resto (sem nenhuma das
+      quatro marcas) some.
 
 - [ ] **D6** Crie um item escrito à mão (`⌘N` → digite um texto → salve).
       Ele nasce "never expire" por baixo dos panos, então sobrevive ao "Clear

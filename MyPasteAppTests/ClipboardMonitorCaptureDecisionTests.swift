@@ -16,12 +16,15 @@ import Testing
 /// **The order in which `poll()` calls them is not tested here, and cannot
 /// be.** `poll()` is private and wired to `NSPasteboard.general`, and what
 /// matters about the order is when a side effect happens — the read — which no
-/// assertion over pure functions can observe. What these tests do pin is
-/// *membership*: the banned-app rule lives inside `shouldRead`, so moving it
-/// back to after `readCurrentItem()` means taking it out of this function and
-/// failing `bannedAppIsRejectedBeforeReading` below. The remaining half —
-/// that `poll()` calls `shouldRead` first — is owned by code review and by
-/// step F6 of `VERIFICACAO-FASE-5.md`.
+/// assertion over pure functions can observe. Moving the whole
+/// `guard Self.shouldRead(...)` to after `readCurrentItem()` leaves every test
+/// in this file green.
+///
+/// What these tests do pin is *membership*: the banned-app rule is part of the
+/// pre-read decision rather than a separate guard somewhere else, so taking it
+/// out of `shouldRead` fails `bannedAppIsRejectedBeforeReading` below. Where
+/// `poll()` chooses to call `shouldRead` is owned by code review and by step
+/// F7 of `VERIFICACAO-FASE-5.md`.
 @MainActor
 @Suite("Clipboard monitor capture decision")
 struct ClipboardMonitorCaptureDecisionTests {
@@ -71,8 +74,10 @@ struct ClipboardMonitorCaptureDecisionTests {
     func bannedAppIsRejectedBeforeReading() {
         // This is the phase's headline privacy change, stated as the one thing
         // a test can state about it: the ban is part of `shouldRead`, whose
-        // inputs are a bundle ID and pasteboard metadata — never content. Move
-        // the ban back to after `readCurrentItem()` and this fails.
+        // inputs are a bundle ID and pasteboard metadata — never content. Take
+        // the rule out of this function — to put it in a guard of its own
+        // after the read, say — and this fails. Leaving it here and calling
+        // `shouldRead` late does not; see the suite comment above.
         #expect(ClipboardMonitor.shouldRead(isPaused: false,
                                             types: [plainText],
                                             settings: permissive,

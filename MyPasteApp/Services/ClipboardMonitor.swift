@@ -163,7 +163,7 @@ final class ClipboardMonitor {
     /// automated can pin that `poll()` still calls this *before*
     /// `readCurrentItem()`; that is an ordering of side effects, and the suite
     /// never runs `poll()` (it is private and wired to `NSPasteboard.general`).
-    /// That half is owned by code review and by step F6 of the manual script.
+    /// That half is owned by code review and by step F7 of the manual script.
     static func shouldRead(isPaused: Bool,
                            types: [NSPasteboard.PasteboardType],
                            settings: PasteboardPrivacy.Settings,
