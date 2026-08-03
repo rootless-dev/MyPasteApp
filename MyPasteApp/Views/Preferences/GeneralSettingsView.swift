@@ -11,6 +11,7 @@ struct GeneralSettingsView: View {
     @AppStorage(PreferenceKeys.autoPasteEnabled) private var autoPasteEnabled: Bool = true
     @AppStorage(PreferenceKeys.pasteDelayMs) private var pasteDelayMs: Int = 50
     @AppStorage(PreferenceKeys.alwaysPastePlainText) private var alwaysPastePlainText: Bool = false
+    @AppStorage(PreferenceKeys.multiPasteSeparator) private var multiPasteSeparatorRaw: String = MultiPasteSeparator.newline.rawValue
     @State private var launchAtLogin: Bool = SMAppService.mainApp.status == .enabled
 
     var body: some View {
@@ -48,9 +49,30 @@ struct GeneralSettingsView: View {
                     description: "Formatting is still recorded, but every paste hands over plain text. With this on, ⇧ changes nothing.",
                     isOn: $alwaysPastePlainText
                 )
+                Divider()
+                Picker("Separate multiple items with",
+                       selection: $multiPasteSeparatorRaw) {
+                    ForEach(MultiPasteSeparator.allCases) { separator in
+                        Text(separator.label).tag(separator.rawValue)
+                    }
+                }
+                Text(multiPasteSeparatorDescription)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
+    }
+
+    /// Spells out what actually lands between items, since a label like
+    /// "Comma" can't show that its `text` is `", "` — comma *and* a space.
+    private var multiPasteSeparatorDescription: String {
+        switch MultiPasteSeparator.resolve(multiPasteSeparatorRaw) {
+        case .comma:
+            return "Used when several marked items are pasted together with ↵. Comma also adds a space after it, e.g. \"a, b\"."
+        default:
+            return "Used when several marked items are pasted together with ↵."
+        }
     }
 
     /// Copied from the former `PreferencesView.toggleLaunchAtLogin`.
