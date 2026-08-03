@@ -100,6 +100,22 @@ enum MultiPaste {
         return trimmed
     }
 
+    /// The plain-text block: every item's captured `textContent`, verbatim.
+    ///
+    /// Deliberately does **not** go through `attributed`. `textContent` and
+    /// `richTextData` are two independent representations captured side by
+    /// side, and for an HTML source they routinely disagree — rendering the
+    /// rich one and taking its `.string` would hand over `"\t•\tone"` for a
+    /// bullet whose plain capture was just `"one"`, which is not what ⇧↵ on
+    /// that same item alone produces. Every other plain-paste path in the app
+    /// writes `textContent` verbatim; so does this one. Skipping the render
+    /// also avoids paying for a full HTML import per item just to discard it.
+    @MainActor
+    static func plainJoined(_ items: [ClipboardItem],
+                            separator: MultiPasteSeparator) -> String {
+        items.map { $0.textContent ?? "" }.joined(separator: separator.text)
+    }
+
     /// Records that these items were used, **without promoting them**.
     ///
     /// This is the one paste path in the app that doesn't rewrite `createdAt`.

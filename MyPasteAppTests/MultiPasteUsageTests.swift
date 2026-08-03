@@ -157,6 +157,34 @@ final class MultiPasteUsageTests {
         #expect(MultiPaste.attributed(for: item("line\n")).string == "line\n")
     }
 
+    // MARK: - The plain block
+
+    @Test("The plain block uses textContent, not the rendered rich text")
+    func plainBlockUsesTextContent() {
+        // `textContent` and `richTextData` are captured side by side and for
+        // HTML they routinely disagree: a bullet renders as "\t•\tone" while
+        // the plain capture is just "one". ⇧↵ on the block has to hand over
+        // what ⇧↵ on each item alone would.
+        let first = html("<ul><li>one</li></ul>", plain: "one")
+        let second = html("<ul><li>two</li></ul>", plain: "two")
+        #expect(MultiPaste.plainJoined([first, second], separator: .newline) == "one\ntwo")
+        // And the rendered representation really is different, so the
+        // expectation above isn't accidentally satisfied by both paths
+        // agreeing.
+        #expect(MultiPaste.attributed(for: first).string != "one")
+    }
+
+    @Test("An item with no plain text contributes an empty piece to the plain block")
+    func plainBlockWithMissingTextContent() {
+        // Nothing to write, but the item must not disappear silently: its slot
+        // and the separators around it stay, the same way the rich path never
+        // drops an item.
+        let blank = ClipboardItem(type: .text, preview: "", contentHash: "blank")
+        container.mainContext.insert(blank)
+        #expect(MultiPaste.plainJoined([item("a"), blank, item("b")],
+                                       separator: .comma) == "a, , b")
+    }
+
     // MARK: - Usage
 
     @Test("Marking used writes lastUsedAt and leaves createdAt alone")
