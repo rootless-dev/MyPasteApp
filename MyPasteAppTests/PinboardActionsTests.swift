@@ -36,12 +36,14 @@ final class PinboardActionsTests {
 
     @Test("Boards come back in creation order")
     func boardsAreOrderedByCreation() throws {
+        // Names picked so creation order and alphabetical order disagree —
+        // otherwise this test would still pass with allBoards() sorted by name.
         let first = actions.create()
-        actions.rename(first, to: "First")
+        actions.rename(first, to: "Zebra")
         let second = actions.create()
-        actions.rename(second, to: "Second")
+        actions.rename(second, to: "Apple")
 
-        #expect(actions.allBoards().map(\.name) == ["First", "Second"])
+        #expect(actions.allBoards().map(\.name) == ["Zebra", "Apple"])
     }
 
     @Test("Renaming trims whitespace")
