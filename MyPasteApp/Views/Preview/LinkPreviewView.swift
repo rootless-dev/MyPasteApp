@@ -9,30 +9,54 @@ import SwiftUI
 struct LinkPreviewView: View {
     let item: ClipboardItem
 
+    // A three-step chain — banner, then favicon, then plain text — exactly
+    // what the old `NSImage(data:) != nil` checks fell through to.
+    // `ThumbnailImage` only calls its `fallback` once ImageIO has actually
+    // failed to decode, not just when the data is missing, so a banner that
+    // IS present but is e.g. an HTML error page or an SVG still falls
+    // through to the favicon instead of leaving a blank rectangle.
     var body: some View {
-        if let data = item.linkImageData, let img = NSImage(data: data) {
-            Image(nsImage: img)
-                .resizable()
-                .scaledToFill()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .clipped()
-        } else if let data = item.linkFaviconData, let img = NSImage(data: data) {
+        if let data = item.linkImageData {
+            ThumbnailImage(data: data, id: item.id,
+                           maxPixel: ImageThumbnailCache.pixels(
+                               for: CGSize(width: 320, height: 240)),
+                           contentMode: .fill) {
+                faviconOrText
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .clipped()
+        } else {
+            faviconOrText
+        }
+    }
+
+    @ViewBuilder
+    private var faviconOrText: some View {
+        if let data = item.linkFaviconData {
             ZStack {
                 background
-                Image(nsImage: img)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 64, height: 64)
-                    .shadow(color: .black.opacity(0.25), radius: 4, y: 2)
+                // `.favicon` chrome — see `ThumbnailImage.Chrome` — draws the
+                // 64x64 shadowed badge only once decoded; an undecodable
+                // favicon still falls through to `textFallback` at full size.
+                ThumbnailImage(data: data, id: item.id,
+                               maxPixel: ImageThumbnailCache.pixels(
+                                   for: CGSize(width: 64, height: 64)),
+                               chrome: .favicon) {
+                    textFallback
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            Text(item.preview)
-                .font(.system(size: 12))
-                .foregroundStyle(.primary)
-                .lineLimit(8)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            textFallback
         }
+    }
+
+    private var textFallback: some View {
+        Text(item.preview)
+            .font(.system(size: 12))
+            .foregroundStyle(.primary)
+            .lineLimit(8)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private var background: some View {

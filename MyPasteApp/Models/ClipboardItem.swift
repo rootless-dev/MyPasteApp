@@ -6,11 +6,34 @@
 import Foundation
 import SwiftData
 
-enum ClipboardItemType: String, Codable {
+enum ClipboardItemType: String, Codable, CaseIterable {
     case text
     case url
     case image
     case file
+
+    /// The order types are listed in, everywhere the UI lists them: the filter
+    /// panel (`ItemSearch.facets`) and the tokens inside the search field
+    /// (`SearchToken.tokens`).
+    ///
+    /// Derived from `allCases` and a switch rather than written out as a
+    /// literal array. Both call sites used to carry their own hand-maintained
+    /// copy of that array, so a case added to this enum would have silently
+    /// vanished from the panel *and* from the token list with no compiler
+    /// error anywhere. Now a new case fails to compile until it is ranked, and
+    /// appears in both places the moment it is.
+    static var canonicalOrder: [ClipboardItemType] {
+        allCases.sorted { $0.canonicalRank < $1.canonicalRank }
+    }
+
+    private var canonicalRank: Int {
+        switch self {
+        case .text: return 0
+        case .url: return 1
+        case .image: return 2
+        case .file: return 3
+        }
+    }
 }
 
 @Model
@@ -40,6 +63,16 @@ final class ClipboardItem {
     /// A user-given name for the item. Only written by `ItemEdit.apply` for
     /// now — the card and search UI arrive in Task 17.
     var label: String?
+    /// Text recognised inside an image, filled in asynchronously by
+    /// `OCRQueue`. Never part of `contentHash` or `preview` — see Task 2.
+    var ocrText: String?
+    /// When this item was last put through OCR, whatever the result.
+    ///
+    /// Separate from `ocrText` on purpose: a nil `ocrText` can't tell "there
+    /// was no text in this image" apart from "nobody has looked yet", and
+    /// without that distinction every image without text would be reprocessed
+    /// on every launch, forever.
+    var ocrProcessedAt: Date?
 
     var type: ClipboardItemType {
         get { ClipboardItemType(rawValue: typeRaw) ?? .text }

@@ -15,6 +15,17 @@ final class ClipboardMonitor {
     private let pasteboard = NSPasteboard.general
     private var lastChangeCount: Int
     private var timer: Timer?
+    private lazy var ocrQueue = OCRQueue(modelContext: modelContext, defaults: defaults)
+
+    /// Last seen value of the OCR preference, so a flip from off to on can
+    /// repopulate the queue. `OCRQueue.drain()` discards everything pending
+    /// when it finds the preference off, and only `enqueueBacklog()` puts it
+    /// back — without this, turning OCR back on would recognise new captures
+    /// while the existing history stayed permanently blank until a relaunch.
+    /// Assigned in `init`, not inline: a property initializer can't reach
+    /// `self.defaults`, and reading `UserDefaults.standard` here would silently
+    /// ignore whatever store this instance was constructed with.
+    private var lastSeenOCREnabled: Bool
 
     /// When true, ignores the next detected change (used by ClipboardWriter
     /// to avoid recapturing items it just wrote back to the pasteboard).
@@ -28,6 +39,7 @@ final class ClipboardMonitor {
         self.modelContext = modelContext
         self.defaults = defaults
         self.lastChangeCount = NSPasteboard.general.changeCount
+        self.lastSeenOCREnabled = OCRQueue.isEnabled(from: defaults)
     }
 
     func start() {
@@ -37,6 +49,7 @@ final class ClipboardMonitor {
         }
         RunLoop.main.add(timer!, forMode: .common)
         backfillLinkMetadata()
+        ocrQueue.enqueueBacklog()
     }
 
     /// For URL-type items saved before visual metadata support existed,
@@ -46,7 +59,7 @@ final class ClipboardMonitor {
             predicate: #Predicate { $0.typeRaw == "url" }
         )
         guard let items = try? modelContext.fetch(descriptor) else { return }
-        for item in items where item.linkImageData == nil && item.linkFaviconData == nil {
+        for item in items where Self.needsLinkMetadata(item) {
             guard let urlString = item.textContent,
                   let url = URL(string: urlString.trimmingCharacters(in: .whitespacesAndNewlines)),
                   url.scheme?.hasPrefix("http") == true else { continue }
@@ -60,6 +73,10 @@ final class ClipboardMonitor {
     }
 
     private func poll() {
+        let ocrEnabled = OCRQueue.isEnabled(from: defaults)
+        if ocrEnabled, !lastSeenOCREnabled { ocrQueue.enqueueBacklog() }
+        lastSeenOCREnabled = ocrEnabled
+
         let current = pasteboard.changeCount
         guard current != lastChangeCount else { return }
         lastChangeCount = current
@@ -90,12 +107,24 @@ final class ClipboardMonitor {
             return
         }
 
-        insertIfNotDuplicate(item)
+        let stored = insertIfNotDuplicate(item)
 
-        if item.type == .url, let urlString = item.textContent,
+        if OCRScheduler.needsOCR(type: stored.type,
+                                 ocrProcessedAt: stored.ocrProcessedAt,
+                                 enabled: OCRQueue.isEnabled(from: defaults)) {
+            ocrQueue.enqueue(stored.id)
+        }
+
+        // `stored` is the *persisted* item, which for a duplicate capture is
+        // the one already on screen with its banner, favicon and colour — so
+        // this asks the same question the backfill asks, through the same
+        // rule. Without it, re-copying a URL pays a full HTML fetch, image
+        // download and dominant-colour extraction every single time.
+        if Self.needsLinkMetadata(stored),
+           let urlString = stored.textContent,
            let url = URL(string: urlString.trimmingCharacters(in: .whitespacesAndNewlines)),
            url.scheme?.hasPrefix("http") == true {
-            fetchLinkMetadata(for: item, url: url)
+            fetchLinkMetadata(for: stored, url: url)
         }
     }
 
@@ -119,16 +148,44 @@ final class ClipboardMonitor {
 
     // MARK: - Link metadata
 
+    /// Whether an item still needs a link-metadata fetch.
+    ///
+    /// One home for a rule with two callers — the backfill at launch and
+    /// `poll()` on every capture. `poll()` used to have no such guard, which
+    /// only became visible once Task 2 made `insertIfNotDuplicate` return the
+    /// *persisted* item: before that the fetch landed on a throwaway object.
+    ///
+    /// Visual metadata is what's asked about, not the title: a page with no
+    /// `og:image` and no favicon has nothing more to give, and asking again on
+    /// every re-copy would download its HTML forever.
+    static func needsLinkMetadata(_ item: ClipboardItem) -> Bool {
+        guard item.type == .url else { return false }
+        return item.linkImageData == nil && item.linkFaviconData == nil
+    }
+
+    /// Fills in what the fetch actually found, and only that.
+    ///
+    /// Every assignment is guarded, `linkTitle` included: `LinkMetadataService`
+    /// returns an all-nil result whenever the HTML can't be downloaded —
+    /// offline, past the 5s timeout, or a non-HTML response — and this can run
+    /// against a *persisted* item (the backfill's items always are), so an
+    /// unguarded write would erase the banner, favicon and background colour a
+    /// previous, successful fetch had stored. A field that came back nil means
+    /// "nothing found this time", never "delete what you have".
+    static func apply(_ metadata: LinkMetadata, to item: ClipboardItem) {
+        if let title = metadata.title { item.linkTitle = title }
+        if let imageData = metadata.imageData { item.linkImageData = imageData }
+        if let faviconData = metadata.faviconData { item.linkFaviconData = faviconData }
+        if let backgroundHex = metadata.backgroundHex { item.linkBackgroundHex = backgroundHex }
+    }
+
     private func fetchLinkMetadata(for item: ClipboardItem, url: URL) {
         guard Self.showLinkPreviews(from: defaults) else { return }
         Task { [weak self] in
             let metadata = await LinkMetadataService.fetch(from: url)
             await MainActor.run {
                 guard let self else { return }
-                if let title = metadata.title { item.linkTitle = title }
-                item.linkImageData = metadata.imageData
-                item.linkFaviconData = metadata.faviconData
-                item.linkBackgroundHex = metadata.backgroundHex
+                Self.apply(metadata, to: item)
                 try? self.modelContext.save()
             }
         }
@@ -191,7 +248,8 @@ final class ClipboardMonitor {
 
     // MARK: - Persist
 
-    private func insertIfNotDuplicate(_ item: ClipboardItem) {
+    @discardableResult
+    private func insertIfNotDuplicate(_ item: ClipboardItem) -> ClipboardItem {
         let hash = item.contentHash
         var descriptor = FetchDescriptor<ClipboardItem>(
             predicate: #Predicate { $0.contentHash == hash },
@@ -201,7 +259,7 @@ final class ClipboardMonitor {
 
         if let existing = try? modelContext.fetch(descriptor).first {
             existing.createdAt = .now
-            return
+            return existing
         }
 
         modelContext.insert(item)
@@ -210,6 +268,7 @@ final class ClipboardMonitor {
         if Self.soundFeedbackEnabled(from: defaults) {
             NSSound(named: "Tink")?.play()
         }
+        return item
     }
 
     // MARK: - Hash helpers

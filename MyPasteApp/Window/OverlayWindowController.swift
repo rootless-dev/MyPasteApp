@@ -13,10 +13,23 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
     private let modelContainer: ModelContainer
     private let writer: ClipboardWriter
     private let onPick: (ClipboardItem, Bool) -> Void
+    private let onPickMultiple: ([ClipboardItem], Bool) -> Void
     private let itemEditor: ItemEditorWindowController
     private var globalMouseMonitor: Any?
     private var localMouseMonitor: Any?
     private var previousApp: NSRunningApplication?
+    /// The overlay's search, owned here rather than by `OverlayView`.
+    ///
+    /// `prepare()` builds one `OverlayView` for the life of the process, so
+    /// anything the view held in `@State` would survive the drawer closing:
+    /// dismissing with the field open (⌘F then Escape) or pasting mid-query
+    /// would bring the next opening back mid-search instead of at rest. Held
+    /// here, `show()` can reset it on every opening — the one place that
+    /// covers Escape, paste and click-outside alike.
+    private let searchState = SearchState()
+    /// Owned here, not by `OverlayView`, for the same reason `searchState` is:
+    /// the overlay is built once and reused for the life of the process.
+    private let markedSelection = MarkedSelection()
     // Task 19 spike: a second window of our own, so the click-outside
     // monitors below need to know about it too. See ItemPreviewPanel.
     private var previewPanel: NSPanel?
@@ -42,11 +55,13 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
     init(modelContainer: ModelContainer,
          writer: ClipboardWriter,
          itemEditor: ItemEditorWindowController,
-         onPick: @escaping (ClipboardItem, Bool) -> Void) {
+         onPick: @escaping (ClipboardItem, Bool) -> Void,
+         onPickMultiple: @escaping ([ClipboardItem], Bool) -> Void) {
         self.modelContainer = modelContainer
         self.writer = writer
         self.itemEditor = itemEditor
         self.onPick = onPick
+        self.onPickMultiple = onPickMultiple
         super.init()
     }
 
@@ -95,21 +110,17 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         let root = OverlayView(
             writer: writer,
             itemEditor: itemEditor,
+            search: searchState,
+            marked: markedSelection,
             onPick: { [weak self] item, plainText in
                 guard let self else { return }
                 self.onPick(item, plainText)
-                let target = self.previousApp
-                // Not `hide()`: its fade runs for 0.18s and only orders the
-                // panel out at the end, while the synthetic ⌘V is posted after
-                // `pasteDelayMs` (50ms by default). The panel would still be
-                // key and would receive the paste itself — the text landing in
-                // the search field instead of the target app.
-                self.hideImmediately()
-                let autoPaste = UserDefaults.standard.object(forKey: PreferenceKeys.autoPasteEnabled) as? Bool ?? true
-                if autoPaste {
-                    let delayMs = UserDefaults.standard.object(forKey: PreferenceKeys.pasteDelayMs) as? Int ?? 50
-                    PasteSimulator.paste(activating: target, delay: Double(delayMs) / 1000.0)
-                }
+                self.dismissAndPaste()
+            },
+            onPickMultiple: { [weak self] items, plainText in
+                guard let self else { return }
+                self.onPickMultiple(items, plainText)
+                self.dismissAndPaste()
             },
             onDismiss: { [weak self] in self?.hide() },
             destinationAppName: { [weak self] in self?.previousApp?.localizedName },
@@ -161,6 +172,23 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         prepare()
         applySharingPolicy()
         guard let panel = window else { return }
+
+        // Every opening starts at rest: magnifier, no query, no filters,
+        // nothing marked. Done before the panel is ordered front so the
+        // collapsed top bar is already laid out by the
+        // `layoutSubtreeIfNeeded()` below, and the slide-up never shows a
+        // stale field. These two lines are the single place that covers all
+        // three ways the drawer goes away — Escape, a paste
+        // (`hideImmediately`) and a click outside — none of which run any
+        // teardown inside `OverlayView`.
+        searchState.close()
+        markedSelection.clear()
+        // Separate from `close()` on purpose: `close()` only changes anything
+        // when there was a search to close, so it can't be what tells the view
+        // to re-take the keyboard on an opening that follows an untouched one.
+        // `openCount` changes every time, and `OverlayView` re-focuses the
+        // card strip off it.
+        searchState.markOpened()
 
         let height = Self.overlayHeight
         let frame = NSRect(
@@ -244,7 +272,7 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         // Spike rule for Step 3: a click outside both windows closes both.
         // Unconditional (not gated on the overlay's own visibility) so this
         // also covers the "preview open, overlay already gone" edge case.
-        previewPanel?.orderOut(nil)
+        hidePreviewPanel()
         guard let panel = window, panel.isVisible else { return }
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.18
@@ -263,10 +291,32 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
     /// the text is landing in.
     func hideImmediately() {
         removeClickOutsideMonitors()
-        previewPanel?.orderOut(nil)
+        hidePreviewPanel()
         guard let panel = window, panel.isVisible else { return }
         panel.alphaValue = 0
         panel.orderOut(nil)
+    }
+
+    /// Everything that happens after a pick, single or multiple: get the panel
+    /// out of the way, then post the synthetic ⌘V if auto-paste is on.
+    ///
+    /// Shared by `onPick` and `onPickMultiple`, which do not diverge here by
+    /// so much as a line — unlike `ClipboardWriter.write` and `writeJoined`,
+    /// which stay separate precisely because they *do* diverge on what they
+    /// save.
+    ///
+    /// Not `hide()`: its fade runs for 0.18s and only orders the panel out at
+    /// the end, while the synthetic ⌘V is posted after `pasteDelayMs` (50ms by
+    /// default). The panel would still be key and would receive the paste
+    /// itself — the text landing in the search field instead of the target
+    /// app.
+    private func dismissAndPaste() {
+        let target = previousApp
+        hideImmediately()
+        let autoPaste = UserDefaults.standard.object(forKey: PreferenceKeys.autoPasteEnabled) as? Bool ?? true
+        guard autoPaste else { return }
+        let delayMs = UserDefaults.standard.object(forKey: PreferenceKeys.pasteDelayMs) as? Int ?? 50
+        PasteSimulator.paste(activating: target, delay: Double(delayMs) / 1000.0)
     }
 
     private func installClickOutsideMonitors() {
@@ -313,10 +363,23 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
     /// Closes just the preview panel, leaving the overlay itself open.
     ///
     /// Used by Escape's "dismiss what's on top" rule (see
-    /// `OverlayView.escapeClosesPreview`) and by `ItemPreviewView`'s own
-    /// close button.
+    /// `OverlayView.escapeClosesPreview`), by `ItemPreviewView`'s own close
+    /// button, and by every other path that hides the panel — this is the only
+    /// place that does it.
+    ///
+    /// Dropping `contentView` is not housekeeping: `orderOut` alone leaves the
+    /// `NSHostingView` and every Core Animation layer behind it alive, and a
+    /// long text preview measured 240 MB of CoreAnimation that never came back
+    /// until the app quit. Clearing `previewDisplayedItemID` is what makes the
+    /// next open rebuild the content — `showPreviewPanel()` skips the rebuild
+    /// when the id already matches.
     private func hidePreviewPanel() {
-        previewPanel?.orderOut(nil)
+        guard let panel = previewPanel else { return }
+        panel.orderOut(nil)
+        panel.contentView = NSView(
+            frame: NSRect(origin: .zero, size: ItemPreviewPanel.defaultSize)
+        )
+        previewDisplayedItemID = nil
     }
 
     /// Keeps the preview panel in sync with the overlay's selection.
@@ -335,8 +398,7 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
             // search filtered everything out) — closing is the least
             // surprising option, matching what happens when the overlay
             // itself runs out of cards to select.
-            panel.orderOut(nil)
-            previewDisplayedItemID = nil
+            hidePreviewPanel()
             return
         }
         // Only rebuild the panel's content when the selection actually

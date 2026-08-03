@@ -47,10 +47,14 @@ enum ItemPreviewPanel {
         // app — by itself it does NOT stop the panel from becoming key, and
         // a panel that becomes key sends windowDidResignKey to whichever
         // panel was key before it (the overlay), which is wired to call
-        // hide(). ItemPreviewView has nothing that needs keyboard input (its
-        // close button is clicked, not typed to), so becomesKeyOnlyIfNeeded
-        // tells AppKit a plain click has no reason to hand this panel key
-        // status at all — confirmed by hand in the Task 19 spike.
+        // hide(). ItemPreviewView now hosts an NSTextView (TextPreviewView,
+        // added in Phase 2.5), but it's `isEditable = false`, so AppKit still
+        // has no reason to hand this panel key status for a plain click —
+        // `needsPanelToBecomeKey` stays false, same as when the only content
+        // was a clicked-not-typed-to close button. becomesKeyOnlyIfNeeded
+        // relies on that to keep click-dragging a text selection from
+        // stealing key status (and with it, closing the overlay) — confirmed
+        // by hand in the Task 19 spike and rechecked in Phase 2.5.
         panel.becomesKeyOnlyIfNeeded = true
         // ItemPreviewView draws its own header (close button, type label,
         // footnote) — a native titlebar on top of that would just duplicate

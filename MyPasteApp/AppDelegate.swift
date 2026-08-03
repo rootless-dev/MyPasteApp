@@ -62,11 +62,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         retention = RetentionPolicy(modelContext: context)
         itemEditor = ItemEditorWindowController(modelContainer: modelContainer)
 
-        overlay = OverlayWindowController(modelContainer: modelContainer,
-                                          writer: writer,
-                                          itemEditor: itemEditor) { [weak self] item, plainText in
-            self?.writer.write(item, plainText: plainText)
-        }
+        overlay = OverlayWindowController(
+            modelContainer: modelContainer,
+            writer: writer,
+            itemEditor: itemEditor,
+            onPick: { [weak self] item, plainText in
+                self?.writer.write(item, plainText: plainText)
+            },
+            onPickMultiple: { [weak self] items, plainText in
+                let separator = MultiPasteSeparator.resolve(
+                    UserDefaults.standard.string(forKey: PreferenceKeys.multiPasteSeparator))
+                self?.writer.writeJoined(items, separator: separator, plainText: plainText)
+            }
+        )
         // Pre-warm the panel: create the window and force SwiftUI's initial
         // layout now, so that the first hotkey press doesn't pay that cost
         // during the open animation.

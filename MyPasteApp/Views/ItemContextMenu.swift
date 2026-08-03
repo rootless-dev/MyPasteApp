@@ -40,6 +40,15 @@ struct ItemContextMenu: View {
     let actions: ItemActions
     /// Name of the app the paste would land in, when it's known.
     let destinationAppName: String?
+    /// Whether a search or filter is narrowing the list right now.
+    let isSearchNarrowed: Bool
+    /// Whether this item is currently marked for a multi-item paste.
+    let isMarked: Bool
+    let onToggleMark: () -> Void
+    /// Deletes the item. Not `actions.delete(item)` directly — `OverlayView`'s
+    /// own `delete(_:)` also unmarks the item and hands off `selectedID` to
+    /// its neighbour, bookkeeping this view has no notion of and shouldn't.
+    let onDelete: () -> Void
 
     @AppStorage(PreferenceKeys.alwaysPastePlainText) private var alwaysPastePlainText = false
 
@@ -67,6 +76,14 @@ struct ItemContextMenu: View {
         // mirrors this same choice.
         Button(titled("Copy", "⌘C")) { actions.copy(item) }
 
+        if MultiPaste.isMarkable(item.type) {
+            // Same trailing-text glyph as every other entry here — see the
+            // type-level doc comment for why these aren't `.keyboardShortcut`.
+            Button(titled(isMarked ? "Unmark" : "Mark for Multi-Paste", "⌘M")) {
+                onToggleMark()
+            }
+        }
+
         Divider()
         if item.type == .text || item.type == .url {
             // Image and file items aren't editable as text — task 20 gives
@@ -76,9 +93,15 @@ struct ItemContextMenu: View {
         // Unlike "Edit", renaming applies to every type.
         Button(titled("Rename", "⌘R")) { actions.rename(item) }
 
+        if isSearchNarrowed {
+            // Only meaningful while something is hiding the rest of the
+            // history — with the full list on screen it would do nothing.
+            Button(titled("Show in History", "⌘J")) { actions.jumpToHistory(item) }
+        }
+
         Divider()
 
-        Button(titled("Delete", "⌫")) { actions.delete(item) }
+        Button(titled("Delete", "⌫")) { onDelete() }
 
         Divider()
 
