@@ -67,10 +67,13 @@ struct GeneralSettingsView: View {
     /// Spells out what actually lands between items, since a label like
     /// "Comma" can't show that its `text` is `", "` — comma *and* a space.
     private var multiPasteSeparatorDescription: String {
+        // Every case spelled out rather than a `default`: a fifth separator
+        // should make the compiler ask what its caption is, not quietly take
+        // the generic one.
         switch MultiPasteSeparator.resolve(multiPasteSeparatorRaw) {
         case .comma:
             return "Used when several marked items are pasted together with ↵. Comma also adds a space after it, e.g. \"a, b\"."
-        default:
+        case .newline, .blankLine, .space:
             return "Used when several marked items are pasted together with ↵."
         }
     }

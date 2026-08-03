@@ -9,7 +9,9 @@ import SwiftUI
 struct ClipboardCardView: View {
     let item: ClipboardItem
     let isSelected: Bool
-    /// Shown when this card is within reach of a ⌘1–⌘9 shortcut.
+    /// Shown when this card is within reach of a ⌘1–⌘9 shortcut **and** it
+    /// isn't marked — `markOrder` takes the footer's single slot whenever it
+    /// is set.
     var quickPasteLabel: String? = nil
     /// This card's 1-based position in the multi-paste block, when marked.
     ///

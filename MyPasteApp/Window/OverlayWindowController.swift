@@ -115,32 +115,12 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
             onPick: { [weak self] item, plainText in
                 guard let self else { return }
                 self.onPick(item, plainText)
-                let target = self.previousApp
-                // Not `hide()`: its fade runs for 0.18s and only orders the
-                // panel out at the end, while the synthetic ⌘V is posted after
-                // `pasteDelayMs` (50ms by default). The panel would still be
-                // key and would receive the paste itself — the text landing in
-                // the search field instead of the target app.
-                self.hideImmediately()
-                let autoPaste = UserDefaults.standard.object(forKey: PreferenceKeys.autoPasteEnabled) as? Bool ?? true
-                if autoPaste {
-                    let delayMs = UserDefaults.standard.object(forKey: PreferenceKeys.pasteDelayMs) as? Int ?? 50
-                    PasteSimulator.paste(activating: target, delay: Double(delayMs) / 1000.0)
-                }
+                self.dismissAndPaste()
             },
             onPickMultiple: { [weak self] items, plainText in
                 guard let self else { return }
                 self.onPickMultiple(items, plainText)
-                let target = self.previousApp
-                // Not `hide()`, for the same reason `onPick` isn't: its 0.18s
-                // fade outlives the paste delay, and the panel would still be
-                // key when the synthetic ⌘V arrives.
-                self.hideImmediately()
-                let autoPaste = UserDefaults.standard.object(forKey: PreferenceKeys.autoPasteEnabled) as? Bool ?? true
-                if autoPaste {
-                    let delayMs = UserDefaults.standard.object(forKey: PreferenceKeys.pasteDelayMs) as? Int ?? 50
-                    PasteSimulator.paste(activating: target, delay: Double(delayMs) / 1000.0)
-                }
+                self.dismissAndPaste()
             },
             onDismiss: { [weak self] in self?.hide() },
             destinationAppName: { [weak self] in self?.previousApp?.localizedName },
@@ -193,18 +173,15 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         applySharingPolicy()
         guard let panel = window else { return }
 
-        // Every opening starts at rest: magnifier, no query, no filters. Done
-        // before the panel is ordered front so the collapsed top bar is
-        // already laid out by the `layoutSubtreeIfNeeded()` below, and the
-        // slide-up never shows a stale field. This is the single place that
-        // covers all three ways the drawer goes away — Escape, a paste
+        // Every opening starts at rest: magnifier, no query, no filters,
+        // nothing marked. Done before the panel is ordered front so the
+        // collapsed top bar is already laid out by the
+        // `layoutSubtreeIfNeeded()` below, and the slide-up never shows a
+        // stale field. These two lines are the single place that covers all
+        // three ways the drawer goes away — Escape, a paste
         // (`hideImmediately`) and a click outside — none of which run any
         // teardown inside `OverlayView`.
         searchState.close()
-        // Every opening starts with nothing marked. Same single point of reset
-        // as the search, covering all three ways the drawer goes away —
-        // Escape, a paste (`hideImmediately`), and a click outside — none of
-        // which run any teardown inside `OverlayView`.
         markedSelection.clear()
         // Separate from `close()` on purpose: `close()` only changes anything
         // when there was a search to close, so it can't be what tells the view
@@ -318,6 +295,28 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         guard let panel = window, panel.isVisible else { return }
         panel.alphaValue = 0
         panel.orderOut(nil)
+    }
+
+    /// Everything that happens after a pick, single or multiple: get the panel
+    /// out of the way, then post the synthetic ⌘V if auto-paste is on.
+    ///
+    /// Shared by `onPick` and `onPickMultiple`, which do not diverge here by
+    /// so much as a line — unlike `ClipboardWriter.write` and `writeJoined`,
+    /// which stay separate precisely because they *do* diverge on what they
+    /// save.
+    ///
+    /// Not `hide()`: its fade runs for 0.18s and only orders the panel out at
+    /// the end, while the synthetic ⌘V is posted after `pasteDelayMs` (50ms by
+    /// default). The panel would still be key and would receive the paste
+    /// itself — the text landing in the search field instead of the target
+    /// app.
+    private func dismissAndPaste() {
+        let target = previousApp
+        hideImmediately()
+        let autoPaste = UserDefaults.standard.object(forKey: PreferenceKeys.autoPasteEnabled) as? Bool ?? true
+        guard autoPaste else { return }
+        let delayMs = UserDefaults.standard.object(forKey: PreferenceKeys.pasteDelayMs) as? Int ?? 50
+        PasteSimulator.paste(activating: target, delay: Double(delayMs) / 1000.0)
     }
 
     private func installClickOutsideMonitors() {
