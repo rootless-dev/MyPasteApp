@@ -20,6 +20,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var retention: RetentionPolicy!
     var statusItem: NSStatusItem!
     private var prefsWindow: NSWindow?
+    /// Kept so it can be invalidated — see `startRetentionTimer()`.
+    private var retentionTimer: Timer?
 
     /// Whether `overlay`'s hotkey is actually live right now. `false` when
     /// `HotkeyManager.register()` reports that `RegisterEventHotKey` failed —
@@ -100,6 +102,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         monitor.start()
         registerHotkeysCheckingConflict()
         retention.prune()
+        startRetentionTimer()
 
         NotificationCenter.default.addObserver(
             forName: .hotkeyChanged,
@@ -127,6 +130,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.applySharingPolicy() }
         }
+    }
+
+    /// How often the pruner runs while the app is up.
+    ///
+    /// The launch pass alone was the whole schedule, which is no schedule at
+    /// all for a status-bar app that stays up for weeks: "Expire in 1 hour"
+    /// meant "expires at the next relaunch", and an item the user marked to
+    /// disappear could sit in the history for days. Five minutes is well
+    /// under the shortest expiry the menu offers (1 hour) and cheap — the
+    /// pruner fetches at most `maxItems` rows whose heavy fields are
+    /// `.externalStorage`, so they aren't loaded.
+    private static let retentionInterval: TimeInterval = 5 * 60
+
+    /// Starts the periodic prune, keeping the launch pass as it was.
+    ///
+    /// `.common` run-loop mode, like `ClipboardMonitor`'s timer: on the
+    /// default mode alone the timer stops firing for as long as a menu is
+    /// open, which for a status-bar app is exactly when the user is looking.
+    private func startRetentionTimer() {
+        retentionTimer?.invalidate()
+        let timer = Timer.scheduledTimer(withTimeInterval: Self.retentionInterval,
+                                         repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.retention?.prune() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        retentionTimer = timer
     }
 
     private static var isRunningUnitTests: Bool {
