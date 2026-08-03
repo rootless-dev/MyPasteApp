@@ -12,6 +12,7 @@
 
 import AppKit
 import Foundation
+import SwiftData
 
 enum MultiPaste {
     /// The types that can go into a block. Same gate `⌘E` uses to decide what
@@ -44,5 +45,42 @@ enum MultiPaste {
             result.append(piece)
         }
         return result
+    }
+
+    /// The rich representation of an item, ready to go into a block.
+    ///
+    /// Dispatches on the stored `richTextFormat` and **never guesses**:
+    /// decoding an HTML-only capture as RTF returns nil in silence, which is
+    /// how Phase 2 lost formatting in the editor. A decode failure falls back
+    /// to the plain text — never to empty, which would drop the item out of
+    /// the block with nothing to show for it.
+    ///
+    /// Main-actor bound because AppKit's HTML importer requires it, which
+    /// `RichText.decode` documents.
+    @MainActor
+    static func attributed(for item: ClipboardItem) -> NSAttributedString {
+        let plain = item.textContent ?? ""
+        guard let data = item.richTextData,
+              let format = item.richTextFormat,
+              let decoded = RichText.decode(data: data, format: format)
+        else { return NSAttributedString(string: plain) }
+        return decoded
+    }
+
+    /// Records that these items were used, **without promoting them**.
+    ///
+    /// This is the one paste path in the app that doesn't rewrite `createdAt`.
+    /// Doing so for N items at once would throw the whole block to the front
+    /// of the history and shift the ⌘1–⌘9 numbering along with it. `lastUsedAt`
+    /// exists to record use without touching order — see the note at the top
+    /// of ROADMAP.md about the two fields.
+    ///
+    /// Takes `now` rather than reading the clock so the rule can be tested
+    /// against a fixed instant.
+    @MainActor
+    static func markUsed(_ items: [ClipboardItem], now: Date) {
+        guard !items.isEmpty else { return }
+        for item in items { item.lastUsedAt = now }
+        try? items.first?.modelContext?.save()
     }
 }
