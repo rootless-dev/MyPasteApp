@@ -511,7 +511,8 @@ struct OverlayView: View {
             }
             switch SearchState.backspaceAction(isActive: search.isActive,
                                                textIsEmpty: search.text.isEmpty,
-                                               hasTokens: !search.filter.isEmpty) {
+                                               hasTokens: !search.filter.isEmpty,
+                                               hasMarks: !marked.isEmpty) {
             case .deleteItem:
                 if let item = filtered.first(where: { $0.id == selectedID }) {
                     delete(item)
@@ -525,6 +526,12 @@ struct OverlayView: View {
                 return .handled
             case .passThrough:
                 return .ignored
+            case .blockedByMarks:
+                // The key is consumed rather than travel on: with the
+                // selection border hidden while marks are live (see
+                // `ClipboardCardView.anyMarked`), there's no target left for
+                // ⌫ to name, so it must not fall through to anything else.
+                return .handled
             }
         }
         .onKeyPress(keys: ["e"]) { press in

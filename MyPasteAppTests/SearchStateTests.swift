@@ -165,22 +165,49 @@ struct SearchStateTests {
     @Test("With the search closed, backspace deletes the selected item")
     func backspaceDeletes() {
         #expect(SearchState.backspaceAction(isActive: false, textIsEmpty: true,
-                                            hasTokens: false) == .deleteItem)
+                                            hasTokens: false, hasMarks: false) == .deleteItem)
     }
 
     @Test("An empty field with tokens drops the last token")
     func backspaceRemovesToken() {
         #expect(SearchState.backspaceAction(isActive: true, textIsEmpty: true,
-                                            hasTokens: true) == .removeLastToken)
+                                            hasTokens: true, hasMarks: false) == .removeLastToken)
     }
 
     @Test("With the search open, backspace never deletes an item")
     func backspaceNeverDeletesWhileSearching() {
         // Otherwise deleting a letter that isn't there destroys an item.
         #expect(SearchState.backspaceAction(isActive: true, textIsEmpty: true,
-                                            hasTokens: false) == .passThrough)
+                                            hasTokens: false, hasMarks: false) == .passThrough)
         #expect(SearchState.backspaceAction(isActive: true, textIsEmpty: false,
-                                            hasTokens: true) == .passThrough)
+                                            hasTokens: true, hasMarks: false) == .passThrough)
+    }
+
+    @Test("With the search closed and marks live, backspace is blocked")
+    func backspaceBlockedByMarks() {
+        // With the border gone from the selected card while a block is being
+        // assembled, ⌫ has no on-screen target left to name — it must not
+        // fall through to deleting the (now unmarked-looking) selection.
+        #expect(SearchState.backspaceAction(isActive: false, textIsEmpty: true,
+                                            hasTokens: false, hasMarks: true) == .blockedByMarks)
+    }
+
+    @Test("With the search closed and no marks, backspace still deletes")
+    func backspaceDeletesWithNoMarks() {
+        #expect(SearchState.backspaceAction(isActive: false, textIsEmpty: false,
+                                            hasTokens: false, hasMarks: false) == .deleteItem)
+    }
+
+    @Test("Marks change nothing while the search is open, in either branch")
+    func backspaceIgnoresMarksWhileSearching() {
+        // This is the regression guard: today's "search open → never delete"
+        // behaviour must survive marks unchanged, in both of its branches.
+        #expect(SearchState.backspaceAction(isActive: true, textIsEmpty: true,
+                                            hasTokens: true, hasMarks: true) == .removeLastToken)
+        #expect(SearchState.backspaceAction(isActive: true, textIsEmpty: true,
+                                            hasTokens: false, hasMarks: true) == .passThrough)
+        #expect(SearchState.backspaceAction(isActive: true, textIsEmpty: false,
+                                            hasTokens: true, hasMarks: true) == .passThrough)
     }
 
     // MARK: - Tokens
