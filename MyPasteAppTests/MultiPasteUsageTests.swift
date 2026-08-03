@@ -65,10 +65,21 @@ final class MultiPasteUsageTests {
         // The format is dispatched on, never guessed. Decoding HTML bytes as
         // RTF returns nil in silence — the Phase 2 bug — and this item would
         // quietly lose its markup on the way into the block.
-        let subject = item("bold",
-                           richTextData: Data("<b>bold</b>".utf8),
-                           richTextFormat: .html)
-        #expect(MultiPaste.attributed(for: subject).string == "bold")
+        // Use a different textContent than the HTML payload to ensure the test
+        // fails if the dispatch regresses to always RTF: decoding HTML as RTF
+        // returns nil, falling back to textContent.
+        let subject = ClipboardItem(
+            type: .text,
+            preview: "html_payload",
+            contentHash: "html_payload",
+            textContent: "fallback_plain"
+        )
+        subject.richTextData = Data("<b>bold</b>".utf8)
+        subject.richTextFormat = .html
+        container.mainContext.insert(subject)
+
+        let result = MultiPaste.attributed(for: subject)
+        #expect(result.string == "bold")
     }
 
     @Test("Undecodable rich text falls back to the plain text, never to empty")
