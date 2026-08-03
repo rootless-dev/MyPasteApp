@@ -124,14 +124,20 @@ Anote o que achar estranho mesmo que pareça irrelevante.
       contagem muda de "1 marked" para "2 marked" etc.) e confirme que o
       texto mais longo da pílula também não afeta a posição do campo.
 
-- [ ] **D9 A pílula não pode sobrepor o campo de busca.** Com a busca aberta
-      e pelo menos um item marcado (estado do D8), olhe a margem entre a
-      borda direita do campo de busca e a pílula "N marked". Esperado: uma
-      folga visível, sem sobreposição nem encostar. *A margem foi calculada
-      a partir dos números — campo travado em 470pt dentro de uma barra de
-      largura total da tela, pílula alinhada à direita — mas nunca observada
-      na tela. Se a janela do app for redimensionada bem estreita, vale
-      repetir esta checagem nesse tamanho também.*
+- [ ] **D9 A pílula não pode tocar nem sobrepor o campo de busca.** Com a
+      busca aberta e pelo menos um item marcado (estado do D8), olhe o
+      espaço entre a borda direita do campo de busca e a borda esquerda da
+      pílula "N marked". **Critério binário:** as duas bordas se tocam ou se
+      cruzam, sim ou não — não precisa medir distância nenhuma, só constatar
+      se há contato ou sobreposição. *A folga entre elas foi calculada a
+      partir dos números, nunca observada na tela: campo travado em 470pt
+      dentro de uma barra cuja largura é a da tela inteira
+      (`screen.frame.width`, não um valor fixo — ver
+      `OverlayWindowController`), pílula alinhada à direita por cima. Como a
+      barra ocupa o monitor inteiro, a folga é proporcionalmente menor em
+      telas estreitas; a janela da overlay não é redimensionável pelo
+      usuário, então, se houver mais de um monitor à mão, repita a checagem
+      no de menor resolução em vez de tentar estreitar a janela.*
 
 ## E. O que pode dar errado
 
@@ -159,8 +165,57 @@ Anote o que achar estranho mesmo que pareça irrelevante.
       `OverlayView.swift`, sem redesenho. Não é motivo para reabrir o plano
       da fase, só para ajustar essa tecla.
 
-- [ ] **E2** Marcar 10 itens de texto longo e colar; observar o app com
-      `./scripts/memwatch.sh` se houver suspeita de custo.
+- [ ] **E2 Custo de memória de colar 10 itens longos — meça e registre, não
+      "observe".** Juntar N `NSAttributedString` num só bloco
+      (`MultiPaste.joined`) aloca o bloco inteiro por um instante antes de
+      escrevê-lo no pasteboard. Dez itens de texto longo é exatamente o caso
+      que ninguém testa sem querer — e a Fase 2.5 já mostrou que a intuição
+      sobre custo de memória do SwiftUI erra por ordens de grandeza: um único
+      preview de texto longo custou +235MB de CoreAnimation, e só apareceu
+      porque alguém mediu. Os dez passos do roteiro guiado
+      (`./scripts/memwatch.sh guided`, ver `docs/memory-profiling.md`) cobrem
+      navegação e preview; nenhum cobre marcar-e-colar um bloco, então **não
+      existe baseline gravada para este cenário específico**. Meça na mão e
+      registre o número aqui — isso é o que torna o passo verificável, em vez
+      de "observar se tem algo suspeito":
+
+      1. Garanta no histórico pelo menos 10 itens de texto longos (alguns
+         milhares de caracteres cada — o mesmo tipo de item da linha "08
+         preview de texto longo" na tabela de `docs/memory-profiling.md`).
+      2. Com o app parado por uns 15s, rode `./scripts/memwatch.sh start`
+         (modo manual — o guiado não tem passo para isto).
+      3. `./scripts/memwatch.sh mark antes`, com a gaveta fechada.
+      4. Abra a gaveta, marque os 10 itens com `⌘M`, depois
+         `./scripts/memwatch.sh mark marcados` (marcados, ainda sem colar).
+      5. `↵` para colar o bloco e, imediatamente, `./scripts/memwatch.sh mark
+         colado`.
+      6. Espere uns 5s parado e `./scripts/memwatch.sh mark colado-mais-5s`.
+      7. `./scripts/memwatch.sh stop` para fechar a sessão e ver o relatório.
+      8. **Preencha a tabela abaixo** com as colunas TOTAL e MALLOC dos
+         quatro marcos, direto do relatório impresso.
+
+      **Aprovado:** TOTAL/MALLOC sobem em `colado` (a junção aloca o bloco
+      inteiro por um instante — esperado) e **descem de volta perto do valor
+      de `antes`** em `colado-mais-5s`: a alocação era transitória, como se
+      espera de um `NSMutableAttributedString` local que não sobrevive à
+      função. **Reprovado:** `colado-mais-5s` fica dezenas de MB acima de
+      `antes` e não desce — algo do bloco ficou retido depois da colagem, e
+      aqui não há nada em tela que justifique reter memória (ao contrário do
+      preview, que ao menos mostra algo enquanto está aberto). CoreAnimation
+      não deveria se mover nesta ação — colar não rasteriza nada em tela; se
+      ele saltar do mesmo jeito que no passo 08 da Fase 2.5, é o mesmo tipo de
+      achado se repetindo num lugar novo. Não existe limiar de "normal"
+      anterior para este cenário específico: registrar os números é o
+      critério de conclusão do passo, e qualquer leitura fora do padrão acima
+      é um achado para levar à revisão de branch, não algo para decidir
+      sozinho aqui.
+
+      | marco | TOTAL | MALLOC |
+      |---|---|---|
+      | antes | | |
+      | marcados | | |
+      | colado | | |
+      | colado-mais-5s | | |
 
 - [ ] **E3** Se o crash do `⌘1` reproduzir em qualquer ponto: **parar e
       capturar a stack trace** com Exception Breakpoint. É o bug antigo,
