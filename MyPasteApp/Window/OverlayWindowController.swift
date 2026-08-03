@@ -13,6 +13,7 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
     private let modelContainer: ModelContainer
     private let writer: ClipboardWriter
     private let onPick: (ClipboardItem, Bool) -> Void
+    private let onPickMultiple: ([ClipboardItem], Bool) -> Void
     private let itemEditor: ItemEditorWindowController
     private var globalMouseMonitor: Any?
     private var localMouseMonitor: Any?
@@ -26,6 +27,9 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
     /// here, `show()` can reset it on every opening — the one place that
     /// covers Escape, paste and click-outside alike.
     private let searchState = SearchState()
+    /// Owned here, not by `OverlayView`, for the same reason `searchState` is:
+    /// the overlay is built once and reused for the life of the process.
+    private let markedSelection = MarkedSelection()
     // Task 19 spike: a second window of our own, so the click-outside
     // monitors below need to know about it too. See ItemPreviewPanel.
     private var previewPanel: NSPanel?
@@ -51,11 +55,13 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
     init(modelContainer: ModelContainer,
          writer: ClipboardWriter,
          itemEditor: ItemEditorWindowController,
-         onPick: @escaping (ClipboardItem, Bool) -> Void) {
+         onPick: @escaping (ClipboardItem, Bool) -> Void,
+         onPickMultiple: @escaping ([ClipboardItem], Bool) -> Void) {
         self.modelContainer = modelContainer
         self.writer = writer
         self.itemEditor = itemEditor
         self.onPick = onPick
+        self.onPickMultiple = onPickMultiple
         super.init()
     }
 
@@ -105,21 +111,16 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
             writer: writer,
             itemEditor: itemEditor,
             search: searchState,
+            marked: markedSelection,
             onPick: { [weak self] item, plainText in
                 guard let self else { return }
                 self.onPick(item, plainText)
-                let target = self.previousApp
-                // Not `hide()`: its fade runs for 0.18s and only orders the
-                // panel out at the end, while the synthetic ⌘V is posted after
-                // `pasteDelayMs` (50ms by default). The panel would still be
-                // key and would receive the paste itself — the text landing in
-                // the search field instead of the target app.
-                self.hideImmediately()
-                let autoPaste = UserDefaults.standard.object(forKey: PreferenceKeys.autoPasteEnabled) as? Bool ?? true
-                if autoPaste {
-                    let delayMs = UserDefaults.standard.object(forKey: PreferenceKeys.pasteDelayMs) as? Int ?? 50
-                    PasteSimulator.paste(activating: target, delay: Double(delayMs) / 1000.0)
-                }
+                self.dismissAndPaste()
+            },
+            onPickMultiple: { [weak self] items, plainText in
+                guard let self else { return }
+                self.onPickMultiple(items, plainText)
+                self.dismissAndPaste()
             },
             onDismiss: { [weak self] in self?.hide() },
             destinationAppName: { [weak self] in self?.previousApp?.localizedName },
@@ -172,14 +173,16 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         applySharingPolicy()
         guard let panel = window else { return }
 
-        // Every opening starts at rest: magnifier, no query, no filters. Done
-        // before the panel is ordered front so the collapsed top bar is
-        // already laid out by the `layoutSubtreeIfNeeded()` below, and the
-        // slide-up never shows a stale field. This is the single place that
-        // covers all three ways the drawer goes away — Escape, a paste
+        // Every opening starts at rest: magnifier, no query, no filters,
+        // nothing marked. Done before the panel is ordered front so the
+        // collapsed top bar is already laid out by the
+        // `layoutSubtreeIfNeeded()` below, and the slide-up never shows a
+        // stale field. These two lines are the single place that covers all
+        // three ways the drawer goes away — Escape, a paste
         // (`hideImmediately`) and a click outside — none of which run any
         // teardown inside `OverlayView`.
         searchState.close()
+        markedSelection.clear()
         // Separate from `close()` on purpose: `close()` only changes anything
         // when there was a search to close, so it can't be what tells the view
         // to re-take the keyboard on an opening that follows an untouched one.
@@ -292,6 +295,28 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         guard let panel = window, panel.isVisible else { return }
         panel.alphaValue = 0
         panel.orderOut(nil)
+    }
+
+    /// Everything that happens after a pick, single or multiple: get the panel
+    /// out of the way, then post the synthetic ⌘V if auto-paste is on.
+    ///
+    /// Shared by `onPick` and `onPickMultiple`, which do not diverge here by
+    /// so much as a line — unlike `ClipboardWriter.write` and `writeJoined`,
+    /// which stay separate precisely because they *do* diverge on what they
+    /// save.
+    ///
+    /// Not `hide()`: its fade runs for 0.18s and only orders the panel out at
+    /// the end, while the synthetic ⌘V is posted after `pasteDelayMs` (50ms by
+    /// default). The panel would still be key and would receive the paste
+    /// itself — the text landing in the search field instead of the target
+    /// app.
+    private func dismissAndPaste() {
+        let target = previousApp
+        hideImmediately()
+        let autoPaste = UserDefaults.standard.object(forKey: PreferenceKeys.autoPasteEnabled) as? Bool ?? true
+        guard autoPaste else { return }
+        let delayMs = UserDefaults.standard.object(forKey: PreferenceKeys.pasteDelayMs) as? Int ?? 50
+        PasteSimulator.paste(activating: target, delay: Double(delayMs) / 1000.0)
     }
 
     private func installClickOutsideMonitors() {

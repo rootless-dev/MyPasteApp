@@ -9,8 +9,25 @@ import SwiftUI
 struct ClipboardCardView: View {
     let item: ClipboardItem
     let isSelected: Bool
-    /// Shown when this card is within reach of a ⌘1–⌘9 shortcut.
+    /// Shown when this card is within reach of a ⌘1–⌘9 shortcut **and** it
+    /// isn't marked — `markOrder` takes the footer's single slot whenever it
+    /// is set.
     var quickPasteLabel: String? = nil
+    /// This card's 1-based position in the multi-paste block, when marked.
+    ///
+    /// Replaces `quickPasteLabel` in the footer while set: one number per
+    /// card, always. While a block is being assembled the order is the useful
+    /// information; the shortcut comes back the moment the marks are cleared.
+    var markOrder: Int? = nil
+    /// Whether *any* card in the list is currently marked, not just this one.
+    ///
+    /// While a block is being assembled, the accent border has to mean one
+    /// thing only — "in the block" — so the selected card must stop drawing
+    /// it even when this particular card isn't the one marked. That decision
+    /// belongs here, next to the `markOrder`/`quickPasteLabel` substitution
+    /// it mirrors: a caller that decided instead would be a second place for
+    /// the same rule to drift.
+    var anyMarked: Bool = false
     var onDelete: () -> Void = {}
     @AppStorage(PreferenceKeys.cardDensity) private var densityRaw: String = CardDensity.comfortable.rawValue
     @State private var isHoveringCard = false
@@ -28,11 +45,16 @@ struct ClipboardCardView: View {
         .frame(width: density.width, height: density.height)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(alignment: .topTrailing) { deleteButton }
-        .overlay(
+        .overlay {
+            // While nothing is marked, selection alone earns the accent
+            // border, same as before marks existed. The moment a block is
+            // being assembled, that border means only "in the block" — the
+            // selected card keeps its selection, it just stops drawing it.
+            let isOutlined = markOrder != nil || (isSelected && !anyMarked)
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(isSelected ? Color.accentColor : Color.black.opacity(0.08),
-                              lineWidth: isSelected ? 2.5 : 1)
-        )
+                .strokeBorder(isOutlined ? Color.accentColor : Color.black.opacity(0.08),
+                              lineWidth: isOutlined ? 2.5 : 1)
+        }
         .shadow(color: .black.opacity(0.10), radius: 6, y: 3)
         .onHover { hovering in
             isHoveringCard = hovering
@@ -175,7 +197,15 @@ struct ClipboardCardView: View {
         HStack(spacing: 0) {
             footerContent
             Spacer(minLength: 0)
-            if let quickPasteLabel {
+            if let markOrder {
+                Text("\(markOrder)")
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(Color.accentColor))
+                    .accessibilityLabel("Marked, position \(markOrder)")
+            } else if let quickPasteLabel {
                 Text(quickPasteLabel)
                     .font(.system(size: 10, weight: .semibold, design: .rounded))
                     .foregroundStyle(.secondary)

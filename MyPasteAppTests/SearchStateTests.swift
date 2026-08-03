@@ -83,19 +83,22 @@ struct SearchStateTests {
     @Test("Escape closes the filter panel first")
     func escapeClosesPanelFirst() {
         #expect(SearchState.escapeAction(isFilterPanelOpen: true, isPreviewOpen: true,
-                                         isActive: true, hasContent: true) == .closeFilterPanel)
+                                         isActive: true, hasContent: true,
+                                         hasMarks: false) == .closeFilterPanel)
     }
 
     @Test("Then the preview")
     func escapeClosesPreviewSecond() {
         #expect(SearchState.escapeAction(isFilterPanelOpen: false, isPreviewOpen: true,
-                                         isActive: true, hasContent: true) == .hidePreview)
+                                         isActive: true, hasContent: true,
+                                         hasMarks: false) == .hidePreview)
     }
 
     @Test("Then the search, when it has something in it")
     func escapeClosesSearchThird() {
         #expect(SearchState.escapeAction(isFilterPanelOpen: false, isPreviewOpen: false,
-                                         isActive: true, hasContent: true) == .closeSearch)
+                                         isActive: true, hasContent: true,
+                                         hasMarks: false) == .closeSearch)
     }
 
     @Test("An empty search doesn't cost a second escape")
@@ -103,13 +106,58 @@ struct SearchStateTests {
         // Requiring two presses to close an empty field would be a tax on the
         // common case.
         #expect(SearchState.escapeAction(isFilterPanelOpen: false, isPreviewOpen: false,
-                                         isActive: true, hasContent: false) == .dismissOverlay)
+                                         isActive: true, hasContent: false,
+                                         hasMarks: false) == .dismissOverlay)
     }
 
     @Test("With nothing open, escape closes the overlay")
     func escapeDismisses() {
         #expect(SearchState.escapeAction(isFilterPanelOpen: false, isPreviewOpen: false,
-                                         isActive: false, hasContent: false) == .dismissOverlay)
+                                         isActive: false, hasContent: false,
+                                         hasMarks: false) == .dismissOverlay)
+    }
+
+    @Test("Marks are cleared before the drawer closes")
+    func escapeClearsMarksBeforeDismissing() {
+        #expect(SearchState.escapeAction(isFilterPanelOpen: false,
+                                         isPreviewOpen: false,
+                                         isActive: false,
+                                         hasContent: false,
+                                         hasMarks: true) == .clearMarks)
+    }
+
+    @Test("An empty search doesn't outrank the marks")
+    func escapeClearsMarksWithAnEmptySearchOpen() {
+        // The one combination the ordering test above doesn't reach: the field
+        // is open but empty, so `isActive, hasContent` doesn't fire and the
+        // marks are the most volatile thing left. Escape has to clear them
+        // before it dismisses the drawer.
+        #expect(SearchState.escapeAction(isFilterPanelOpen: false,
+                                         isPreviewOpen: false,
+                                         isActive: true,
+                                         hasContent: false,
+                                         hasMarks: true) == .clearMarks)
+    }
+
+    @Test("Marks wait their turn behind the filter panel, the preview and the search")
+    func escapeOrderingWithMarks() {
+        // Always the most volatile thing first — the rule this function
+        // already followed before marks existed.
+        #expect(SearchState.escapeAction(isFilterPanelOpen: true,
+                                         isPreviewOpen: false,
+                                         isActive: false,
+                                         hasContent: false,
+                                         hasMarks: true) == .closeFilterPanel)
+        #expect(SearchState.escapeAction(isFilterPanelOpen: false,
+                                         isPreviewOpen: true,
+                                         isActive: false,
+                                         hasContent: false,
+                                         hasMarks: true) == .hidePreview)
+        #expect(SearchState.escapeAction(isFilterPanelOpen: false,
+                                         isPreviewOpen: false,
+                                         isActive: true,
+                                         hasContent: true,
+                                         hasMarks: true) == .closeSearch)
     }
 
     // MARK: - Backspace
@@ -117,22 +165,49 @@ struct SearchStateTests {
     @Test("With the search closed, backspace deletes the selected item")
     func backspaceDeletes() {
         #expect(SearchState.backspaceAction(isActive: false, textIsEmpty: true,
-                                            hasTokens: false) == .deleteItem)
+                                            hasTokens: false, hasMarks: false) == .deleteItem)
     }
 
     @Test("An empty field with tokens drops the last token")
     func backspaceRemovesToken() {
         #expect(SearchState.backspaceAction(isActive: true, textIsEmpty: true,
-                                            hasTokens: true) == .removeLastToken)
+                                            hasTokens: true, hasMarks: false) == .removeLastToken)
     }
 
     @Test("With the search open, backspace never deletes an item")
     func backspaceNeverDeletesWhileSearching() {
         // Otherwise deleting a letter that isn't there destroys an item.
         #expect(SearchState.backspaceAction(isActive: true, textIsEmpty: true,
-                                            hasTokens: false) == .passThrough)
+                                            hasTokens: false, hasMarks: false) == .passThrough)
         #expect(SearchState.backspaceAction(isActive: true, textIsEmpty: false,
-                                            hasTokens: true) == .passThrough)
+                                            hasTokens: true, hasMarks: false) == .passThrough)
+    }
+
+    @Test("With the search closed and marks live, backspace is blocked")
+    func backspaceBlockedByMarks() {
+        // With the border gone from the selected card while a block is being
+        // assembled, ⌫ has no on-screen target left to name — it must not
+        // fall through to deleting the (now unmarked-looking) selection.
+        #expect(SearchState.backspaceAction(isActive: false, textIsEmpty: true,
+                                            hasTokens: false, hasMarks: true) == .blockedByMarks)
+    }
+
+    @Test("With the search closed and no marks, backspace still deletes")
+    func backspaceDeletesWithNoMarks() {
+        #expect(SearchState.backspaceAction(isActive: false, textIsEmpty: false,
+                                            hasTokens: false, hasMarks: false) == .deleteItem)
+    }
+
+    @Test("Marks change nothing while the search is open, in either branch")
+    func backspaceIgnoresMarksWhileSearching() {
+        // This is the regression guard: today's "search open → never delete"
+        // behaviour must survive marks unchanged, in both of its branches.
+        #expect(SearchState.backspaceAction(isActive: true, textIsEmpty: true,
+                                            hasTokens: true, hasMarks: true) == .removeLastToken)
+        #expect(SearchState.backspaceAction(isActive: true, textIsEmpty: true,
+                                            hasTokens: false, hasMarks: true) == .passThrough)
+        #expect(SearchState.backspaceAction(isActive: true, textIsEmpty: false,
+                                            hasTokens: true, hasMarks: true) == .passThrough)
     }
 
     // MARK: - Tokens

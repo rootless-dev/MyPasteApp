@@ -56,6 +56,8 @@ extension SearchState {
         case closeFilterPanel
         case hidePreview
         case closeSearch
+        /// Drop the multi-paste marks, leaving the drawer open.
+        case clearMarks
         case dismissOverlay
     }
 
@@ -64,6 +66,10 @@ extension SearchState {
         /// Let the field have the key.
         case passThrough
         case deleteItem
+        /// Swallow the key: a block is being assembled, and with the
+        /// selection border gone (see `ClipboardCardView.anyMarked`) there's
+        /// no on-screen target left for ⌫ to name.
+        case blockedByMarks
     }
 
     /// Dismiss what's on top first, as the system does everywhere else.
@@ -71,13 +77,19 @@ extension SearchState {
     /// An empty search is skipped on purpose: making the user press escape
     /// twice to close a field they never typed into would tax the common case
     /// to serve the rare one.
+    ///
+    /// Marks come after the search: with both live, the first escape lets go
+    /// of the search, the second clears the marks, the third closes the
+    /// drawer — most volatile first, all the way down.
     static func escapeAction(isFilterPanelOpen: Bool,
                              isPreviewOpen: Bool,
                              isActive: Bool,
-                             hasContent: Bool) -> EscapeAction {
+                             hasContent: Bool,
+                             hasMarks: Bool) -> EscapeAction {
         if isFilterPanelOpen { return .closeFilterPanel }
         if isPreviewOpen { return .hidePreview }
         if isActive, hasContent { return .closeSearch }
+        if hasMarks { return .clearMarks }
         return .dismissOverlay
     }
 
@@ -85,10 +97,16 @@ extension SearchState {
     ///
     /// The field can now be open and empty, and deleting a letter that isn't
     /// there must not destroy a history item.
+    ///
+    /// `hasMarks` is only consulted once the search is closed — the guard
+    /// below returns before it's ever read, so the two search-open branches
+    /// (`.removeLastToken` and `.passThrough`) are untouched by marks by
+    /// construction, matching the "must not change" half of this rule.
     static func backspaceAction(isActive: Bool,
                                 textIsEmpty: Bool,
-                                hasTokens: Bool) -> BackspaceAction {
-        guard isActive else { return .deleteItem }
+                                hasTokens: Bool,
+                                hasMarks: Bool) -> BackspaceAction {
+        guard isActive else { return hasMarks ? .blockedByMarks : .deleteItem }
         if textIsEmpty, hasTokens { return .removeLastToken }
         return .passThrough
     }

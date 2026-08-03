@@ -22,6 +22,8 @@ struct OverlayTopBar: View {
     @FocusState.Binding var focusTarget: OverlayFocusTarget?
     var onActivate: () -> Void
     var onOpenFilters: () -> Void
+    /// How many items are marked for a multi-item paste, or zero.
+    var markedCount: Int = 0
 
     var body: some View {
         HStack(spacing: 12) {
@@ -46,6 +48,31 @@ struct OverlayTopBar: View {
             }
         }
         .frame(maxWidth: .infinity)
+        .overlay(alignment: .trailing) {
+            // An overlay, not a stack sibling: a `Spacer` here would give this
+            // `HStack` a flexible child, making the stack itself greedy along
+            // its axis. With no other flexible child today, the stack sizes to
+            // its content and this `.frame(maxWidth: .infinity)` centers that
+            // content — which is what keeps the magnifier (at rest) and the
+            // search field (searching) positioned as the reference design
+            // shows them. A `Spacer` sibling would flip that to pinned-left
+            // and shift both the instant `markedCount` crossed 0↔1. The
+            // overlay sits outside the `HStack`'s own layout entirely, so
+            // neither state's content ever moves, marked or not.
+            if markedCount > 0 {
+                // Marks survive the search by design, so some of them can be
+                // off-screen. Without this the user would be assembling a
+                // block they can't see — the invisible-state failure the
+                // roadmap flags for the pause feature.
+                Text("\(markedCount) marked    ↵ paste    ⎋ clear")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(Color.accentColor))
+                    .fixedSize()
+            }
+        }
         .padding(.horizontal, 16)
         .padding(.top, 10)
         .padding(.bottom, 8)

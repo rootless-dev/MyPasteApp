@@ -42,6 +42,13 @@ struct ItemContextMenu: View {
     let destinationAppName: String?
     /// Whether a search or filter is narrowing the list right now.
     let isSearchNarrowed: Bool
+    /// Whether this item is currently marked for a multi-item paste.
+    let isMarked: Bool
+    let onToggleMark: () -> Void
+    /// Deletes the item. Not `actions.delete(item)` directly — `OverlayView`'s
+    /// own `delete(_:)` also unmarks the item and hands off `selectedID` to
+    /// its neighbour, bookkeeping this view has no notion of and shouldn't.
+    let onDelete: () -> Void
 
     @AppStorage(PreferenceKeys.alwaysPastePlainText) private var alwaysPastePlainText = false
 
@@ -69,6 +76,14 @@ struct ItemContextMenu: View {
         // mirrors this same choice.
         Button(titled("Copy", "⌘C")) { actions.copy(item) }
 
+        if MultiPaste.isMarkable(item.type) {
+            // Same trailing-text glyph as every other entry here — see the
+            // type-level doc comment for why these aren't `.keyboardShortcut`.
+            Button(titled(isMarked ? "Unmark" : "Mark for Multi-Paste", "⌘M")) {
+                onToggleMark()
+            }
+        }
+
         Divider()
         if item.type == .text || item.type == .url {
             // Image and file items aren't editable as text — task 20 gives
@@ -86,7 +101,7 @@ struct ItemContextMenu: View {
 
         Divider()
 
-        Button(titled("Delete", "⌫")) { actions.delete(item) }
+        Button(titled("Delete", "⌫")) { onDelete() }
 
         Divider()
 

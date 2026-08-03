@@ -51,7 +51,11 @@ struct OverlayView: View {
     /// reading its properties during `body` registers the dependency
     /// regardless of how the reference is stored.
     let search: SearchState
+    /// Owned by `OverlayWindowController`, like `search` and for the same
+    /// reason. The controller clears it on every `show()`.
+    let marked: MarkedSelection
     let onPick: (ClipboardItem, Bool) -> Void
+    let onPickMultiple: ([ClipboardItem], Bool) -> Void
     let onDismiss: () -> Void
     /// Resolves the name of the app a paste would land in, read fresh at menu
     /// build time.
@@ -94,7 +98,9 @@ struct OverlayView: View {
     init(writer: ClipboardWriter,
          itemEditor: ItemEditorWindowController,
          search: SearchState,
+         marked: MarkedSelection,
          onPick: @escaping (ClipboardItem, Bool) -> Void,
+         onPickMultiple: @escaping ([ClipboardItem], Bool) -> Void,
          onDismiss: @escaping () -> Void,
          destinationAppName: @escaping () -> String? = { nil },
          onPreviewSelectionChange: @escaping (ClipboardItem?, CGRect?) -> Void = { _, _ in },
@@ -104,7 +110,9 @@ struct OverlayView: View {
         self.writer = writer
         self.itemEditor = itemEditor
         self.search = search
+        self.marked = marked
         self.onPick = onPick
+        self.onPickMultiple = onPickMultiple
         self.onDismiss = onDismiss
         self.destinationAppName = destinationAppName
         self.onPreviewSelectionChange = onPreviewSelectionChange
@@ -209,7 +217,8 @@ struct OverlayView: View {
                 OverlayTopBar(state: search,
                               focusTarget: $focusTarget,
                               onActivate: { activateSearch() },
-                              onOpenFilters: { search.isFilterPanelOpen.toggle() })
+                              onOpenFilters: { search.isFilterPanelOpen.toggle() },
+                              markedCount: marked.count)
 
                 ScrollViewReader { proxy in
                     ScrollView(.horizontal, showsIndicators: false) {
@@ -221,6 +230,8 @@ struct OverlayView: View {
                                     quickPasteLabel: showQuickPasteNumbers
                                         ? QuickPaste.label(forIndex: index)
                                         : nil,
+                                    markOrder: marked.order(of: item.id),
+                                    anyMarked: !marked.isEmpty,
                                     onDelete: { delete(item) }
                                 )
                                 .id(item.id)
@@ -236,12 +247,38 @@ struct OverlayView: View {
                                         )
                                     }
                                 )
-                                .onTapGesture { pick(item) }
+                                .onTapGesture {
+                                    // `onTapGesture` doesn't report modifiers,
+                                    // so ⌘ is read from the current event at
+                                    // the moment of the click — the same shape
+                                    // `pastesPlainText` already uses for ⇧.
+                                    //
+                                    // Three-way, not two: ⌘-click on a
+                                    // markable item toggles the mark; ⌘-click
+                                    // on one that isn't markable does nothing
+                                    // — it must not fall through to `pick`,
+                                    // which would paste it and close the
+                                    // drawer out from under a block the user
+                                    // is still assembling. Only a plain click,
+                                    // with no ⌘ at all, pastes. Mirrors ⌘M,
+                                    // which returns `.ignored` on the same
+                                    // gate instead of pasting.
+                                    if NSEvent.modifierFlags.contains(.command) {
+                                        if MultiPaste.isMarkable(item.type) {
+                                            marked.toggle(item.id)
+                                        }
+                                    } else {
+                                        pick(item)
+                                    }
+                                }
                                 .contextMenu {
                                     ItemContextMenu(item: item,
                                                     actions: itemActions,
                                                     destinationAppName: destinationAppName(),
-                                                    isSearchNarrowed: search.hasContent)
+                                                    isSearchNarrowed: search.hasContent,
+                                                    isMarked: marked.contains(item.id),
+                                                    onToggleMark: { marked.toggle(item.id) },
+                                                    onDelete: { delete(item) })
                                 }
                             }
                         }
@@ -348,13 +385,16 @@ struct OverlayView: View {
             switch SearchState.escapeAction(isFilterPanelOpen: search.isFilterPanelOpen,
                                             isPreviewOpen: isPreviewOpen(),
                                             isActive: search.isActive,
-                                            hasContent: search.hasContent) {
+                                            hasContent: search.hasContent,
+                                            hasMarks: !marked.isEmpty) {
             case .closeFilterPanel:
                 search.isFilterPanelOpen = false
             case .hidePreview:
                 onHidePreview()
             case .closeSearch:
                 closeSearch()
+            case .clearMarks:
+                marked.clear()
             case .dismissOverlay:
                 onDismiss()
             }
@@ -388,13 +428,25 @@ struct OverlayView: View {
         // overload only exposes a no-argument closure, so reading
         // `press.modifiers` (for ⇧↵) needs the `phases:` overload instead.
         .onKeyPress(.return, phases: .down) { press in
+            let plain = ItemActions.resolvePastePlainText(
+                alwaysPlainText: alwaysPastePlainText,
+                shiftHeld: press.modifiers.contains(.shift)
+            )
+            // With marks live, they *are* the selection — the same way ↵ in
+            // the Finder acts on what's selected. Resolved against `items`,
+            // the full list, never `filtered`: marks survive the search by
+            // design, and resolving against the filtered list would make the
+            // block shrink on its own as the user typed.
+            if !marked.isEmpty {
+                let block = MultiPaste.resolve(ids: marked.ids, in: items)
+                guard !block.isEmpty else { return .ignored }
+                pickMultiple(block, plainText: plain)
+                return .handled
+            }
             guard let item = filtered.first(where: { $0.id == selectedID }) else {
                 return .ignored
             }
-            pick(item, plainText: ItemActions.resolvePastePlainText(
-                alwaysPlainText: alwaysPastePlainText,
-                shiftHeld: press.modifiers.contains(.shift)
-            ))
+            pick(item, plainText: plain)
             return .handled
         }
         .onKeyPress(.leftArrow) { moveSelection(-1); return .handled }
@@ -438,6 +490,17 @@ struct OverlayView: View {
             }
             return .ignored
         }
+        // Marks the selected card for a multi-item paste. Only "m" lowercase:
+        // with no ⇧ in the combination there's no uppercase variant to
+        // register — the trap that left ⌘⇧K silently dead in Phase 2 — and
+        // with no ⌥ there's no layout-dependent alternate character either.
+        .onKeyPress(keys: ["m"]) { press in
+            guard press.modifiers.contains(.command) else { return .ignored }
+            guard let item = filtered.first(where: { $0.id == selectedID }),
+                  MultiPaste.isMarkable(item.type) else { return .ignored }
+            marked.toggle(item.id)
+            return .handled
+        }
         .onKeyPress(.delete) {
             // Second of the three keys sharing `typesIntoDetachedField`.
             // Only when there's a character to delete: with the text empty the
@@ -449,7 +512,8 @@ struct OverlayView: View {
             }
             switch SearchState.backspaceAction(isActive: search.isActive,
                                                textIsEmpty: search.text.isEmpty,
-                                               hasTokens: !search.filter.isEmpty) {
+                                               hasTokens: !search.filter.isEmpty,
+                                               hasMarks: !marked.isEmpty) {
             case .deleteItem:
                 if let item = filtered.first(where: { $0.id == selectedID }) {
                     delete(item)
@@ -463,6 +527,12 @@ struct OverlayView: View {
                 return .handled
             case .passThrough:
                 return .ignored
+            case .blockedByMarks:
+                // The key is consumed rather than travel on: with the
+                // selection border hidden while marks are live (see
+                // `ClipboardCardView.anyMarked`), there's no target left for
+                // ⌫ to name, so it must not fall through to anything else.
+                return .handled
             }
         }
         .onKeyPress(keys: ["e"]) { press in
@@ -696,6 +766,16 @@ struct OverlayView: View {
         itemActions.paste(item, plainText: plainText ?? pastesPlainText)
     }
 
+    /// The block counterpart of `pick`.
+    ///
+    /// Doesn't go through `ItemActions`: that type is "everything you can do
+    /// to **one** item", and its `paste` records `lastUsedAt` for a single
+    /// item. The N-item bookkeeping happens inside `writeJoined`, in one
+    /// place — see `MultiPaste.markUsed`.
+    private func pickMultiple(_ block: [ClipboardItem], plainText: Bool) {
+        onPickMultiple(block, plainText)
+    }
+
     /// Selects the item and opens the preview panel for it.
     ///
     /// Used by the "Preview" context menu entry, where the click can land on
@@ -735,12 +815,20 @@ struct OverlayView: View {
     /// (`filtered`, captured before the delete) so the replacement is the
     /// card that visually sat at the same spot, falling back to the first
     /// card when the deleted one was the last.
+    ///
+    /// Unmarking is part of the deletion, not housekeeping: the mark branch of
+    /// the ↵ handler runs on `marked.isEmpty` alone, so an id left behind here
+    /// makes ↵ swallow the key and paste nothing — a card marked and then
+    /// deleted turns ↵ into a dead key while the count pill still says "1
+    /// marked ↵ paste". `MultiPaste.resolve` dropping the id at paste time
+    /// covers what lands in the block, and nothing else.
     private func delete(_ item: ClipboardItem) {
         let deletedID = item.id
         let wasSelected = selectedID == deletedID
         let remaining = filtered.filter { $0.id != deletedID }
         let index = filtered.firstIndex { $0.id == deletedID }
 
+        marked.remove(deletedID)
         itemActions.delete(item)
 
         guard wasSelected else { return }
