@@ -203,7 +203,24 @@ extension RichText {
     ///
     /// The whole string, not the selection: "clear formatting" that left half
     /// the item styled would be a worse surprise than not offering it.
+    ///
+    /// Attachments go with the attributes. `attributed.string` renders every
+    /// `NSTextAttachment` as U+FFFC (object replacement character), and the
+    /// attachment itself lives in an attribute this drops — so keeping the
+    /// placeholder left a visible `￼` glyph where an inline image used to be,
+    /// which Save then wrote into `textContent` for search and pasting to
+    /// carry around forever.
     static func stripped(_ attributed: NSAttributedString, font: NSFont) -> NSAttributedString {
-        NSAttributedString(string: attributed.string, attributes: [.font: font])
+        NSAttributedString(string: withoutAttachmentPlaceholders(attributed.string),
+                           attributes: [.font: font])
+    }
+
+    /// `text` with every object-replacement character removed.
+    ///
+    /// Separate and internal so the rule is testable without building an
+    /// `NSTextAttachment`, which needs a file wrapper or an image to be
+    /// meaningful.
+    static func withoutAttachmentPlaceholders(_ text: String) -> String {
+        text.replacingOccurrences(of: "\u{FFFC}", with: "")
     }
 }

@@ -79,6 +79,30 @@ struct RichTextFormatTests {
         #expect(stripped.attribute(.font, at: 0, effectiveRange: nil) as? NSFont == font)
     }
 
+    @Test("clearing formatting removes attachment placeholders")
+    func stripsAttachmentPlaceholders() {
+        // An inline image is an `NSTextAttachment`, which lives in an
+        // attribute `stripped` drops — but `attributed.string` still renders
+        // it as U+FFFC. Left in, the user sees a `￼` glyph where the image
+        // was, and Save writes it into `textContent`.
+        let font = NSFont.systemFont(ofSize: 13)
+        let withImage = NSMutableAttributedString(string: "before ")
+        withImage.append(NSAttributedString(attachment: NSTextAttachment()))
+        withImage.append(NSAttributedString(string: " after"))
+        #expect(withImage.string.contains("\u{FFFC}"))
+
+        let stripped = RichText.stripped(withImage, font: font)
+
+        #expect(stripped.string == "before  after")
+        #expect(!stripped.string.contains("\u{FFFC}"))
+    }
+
+    @Test("the placeholder rule works on bare text too")
+    func placeholderRemovalIsPure() {
+        #expect(RichText.withoutAttachmentPlaceholders("a\u{FFFC}b\u{FFFC}") == "ab")
+        #expect(RichText.withoutAttachmentPlaceholders("nothing to do") == "nothing to do")
+    }
+
     @Test("an empty range changes nothing")
     func emptyRangeIsANoOp() {
         let result = RichText.toggling(.bold, in: base, range: NSRange(location: 3, length: 0))
