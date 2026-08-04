@@ -37,8 +37,13 @@ enum TextStats {
 
     /// Whether `summary` will report words and lines, or characters alone.
     ///
-    /// Measured in UTF-8 bytes because `String.utf8.count` is O(1) for a
-    /// native Swift string — the gate itself must not be the thing that costs.
+    /// Measured in UTF-8 bytes: `String.utf8.count` is the cheapest length
+    /// available here — O(1) for a natively-stored Swift string, and a single
+    /// non-allocating transcoding pass for one that is lazily bridged from an
+    /// `NSString`, which is what this call site actually passes
+    /// (`NSAttributedString.string`). Not a constant-time guarantee, then, but
+    /// still far below the three passes and per-word allocation it gates.
+    ///
     /// Bytes are an over-estimate of characters for non-ASCII text, which errs
     /// on the safe side: it degrades sooner, never later.
     static func hasExactCounts(_ text: String) -> Bool {
