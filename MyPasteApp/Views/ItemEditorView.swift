@@ -180,12 +180,36 @@ struct ItemEditorView: View {
             ZStack {
                 CheckerboardBackground()
                 if let image = NSImage(data: data) {
-                    Image(nsImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        // Display-only: the bytes are rotated once, on Save.
-                        .rotationEffect(.degrees(Double(quarterTurns) * 90))
-                        .padding(12)
+                    // `rotationEffect` doesn't participate in layout — it
+                    // spins the already-laid-out view in place — so fitting
+                    // first and rotating after (as a bare `.scaledToFit()`
+                    // did) sizes a wide image for its own pre-turn footprint.
+                    // A 90°/270° turn then makes it taller than the frame,
+                    // and nothing was clipping it. Measuring the real space
+                    // and, for a quarter turn, fitting into that box with its
+                    // axes swapped first means the rotated result lands back
+                    // inside `available` exactly. `.clipped()` is a backstop
+                    // for the rounding, not the primary fix.
+                    GeometryReader { geometry in
+                        let inset: CGFloat = 12
+                        let available = CGSize(
+                            width: max(0, geometry.size.width - inset * 2),
+                            height: max(0, geometry.size.height - inset * 2)
+                        )
+                        let swapped = quarterTurns % 2 != 0
+                        let fitSize = swapped
+                            ? CGSize(width: available.height, height: available.width)
+                            : available
+
+                        Image(nsImage: image)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: fitSize.width, height: fitSize.height)
+                            // Display-only: the bytes are rotated once, on Save.
+                            .rotationEffect(.degrees(Double(quarterTurns) * 90))
+                            .frame(width: geometry.size.width, height: geometry.size.height)
+                            .clipped()
+                    }
                 }
             }
             .frame(minWidth: 480, minHeight: 280)
