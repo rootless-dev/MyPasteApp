@@ -510,14 +510,24 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
             item: item,
             onClose: { [weak self] in self?.hidePreviewPanel() },
             onCopyColor: { [weak self] color in
-                // Silent: sampling is looking closely at something already
-                // inside the app, not bringing something new in — clicking
-                // through several pixels of the same image must not fill the
-                // history with items nobody asked for. The screen sampler is
-                // the opposite case (it brings a colour in from outside the
-                // app) and creates its item explicitly for exactly that
-                // reason.
-                self?.writer.writeText(color.formatted(as: .hex), silently: true)
+                guard let self else { return }
+                let text = color.formatted(as: .hex)
+                // Files the item, exactly like the screen sampler and "Copy
+                // Color as" do. The phase's design said this one should copy
+                // *without* filing — the reasoning being that clicking
+                // through several pixels would fill the history with items
+                // nobody asked for. Using it proved the opposite: a colour
+                // you went looking for inside an image is a colour you want
+                // back, and having two of the three colour paths file while
+                // the third silently didn't was impossible to explain.
+                //
+                // `ClipboardMonitor.file`, not a bare insert: sampling the
+                // same colour twice promotes the item already in the history
+                // rather than filing a duplicate — which is most of what the
+                // original worry was about.
+                ClipboardMonitor.file(ItemActions.makeCapturedItem(text: text),
+                                      in: self.modelContainer.mainContext)
+                self.writer.writeText(text, silently: true)
             },
             onEdit: { [weak self] in self?.itemEditor.open(item: item, focus: .label) }
         ))
