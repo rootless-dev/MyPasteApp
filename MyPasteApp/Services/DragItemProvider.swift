@@ -36,13 +36,28 @@ enum DragItemProvider {
             }
 
         case .files(let urls):
-            // File URLs the system already knows how to hand over — no copy,
-            // no temporary, nothing to clean up.
-            for url in urls {
+            // Known limitation: only the first still-existing file drags.
+            //
+            // An `NSItemProvider` keeps at most one load handler per type
+            // identifier. Registering `.fileURL` once per URL — one call per
+            // loop iteration — doesn't add N handlers for N files; it adds N
+            // competing handlers for the *same* flavour, and only the last
+            // registration survives. A card built from 3 files copied
+            // together used to drag to the Finder and drop only 1 file,
+            // silently, because the loop looked correct.
+            //
+            // Carrying every file for real needs an AppKit dragging source
+            // with a list of `NSDraggingItem`s — SwiftUI's `.onDrag` hands
+            // back exactly one `NSItemProvider`, so there's no way to do it
+            // from here. That's the same territory already ruled out of
+            // scope for `NSFilePromiseProvider` (see the type doc above).
+            // So: one registration, deliberately, for the first URL only —
+            // not the loop this replaced.
+            if let first = urls.first {
                 provider.registerFileRepresentation(forTypeIdentifier: UTType.fileURL.identifier,
                                                     fileOptions: [.openInPlace],
                                                     visibility: .all) { completion in
-                    completion(url, true, nil)
+                    completion(first, true, nil)
                     return nil
                 }
             }
@@ -93,14 +108,34 @@ enum DragItemProvider {
                                                                       isDirectory: true)
     }
 
+    /// Writes into a fresh, UUID-named subdirectory per call rather than
+    /// straight into `directory`.
+    ///
+    /// The previous version wrote to a path derived only from the sanitised
+    /// file name, which is deterministic: dragging the same image card to
+    /// app A, then again to app B before A finished reading, resolved both
+    /// writes to the identical path. `Data.write(to:)` isn't atomic, so the
+    /// second write could truncate the file mid-read by the first,
+    /// delivering a corrupt or empty PNG to whichever destination read it
+    /// first. A UUID subdirectory per call means two drags — even of the
+    /// same card, even concurrent — never share a path, while the file
+    /// inside still has the name the destination expects.
     private static func writeTemporary(png: Data, fileName: String) throws -> URL {
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let url = directory.appendingPathComponent(fileName)
+        let dragDirectory = directory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: dragDirectory, withIntermediateDirectories: true)
+        let url = dragDirectory.appendingPathComponent(fileName)
         try png.write(to: url)
         return url
     }
 
     /// Deletes leftovers from earlier sessions. Called once at launch.
+    ///
+    /// Each drag now writes into its own UUID subdirectory (see
+    /// `writeTemporary`), so the immediate children of `directory` are
+    /// directories, not files. `TempFileCleanup.expired` doesn't care either
+    /// way — it only looks at a modification date per URL — and
+    /// `removeItem(at:)` deletes a directory and its contents in one call,
+    /// so no change was needed on either side of this method.
     static func cleanUpTemporaries(now: Date = .now) {
         let manager = FileManager.default
         guard let entries = try? manager.contentsOfDirectory(
