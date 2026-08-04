@@ -70,6 +70,17 @@ struct ItemPreviewView: View {
         // the next one the panel shows — arrowing through history at 4x
         // would otherwise keep every subsequent item cropped and blown up.
         .onChange(of: item.id) { resetZoom() }
+        // A dimension-changing edit (rotate, then Save) rewrites `imageData`
+        // under the same `id` — `OverlayWindowController` only rebuilds the
+        // hosted view when the id changes, so this view (and its `zoom`
+        // `@State`) survives the edit. Without this, a baseline and offset
+        // clamped to the old dimensions could leave a gap on one axis until
+        // the next gesture re-clamped it. `contentHash` moves with the bytes
+        // (see `ImageThumbnailCache.key`'s doc comment for why it, not `id`,
+        // is what tracks "the image actually changed"), so resetting on it
+        // catches exactly this case without re-triggering on every
+        // unrelated re-render.
+        .onChange(of: item.contentHash) { resetZoom() }
     }
 
     private var header: some View {
