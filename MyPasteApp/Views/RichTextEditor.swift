@@ -89,8 +89,31 @@ struct RichTextEditor: NSViewRepresentable {
                                         font: textView.font ?? .systemFont(ofSize: 13))
         }
 
+        // Through `shouldChangeText`/`didChangeText`, never a bare
+        // `setAttributedString`: `allowsUndo` records nothing for a storage
+        // mutation that doesn't announce itself, so ⌘B from the keyboard was
+        // undoable while the toolbar button doing the same thing was not —
+        // and "clear formatting", which destroys every font, colour, link and
+        // paragraph style in a Mail item at once, had no ⌘Z at all.
+        //
+        // The affected range is the whole document, not `range`: `.clear`
+        // rewrites all of it, and an undo registered for a narrower range
+        // would restore only part of what was changed. `replacementString` is
+        // nil because all five commands keep the characters and touch only
+        // attributes — that is what tells AppKit to record an attribute-only
+        // undo instead of a text replacement.
+        let whole = NSRange(location: 0, length: storage.length)
+        guard textView.shouldChangeText(in: whole, replacementString: nil) else { return }
+        storage.beginEditing()
         storage.setAttributedString(updated)
+        storage.endEditing()
+        textView.didChangeText()
         textView.setSelectedRange(range)
+        // Kept even though `didChangeText()` above already reaches the
+        // coordinator, which publishes the same value: the notification is
+        // AppKit's to send, and the caret restore happens between the two, so
+        // this is the publish that is guaranteed to describe the final state.
+        //
         // Publish from the storage that was just written, not `updated` or
         // any other snapshot taken earlier: a value computed before this hop
         // ran can already be stale by the time it lands here — e.g. the user
