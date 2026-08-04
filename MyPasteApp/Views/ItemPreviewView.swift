@@ -68,14 +68,20 @@ struct ItemPreviewView: View {
             header
             Divider()
             content
+                // The band that drags the window. Laid out *beside* the
+                // content rather than over it — see `windowDragSurface`.
+                .padding(Self.dragBandWidth)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background { windowDragSurface }
         }
         .frame(width: ItemPreviewPanel.contentSize.width, height: ItemPreviewPanel.contentSize.height)
         // Leaves the strip below the rounded body empty for the beak:
         // without it, content would run to the bottom of the window and
         // show through the triangle instead of leaving it as a clean point
-        // of translucent material.
-        .padding(.bottom, ItemPreviewPanel.beakHeight)
+        // of translucent material. A detached panel has no beak and no strip
+        // — `PreviewPanelController.detachAnchored()` shrinks the window by
+        // exactly this much at the same moment, so the two stay in step.
+        .padding(.bottom, chrome.isDetached ? 0 : ItemPreviewPanel.beakHeight)
         .background {
             // The shadow lives here, on the shape, rather than on the VStack
             // above: a shadow on the content would draw a rectangular
@@ -114,9 +120,42 @@ struct ItemPreviewView: View {
     private var previewShape: PreviewPanelShape {
         PreviewPanelShape(
             beakOffset: chrome.beakOffset,
-            beakHeight: ItemPreviewPanel.beakHeight,
+            // Zero, not just a nil `beakOffset`, once detached:
+            // `PreviewPanelShape` always reserves `beakHeight` at the base of
+            // whatever rect it's given, so leaving 12 here would draw the body
+            // 12pt short of a window that has already shed those 12 points —
+            // a transparent gap along the bottom edge.
+            beakHeight: chrome.isDetached ? 0 : ItemPreviewPanel.beakHeight,
             cornerRadius: ItemPreviewPanel.cornerRadius
         )
+    }
+
+    /// How wide the band that drags the window is, measured in from the
+    /// panel's body on all four sides.
+    private static let dragBandWidth: CGFloat = 10
+
+    /// An invisible, hit-testable surface that drags the whole window.
+    ///
+    /// Used as the *background* of a body that has been inset by
+    /// `dragBandWidth`, so the band and the previewed content never overlap.
+    /// That matters: the image preview claims its whole container with a
+    /// `.contentShape(Rectangle())` and two `.simultaneousGesture`s (zoom and
+    /// pan), and the text preview hosts a selectable `NSTextView` — anything
+    /// laid *over* either of those would have to win a fight for the same
+    /// click, and would lose it in at least one of the two. Laid beside them,
+    /// there is no fight. Empty space inside the body falls through to this
+    /// too, which is the "or an empty part of the background" half of the
+    /// gesture the user has to discover.
+    ///
+    /// `WindowDragGesture` is macOS 15+ and this app targets 26.2, so it needs
+    /// no availability check. `ItemPreviewPanel.make()` also sets
+    /// `isMovableByWindowBackground`; the two are belt and braces, and they
+    /// can't fight because this band carries no other gesture for either of
+    /// them to lose to.
+    private var windowDragSurface: some View {
+        Color.clear
+            .contentShape(Rectangle())
+            .gesture(WindowDragGesture())
     }
 
     private var header: some View {
@@ -143,6 +182,12 @@ struct ItemPreviewView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+        // The header is the obvious place to grab a window by, so it drags
+        // too — including the gaps between its controls, which is what
+        // `.contentShape` is for. The buttons keep working: SwiftUI resolves a
+        // child's own gesture before an ancestor's `.gesture`.
+        .contentShape(Rectangle())
+        .gesture(WindowDragGesture())
     }
 
     @ViewBuilder

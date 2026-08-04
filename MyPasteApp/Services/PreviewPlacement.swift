@@ -81,4 +81,25 @@ enum PreviewPlacement {
 
         return Result(frame: frame, beakOffset: tip)
     }
+
+    /// The frame the panel takes when it is dragged off the drawer and loses
+    /// its beak.
+    ///
+    /// Same width, same left edge, `beakHeight` shorter — and the **top edge
+    /// exactly where it was**. AppKit's frames are measured from the
+    /// bottom-left, so keeping the top still means raising `origin.y` by
+    /// precisely what the height gives up. Shrinking the other way (origin
+    /// fixed, top edge falling) would slide the panel down out from under the
+    /// pointer in the middle of the very drag that detached it.
+    ///
+    /// - Parameters:
+    ///   - frame: the panel's current frame, in screen coordinates.
+    ///   - beakHeight: `ItemPreviewPanel.beakHeight`, the strip the beak
+    ///     occupied below the body.
+    static func detachedFrame(from frame: CGRect, losing beakHeight: CGFloat) -> CGRect {
+        CGRect(x: frame.minX,
+               y: frame.minY + beakHeight,
+               width: frame.width,
+               height: frame.height - beakHeight)
+    }
 }

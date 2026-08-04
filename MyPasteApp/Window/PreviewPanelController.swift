@@ -15,7 +15,7 @@ import SwiftData
 import SwiftUI
 
 @MainActor
-final class PreviewPanelController {
+final class PreviewPanelController: NSObject, NSWindowDelegate {
     private let modelContainer: ModelContainer
     private let writer: ClipboardWriter
     private let itemEditor: ItemEditorWindowController
@@ -23,7 +23,7 @@ final class PreviewPanelController {
     // Task 19 spike: a second window of our own, so the click-outside
     // monitors in OverlayWindowController need to know about it too. See
     // ItemPreviewPanel.
-    private var previewPanel: NSPanel?
+    private var previewPanel: PreviewPanel?
     /// The one `PreviewChrome` for `previewPanel`, created alongside it in
     /// `showAnchored()` and never cleared afterwards — so whenever
     /// `previewPanel` is non-nil, this is too. Passed to `ItemPreviewView`
@@ -50,6 +50,46 @@ final class PreviewPanelController {
     /// already-hosted `ItemPreviewView` observes its properties on its own.
     private var previewDisplayedItemID: UUID?
 
+    /// The last frame `positionPreviewPanel(_:chrome:)` handed to the anchored
+    /// panel, and so the frame a `windowDidMove` has to be measured against to
+    /// tell "the user is dragging this" from "the strip scrolled and we moved
+    /// it ourselves".
+    ///
+    /// A stored field rather than a fresh `PreviewPlacement.solve` inside the
+    /// observer on purpose: the anchored panel is repositioned on every scroll
+    /// tick, and recomputing from the anchor there would race the
+    /// repositioning against the drag measurement. `nil` while no panel is
+    /// anchored.
+    private var lastAnchoredFrame: CGRect?
+
+    /// A preview panel the user dragged off the drawer.
+    ///
+    /// The item travels with the panel because a detached panel is frozen on
+    /// what it was showing: `previewItem` goes on tracking the drawer's
+    /// selection, and this one deliberately stops following it.
+    private struct DetachedPreview {
+        let panel: PreviewPanel
+        let chrome: PreviewChrome
+        let item: ClipboardItem
+    }
+
+    /// Panels that have left the drawer. Each one is an independent window
+    /// from here on; nothing in this file repositions or rebuilds them.
+    private var detachedPreviews: [DetachedPreview] = []
+
+    /// How far the anchored panel has to move before the move reads as the
+    /// user dragging it rather than a stray pixel of jitter.
+    private static let detachThreshold: CGFloat = 10
+
+    /// Called once, at the moment the anchored panel becomes a detached one,
+    /// so whoever owns the drawer can close it.
+    ///
+    /// A closure rather than a reference to `OverlayWindowController`: this
+    /// controller has never known the drawer exists, and the ordering trap in
+    /// `detachAnchored()` is much easier to hold onto when the drawer is one
+    /// opaque call at the end instead of a collaborator with its own methods.
+    var onDetach: (() -> Void)?
+
     /// The overlay window, needed to convert the card's frame to screen
     /// coordinates. Set by OverlayWindowController.prepare().
     var overlayWindow: NSPanel?
@@ -58,6 +98,7 @@ final class PreviewPanelController {
         self.modelContainer = modelContainer
         self.writer = writer
         self.itemEditor = itemEditor
+        super.init()
     }
 
     var isAnchoredOpen: Bool {
@@ -85,6 +126,11 @@ final class PreviewPanelController {
         guard let item = previewItem else { return }
         let panel = previewPanel ?? ItemPreviewPanel.make()
         previewPanel = panel
+        // The delegate *is* the `NSWindow.didMoveNotification` observation the
+        // plan calls for — AppKit registers the delegate for it. Cheaper than
+        // a token to keep and cancel, and it fires synchronously on the drag,
+        // which a `queue:`-based block observer would not.
+        panel.delegate = self
         let chrome = previewChrome ?? PreviewChrome()
         previewChrome = chrome
         panel.sharingType = WindowPrivacy.sharingType()
@@ -120,6 +166,117 @@ final class PreviewPanelController {
             frame: NSRect(origin: .zero, size: ItemPreviewPanel.windowSize)
         )
         previewDisplayedItemID = nil
+        // Nothing to measure a drag against while the panel is closed, and
+        // leaving a stale frame here would make the first `didMove` of the
+        // next opening look like a 500pt drag.
+        lastAnchoredFrame = nil
+    }
+
+    // MARK: - Detaching
+
+    /// Watches the anchored panel for the user dragging it.
+    ///
+    /// Every reposition this controller performs writes `lastAnchoredFrame`
+    /// *before* calling `setFrame`, so the notification that reposition itself
+    /// posts measures zero. Anything left over is the user.
+    func windowDidMove(_ notification: Notification) {
+        guard let panel = previewPanel,
+              notification.object as? NSWindow === panel,
+              let last = lastAnchoredFrame else { return }
+        let moved = hypot(panel.frame.origin.x - last.origin.x,
+                          panel.frame.origin.y - last.origin.y)
+        guard moved >= Self.detachThreshold else { return }
+        detachAnchored()
+    }
+
+    /// Turns the anchored panel into an independent window and closes the
+    /// drawer behind it.
+    ///
+    /// **The order below is the whole point of this method.** `onDetach` is
+    /// wired to `OverlayWindowController.hide()`, and `hide()` calls
+    /// `hideAnchored()` unconditionally — so if the drawer were told to close
+    /// while `previewPanel` still pointed at this panel, `hideAnchored()`
+    /// would order out and gut the very window the user just dragged loose.
+    /// The panel therefore leaves the anchored slot in step 1, and the drawer
+    /// is only told anything in the last line.
+    func detachAnchored() {
+        guard let panel = previewPanel,
+              let chrome = previewChrome,
+              let item = previewItem else { return }
+
+        // 1. Out of the anchored slot, into the detached list. First, for the
+        //    reason spelled out above.
+        previewPanel = nil
+        previewChrome = nil
+        lastAnchoredFrame = nil
+        detachedPreviews.append(DetachedPreview(panel: panel, chrome: chrome, item: item))
+
+        // 2. The view stops drawing a beak and starts filling the whole
+        //    window — see `ItemPreviewView.body`.
+        chrome.isDetached = true
+        chrome.beakOffset = nil
+
+        // 3. Shed the strip the beak occupied, keeping the top edge still —
+        //    see `PreviewPlacement.detachedFrame`.
+        panel.setFrame(PreviewPlacement.detachedFrame(from: panel.frame,
+                                                      losing: ItemPreviewPanel.beakHeight),
+                       display: true)
+
+        // 4. Keyboard. `becomesKeyOnlyIfNeeded = false` alone is not enough:
+        //    keystrokes go to the *active* app, and `.nonactivatingPanel`
+        //    exists precisely so that a click here never activates this one.
+        //    A panel that can become key but can never activate the app is a
+        //    panel that receives keys only for as long as the app happens to
+        //    already be active — ⌘C working right after the detach and
+        //    silently dying the first time the user visits another app and
+        //    comes back. Dropping the flag is what makes the keyboard stay.
+        //    The *anchored* panel keeps both settings untouched: they are
+        //    what stops it taking key status from the drawer, which is wired
+        //    to close on `windowDidResignKey`.
+        panel.becomesKeyOnlyIfNeeded = false
+        panel.styleMask.remove(.nonactivatingPanel)
+        ItemPreviewPanel.applyAppearance(to: panel)
+        panel.onCloseCommand = { [weak self, weak panel] in
+            guard let panel else { return }
+            self?.closeDetached(panel)
+        }
+
+        // 5. `.transient` is right for a panel that dies with the drawer and
+        //    wrong for one that outlives it — it would take this window away
+        //    with the rest of the app in situations the user never asked for.
+        //    `.canJoinAllSpaces` and `.fullScreenAuxiliary` stay.
+        panel.collectionBehavior.remove(.transient)
+
+        // 6. Stop watching for moves: a detached panel moves all the time, on
+        //    purpose. (Step 1 already made `windowDidMove` a no-op for this
+        //    panel; this is the explicit half.)
+        panel.delegate = nil
+
+        // 7. So the next `showAnchored()` builds fresh content instead of
+        //    believing the item it wants is already loaded — the panel that
+        //    had it loaded just left.
+        previewDisplayedItemID = nil
+
+        // 8. Only now: this closes the drawer.
+        onDetach?()
+    }
+
+    /// Closes a detached panel.
+    ///
+    /// Deliberately minimal — Task 6 owns the detached panels' life cycle
+    /// (items being deleted underneath them, `refreshPrivacy`, `owns(_:)`).
+    /// This exists so `⌘W` and `Escape` have something to call.
+    ///
+    /// Dropping `contentView` for the same reason `hideAnchored()` does: the
+    /// `NSHostingView` and every Core Animation layer behind it survive an
+    /// `orderOut` on their own.
+    private func closeDetached(_ panel: PreviewPanel) {
+        guard let index = detachedPreviews.firstIndex(where: { $0.panel === panel }) else { return }
+        detachedPreviews.remove(at: index)
+        // Also breaks panel → closure → panel.
+        panel.onCloseCommand = nil
+        panel.orderOut(nil)
+        panel.contentView = NSView()
     }
 
     /// Keeps the preview panel in sync with the overlay's selection.
@@ -234,6 +391,13 @@ final class PreviewPanelController {
                 width: size.width,
                 height: size.height
             )
+            // Before `setFrame`, always: `setFrame` posts
+            // `windowDidMove` synchronously, and `windowDidMove` compares
+            // against this field. Written afterwards, a reposition that moved
+            // the panel more than `detachThreshold` — every scroll tick of the
+            // card strip, in other words — would read as the user dragging it
+            // and detach the panel on its own.
+            lastAnchoredFrame = centered
             panel.setFrame(centered, display: false)
             chrome.beakOffset = nil
             return
@@ -247,6 +411,8 @@ final class PreviewPanelController {
                                             cornerRadius: ItemPreviewPanel.cornerRadius,
                                             beakWidth: PreviewPlacement.beakWidth)
 
+        // Before `setFrame` — see the comment on the fallback path above.
+        lastAnchoredFrame = result.frame
         panel.setFrame(result.frame, display: false)
         chrome.beakOffset = result.beakOffset
     }

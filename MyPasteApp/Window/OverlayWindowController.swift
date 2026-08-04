@@ -59,6 +59,13 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
             itemEditor: itemEditor
         )
         super.init()
+        // Dragging the preview panel off the drawer closes the drawer behind
+        // it. The controller doesn't know the drawer exists; this closure is
+        // the whole of what it knows. Safe against the obvious re-entrancy
+        // worry — `hide()` calls `hideAnchored()`, but by the time this runs
+        // the panel has already left the anchored slot, which is exactly the
+        // ordering `detachAnchored()` is written around.
+        previewController.onDetach = { [weak self] in self?.hide() }
     }
 
     func windowDidResignKey(_ notification: Notification) {

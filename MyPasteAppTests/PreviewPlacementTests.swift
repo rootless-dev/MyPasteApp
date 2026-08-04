@@ -114,4 +114,35 @@ struct PreviewPlacementTests {
             #expect(tipOnScreen <= card.maxX)
         }
     }
+
+    // MARK: - Detaching
+
+    @Test("Detaching keeps the top edge exactly where it was")
+    func detachedFrameKeepsTheTopEdge() {
+        let anchored = CGRect(x: 300, y: 420, width: 520, height: 392)
+        let detached = PreviewPlacement.detachedFrame(from: anchored, losing: 12)
+        #expect(detached.maxY == anchored.maxY)
+        #expect(detached.height == anchored.height - 12)
+        #expect(detached.minY == anchored.minY + 12)
+    }
+
+    @Test("Detaching changes neither width nor left edge")
+    func detachedFrameKeepsTheHorizontalAxis() {
+        let anchored = CGRect(x: -137.5, y: 0, width: 520, height: 392)
+        let detached = PreviewPlacement.detachedFrame(from: anchored, losing: 12)
+        #expect(detached.minX == anchored.minX)
+        #expect(detached.width == anchored.width)
+    }
+
+    @Test("Detaching a panel placed by solve() leaves the body where it was drawn")
+    func detachedFrameMatchesTheSolvedPlacement() {
+        // The beak strip sits below the body, so shedding it must not move
+        // a single point of what the user is looking at.
+        let card = CGRect(x: 600, y: 100, width: 200, height: 220)
+        let solved = solve(anchor: card).frame
+        let detached = PreviewPlacement.detachedFrame(from: solved, losing: 12)
+        #expect(detached.maxY == solved.maxY)
+        #expect(detached.minX == solved.minX)
+        #expect(detached.height == 380)
+    }
 }
