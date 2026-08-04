@@ -215,6 +215,25 @@ extension RichText {
                            attributes: [.font: font])
     }
 
+    /// A selection range made valid against a document of `length`.
+    ///
+    /// `stripped` can *shorten* the text — it deletes the U+FFFC placeholder
+    /// of every attachment — so a selection captured before the edit may point
+    /// past the end of what's left. Replaying it unclamped raises
+    /// `NSRangeException`, and the caret sitting at the end of the document
+    /// (`location == oldLength`) with a single inline image is enough to do
+    /// it: an HTML capture turns every `<img>` into an `NSTextAttachment`,
+    /// which is exactly the case "clear formatting" exists for.
+    ///
+    /// Collapses to the caret rather than guessing: a range whose start
+    /// survived but whose end didn't keeps its start, and one that starts past
+    /// the end lands at the end.
+    static func clamped(_ range: NSRange, toLength length: Int) -> NSRange {
+        let location = max(0, min(range.location, length))
+        return NSRange(location: location,
+                       length: max(0, min(range.length, length - location)))
+    }
+
     /// `text` with every object-replacement character removed.
     ///
     /// Separate and internal so the rule is testable without building an

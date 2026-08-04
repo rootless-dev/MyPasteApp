@@ -103,6 +103,40 @@ struct RichTextFormatTests {
         #expect(RichText.withoutAttachmentPlaceholders("nothing to do") == "nothing to do")
     }
 
+    @Test("a selection inside the new length is left alone")
+    func clampKeepsValidRanges() {
+        #expect(RichText.clamped(NSRange(location: 2, length: 3), toLength: 10)
+                == NSRange(location: 2, length: 3))
+        // Ending exactly at the end is valid, not out of bounds.
+        #expect(RichText.clamped(NSRange(location: 5, length: 5), toLength: 10)
+                == NSRange(location: 5, length: 5))
+    }
+
+    @Test("a caret at the old end survives the document getting shorter")
+    func clampMovesTheCaretBack() {
+        // The crash case: clearing formatting on an HTML capture deletes the
+        // U+FFFC of each attachment, so the caret at the end of the old text
+        // points past the end of the new one. Unclamped this raises
+        // NSRangeException.
+        #expect(RichText.clamped(NSRange(location: 11, length: 0), toLength: 10)
+                == NSRange(location: 10, length: 0))
+    }
+
+    @Test("a selection running past the new end is cut, not dropped")
+    func clampTrimsOverlongSelections() {
+        #expect(RichText.clamped(NSRange(location: 3, length: 20), toLength: 10)
+                == NSRange(location: 3, length: 7))
+        // Starting past the end keeps nothing to select.
+        #expect(RichText.clamped(NSRange(location: 40, length: 5), toLength: 10)
+                == NSRange(location: 10, length: 0))
+    }
+
+    @Test("clamping to an empty document gives an empty caret")
+    func clampToEmpty() {
+        #expect(RichText.clamped(NSRange(location: 7, length: 3), toLength: 0)
+                == NSRange(location: 0, length: 0))
+    }
+
     @Test("an empty range changes nothing")
     func emptyRangeIsANoOp() {
         let result = RichText.toggling(.bold, in: base, range: NSRange(location: 3, length: 0))

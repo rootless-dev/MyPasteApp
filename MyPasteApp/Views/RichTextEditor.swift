@@ -98,17 +98,30 @@ struct RichTextEditor: NSViewRepresentable {
         //
         // The affected range is the whole document, not `range`: `.clear`
         // rewrites all of it, and an undo registered for a narrower range
-        // would restore only part of what was changed. `replacementString` is
-        // nil because all five commands keep the characters and touch only
-        // attributes — that is what tells AppKit to record an attribute-only
-        // undo instead of a text replacement.
+        // would restore only part of what was changed.
+        //
+        // `replacementString` has to tell the truth about the length. Four of
+        // the five commands touch attributes only, and nil is what asks AppKit
+        // for the cheaper attribute-only undo. But `.clear` deletes the U+FFFC
+        // placeholder of every attachment, so it can shorten the document —
+        // and an attribute-only undo entry describes a replacement that never
+        // happened: it would restore the old attributes over a range that no
+        // longer exists, never bring the attachment characters back, and can
+        // raise on the stale range. When the length moves, the new string goes
+        // in, and AppKit registers a real text replacement it can undo.
         let whole = NSRange(location: 0, length: storage.length)
-        guard textView.shouldChangeText(in: whole, replacementString: nil) else { return }
+        let lengthChanges = updated.length != storage.length
+        guard textView.shouldChangeText(in: whole,
+                                        replacementString: lengthChanges ? updated.string : nil)
+        else { return }
         storage.beginEditing()
         storage.setAttributedString(updated)
         storage.endEditing()
         textView.didChangeText()
-        textView.setSelectedRange(range)
+        // Clamped, for the same reason: the selection was read before the edit,
+        // and a caret at the end of a document that just lost an attachment
+        // now points past the end. See `RichText.clamped`.
+        textView.setSelectedRange(RichText.clamped(range, toLength: storage.length))
         // Kept even though `didChangeText()` above already reaches the
         // coordinator, which publishes the same value: the notification is
         // AppKit's to send, and the caret restore happens between the two, so
