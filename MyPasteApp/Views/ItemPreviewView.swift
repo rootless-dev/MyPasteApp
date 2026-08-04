@@ -5,16 +5,17 @@
 
 import AppKit
 import SwiftUI
+import VisionKit
 
 /// Which mode the image preview is in.
 ///
 /// One at a time, always: two modes armed over the same image would leave a
-/// click on it with two meanings. Task 8 adds `.liveText` to this enum, and
-/// the exclusivity comes for free from it being one value rather than two
-/// booleans.
+/// click on it with two meanings. `.liveText` gets the exclusivity for free
+/// from this being one value rather than two booleans.
 enum PreviewImageMode {
     case none
     case sampler
+    case liveText
 }
 
 /// The contents of the preview panel.
@@ -94,12 +95,21 @@ struct ItemPreviewView: View {
                 // it. The point of the preview is seeing the whole thing at
                 // once — the dimensions in the header say what was given up.
                 GeometryReader { geometry in
-                    ThumbnailImage(
-                        data: data,
-                        id: item.id,
-                        maxPixel: ImageThumbnailCache.pixels(for: ItemPreviewPanel.defaultSize)
-                    ) {
-                        Text(item.preview).font(.caption)
+                    Group {
+                        if mode == .liveText {
+                            // Draws its own image rather than sitting on top of
+                            // ThumbnailImage's — see LiveTextOverlay's doc comment
+                            // for why that's what keeps the selection boxes aligned.
+                            LiveTextOverlay(data: data)
+                        } else {
+                            ThumbnailImage(
+                                data: data,
+                                id: item.id,
+                                maxPixel: ImageThumbnailCache.pixels(for: ItemPreviewPanel.defaultSize)
+                            ) {
+                                Text(item.preview).font(.caption)
+                            }
+                        }
                     }
                     .frame(width: geometry.size.width, height: geometry.size.height)
                     .background(CheckerboardBackground())
@@ -198,6 +208,13 @@ struct ItemPreviewView: View {
                        help: "Sample a colour from this image",
                        isOn: mode == .sampler) {
                 mode = mode == .sampler ? .none : .sampler
+            }
+            if ImageAnalyzer.isSupported {
+                modeButton(systemName: "text.viewfinder",
+                           help: "Select text in this image",
+                           isOn: mode == .liveText) {
+                    mode = mode == .liveText ? .none : .liveText
+                }
             }
         }
         .padding(18)
