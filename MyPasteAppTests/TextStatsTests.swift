@@ -61,4 +61,31 @@ struct TextStatsTests {
         #expect(TextStats.summary("Try Paste for free") == "18 characters · 4 words · 1 line")
         #expect(TextStats.summary("one\n") == "4 characters · 1 word · 2 lines")
     }
+
+    @Test("text at the limit still gets the full summary")
+    func atTheLimit() {
+        let text = String(repeating: "a", count: TextStats.exactCountLimit)
+        #expect(TextStats.hasExactCounts(text))
+        #expect(TextStats.summary(text) == "\(TextStats.exactCountLimit) characters · 1 word · 1 line")
+    }
+
+    @Test("past the limit the footer keeps only the character count")
+    func pastTheLimit() {
+        // The three-pass count runs on every keystroke; past this size the
+        // word pass alone allocates a String per word between key presses.
+        let size = TextStats.exactCountLimit + 1
+        let text = String(repeating: "a", count: size)
+        #expect(!TextStats.hasExactCounts(text))
+        #expect(TextStats.summary(text) == "\(size) characters")
+    }
+
+    @Test("the limit is measured in bytes, not characters")
+    func limitCountsBytes() {
+        // A multi-byte character crosses the gate sooner than an ASCII one.
+        // Erring early is deliberate: the gate exists to stay cheap, and
+        // `utf8.count` is the only length that's O(1).
+        let text = String(repeating: "é", count: TextStats.exactCountLimit)
+        #expect(text.count == TextStats.exactCountLimit)
+        #expect(!TextStats.hasExactCounts(text))
+    }
 }
