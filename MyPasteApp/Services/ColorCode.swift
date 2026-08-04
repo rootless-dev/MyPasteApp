@@ -211,4 +211,23 @@ struct ColorCode: Equatable {
             ? String(Int(rounded))
             : String(format: "%g", rounded)
     }
+
+    // MARK: - Legibility
+
+    /// Relative luminance (ITU-R BT.709 weights) this colour would have once
+    /// composited over a solid backdrop of the given luminance, accounting
+    /// for `alpha`.
+    ///
+    /// A translucent colour doesn't read on screen as its own raw channels —
+    /// alpha blends it with whatever sits behind it. `rgba(0, 0, 0, 0.05)`
+    /// is pure black by channel, but composited over a near-white backdrop
+    /// it reads as near-white. A caller picking a legible foreground needs
+    /// the composited value; the raw channels alone describe a shade nobody
+    /// actually sees.
+    func luminance(overBackdropLuminance backdrop: Double) -> Double {
+        func composite(_ channel: Double) -> Double {
+            channel * alpha + backdrop * (1 - alpha)
+        }
+        return 0.2126 * composite(red) + 0.7152 * composite(green) + 0.0722 * composite(blue)
+    }
 }

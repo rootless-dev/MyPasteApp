@@ -41,8 +41,21 @@ struct ColorSwatchView: View {
     /// Relative luminance, not plain brightness: pure green reads far lighter
     /// than pure blue at the same numeric value, and averaging the channels
     /// would put white text on a colour nobody can read it against.
+    ///
+    /// Judged against the colour as it actually renders here — composited
+    /// over `CheckerboardBackground`, not the raw channels. The checkerboard
+    /// alternates `.gray.opacity(0.25)` squares against the panel background,
+    /// so its effective luminance is about 0.85. Skipping the composite would
+    /// judge a translucent dark colour like `rgba(0, 0, 0, 0.05)` by its raw
+    /// black channels and pick white text — even though what's actually on
+    /// screen, blended with that backdrop, reads as near-white.
     private var legibleForeground: Color {
-        let luminance = 0.2126 * color.red + 0.7152 * color.green + 0.0722 * color.blue
+        let luminance = color.luminance(overBackdropLuminance: Self.checkerboardBackdropLuminance)
         return luminance > 0.55 ? .black : .white
     }
+
+    /// `CheckerboardBackground`'s effective luminance in light appearance:
+    /// half `.gray.opacity(0.25)` squares, half the plain background behind
+    /// them.
+    private static let checkerboardBackdropLuminance = 0.85
 }

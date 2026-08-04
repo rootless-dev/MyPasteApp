@@ -122,6 +122,31 @@ struct ColorCodeTests {
         #expect(color.formatted(as: .hsl) == "hsl(0, 100%, 50%)")
     }
 
+    // MARK: - Legibility
+
+    @Test("an opaque colour's composited luminance is its own, regardless of backdrop")
+    func luminanceOpaqueIgnoresBackdrop() throws {
+        let black = try #require(ColorCode.parse("#000000"))
+        #expect(black.luminance(overBackdropLuminance: 0.85) == 0)
+        let white = try #require(ColorCode.parse("#FFFFFF"))
+        #expect(abs(white.luminance(overBackdropLuminance: 0.85) - 1) < 0.0001)
+    }
+
+    @Test("a fully transparent colour's composited luminance is just the backdrop's")
+    func luminanceZeroAlphaEqualsBackdrop() throws {
+        let color = try #require(ColorCode.parse("rgba(0, 0, 0, 0)"))
+        #expect(abs(color.luminance(overBackdropLuminance: 0.85) - 0.85) < 0.0001)
+    }
+
+    @Test("a low-alpha dark colour reads near the backdrop, not near its own black")
+    func luminanceLowAlphaDarkReadsNearBackdrop() throws {
+        // The bug this guards: rgba(0, 0, 0, 0.05) is pure black by channel,
+        // but composited over a near-white backdrop (0.85) the result is
+        // near-white too — nowhere close to the raw channels' 0.
+        let color = try #require(ColorCode.parse("rgba(0, 0, 0, 0.05)"))
+        #expect(color.luminance(overBackdropLuminance: 0.85) > 0.55)
+    }
+
     // MARK: - NSColor
 
     @Test("reads an NSColor through sRGB")
