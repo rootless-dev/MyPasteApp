@@ -388,6 +388,20 @@ sai da edição e **o pinboard continua existindo** como "Sem Título" — cance
 uma renomeação não pode apagar o que acabou de ser criado. Nome vazio ou só
 espaços volta a "Sem Título", nunca a uma pílula sem rótulo.
 
+**Renomear um board que já existe** é duplo clique no nome, ou a entrada
+Renomear do menu de contexto. Um clique **navega** — é a operação frequente, e
+a que a pílula existe para oferecer.
+
+*(Decidido em uso real, depois da implementação.)* A primeira versão não tinha
+como sair do campo a não ser por `↵` ou `⎋`: clicar em qualquer outro lugar
+deixava o campo aberto, e como a pílula segue mostrando um campo de texto onde
+deveria estar o nome, **o clique seguinte naquela pílula parecia ter aberto a
+edição**. Perder o foco agora confirma, como no Finder — o texto já está
+digitado e visível, e descartá-lo num clique perdido jogaria fora trabalho que
+o usuário está vendo. Isso também obrigou a pílula a deixar de ser um `Button`:
+um `Button` consome o clique antes de qualquer `onTapGesture` contá-lo, e sem
+isso não há como distinguir um clique de dois.
+
 **Menu de contexto da pílula** (`design-refs/15`): Renomear · Excluir · a
 paleta de 8 cores. Sem "Compartilhar Pinboard" — não existe nada disso no app.
 

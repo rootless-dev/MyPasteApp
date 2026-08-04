@@ -25,12 +25,31 @@ struct PinboardPill: View {
     /// While true, the pill shows a text field instead of its label.
     var isEditing: Bool = false
     var onCommitName: (String) -> Void = { _ in }
+    /// Double-clicking the name asks to rename it. The history pill leaves this
+    /// at its no-op default: it has no name to change.
+    var onBeginRename: () -> Void = {}
 
     @State private var draft = ""
     @FocusState private var isFieldFocused: Bool
 
     var body: some View {
-        Button(action: action) {
+        pill
+            // Declared before the single-click gesture so SwiftUI gives the
+            // double click first refusal — the other order lets the first
+            // click win and the second never arrives. A double click only
+            // renames: it deliberately does not also switch scope, so
+            // reaching for the name doesn't move the drawer under you.
+            .onTapGesture(count: 2) { onBeginRename() }
+            .onTapGesture(count: 1) { action() }
+            .help(title)
+    }
+
+    /// The pill's own drawing, with no gesture attached.
+    ///
+    /// Was a `Button` until the double click arrived: a `Button` swallows the
+    /// click before any `onTapGesture` can count it, so telling one click from
+    /// two is impossible while it is in the way.
+    private var pill: some View {
             HStack(spacing: 6) {
                 marker
                 if isEditing {
@@ -43,6 +62,20 @@ struct PinboardPill: View {
                         .onAppear {
                             draft = title
                             isFieldFocused = true
+                        }
+                        // Losing focus commits, the way renaming does in
+                        // Finder. Without this the field had no way out other
+                        // than ↵ or ⎋: clicking anywhere else left it open,
+                        // and since the pill keeps showing a text field where
+                        // its name should be, the next click on that pill
+                        // looked like the click had *started* an edit.
+                        //
+                        // Committing rather than cancelling because the text
+                        // is already typed and visible — dropping it on a
+                        // stray click would discard work the user can see.
+                        .onChange(of: isFieldFocused) { _, focused in
+                            guard !focused else { return }
+                            onCommitName(draft)
                         }
                         // Escape leaves the field without renaming. The board
                         // stays exactly as it was — cancelling a rename must
@@ -89,9 +122,6 @@ struct PinboardPill: View {
                 Capsule().fill(Color.primary.opacity(isSelected ? 0.15 : 0.06))
             )
             .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .help(title)
     }
 
     @ViewBuilder

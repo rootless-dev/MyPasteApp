@@ -26,6 +26,8 @@ struct PinboardBar: View {
     /// The board currently being renamed inline, if any.
     var editingID: UUID?
     var onCommitName: (Pinboard, String) -> Void = { _, _ in }
+    /// Double-clicking a board's name. The History pill doesn't offer it.
+    var onBeginRename: (Pinboard) -> Void = { _ in }
 
     var body: some View {
         HStack(spacing: 8) {
@@ -43,7 +45,8 @@ struct PinboardBar: View {
                              focusTarget: $focusTarget,
                              action: { onSelect(board.id) },
                              isEditing: board.id == editingID,
-                             onCommitName: { onCommitName(board, $0) })
+                             onCommitName: { onCommitName(board, $0) },
+                             onBeginRename: { onBeginRename(board) })
                     .contextMenu { contextMenu(board) }
             }
 
