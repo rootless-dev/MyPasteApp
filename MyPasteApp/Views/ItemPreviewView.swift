@@ -207,6 +207,15 @@ struct ItemPreviewView: View {
                     // reaches `onTapGesture` for sampling. `.simultaneousGesture`
                     // rather than `.gesture` is what keeps them from competing
                     // over the same click in the first place.
+                    //
+                    // Attached here, on the shared `Group`, rather than only
+                    // inside the `mode != .liveText` branch above: the
+                    // recognizers still need to exist while Live Text is
+                    // armed so a drag or pinch that starts there doesn't leak
+                    // through to whatever's behind the panel. What must not
+                    // happen while Live Text is armed is `zoom` itself
+                    // changing — each gesture's own `mode != .liveText` guard
+                    // (see `magnifyGesture`/`panGesture`) is what holds that.
                     .simultaneousGesture(magnifyGesture(viewSize: geometry.size, imageSize: pixelSize))
                     .simultaneousGesture(panGesture(viewSize: geometry.size, imageSize: pixelSize))
                     .onAppear { previewViewSize = geometry.size }
@@ -311,11 +320,23 @@ struct ItemPreviewView: View {
     private func magnifyGesture(viewSize: CGSize, imageSize: CGSize) -> some Gesture {
         MagnifyGesture()
             .onChanged { value in
+                // Live Text draws its own un-zoomed image (see the doc
+                // comment at the call site) and hides the zoom buttons — a
+                // pinch recognised over that overlay must not move `zoom`
+                // either, or leaving Live Text would snap the image to
+                // whatever silently accumulated while nothing on screen
+                // visibly changed. The gesture recognizer itself still lives
+                // on the shared `Group`, so this guard is what actually
+                // holds the invariant, not the branch in `content`.
+                guard mode != .liveText else { return }
                 zoom = ImageZoom(scale: zoomBaseline.scale * value.magnification,
                                  offset: zoomBaseline.offset)
                     .clamped(viewSize: viewSize, imageSize: imageSize)
             }
-            .onEnded { _ in zoomBaseline = zoom }
+            .onEnded { _ in
+                guard mode != .liveText else { return }
+                zoomBaseline = zoom
+            }
     }
 
     /// Recognises a drag and pans the image by it.
@@ -329,14 +350,21 @@ struct ItemPreviewView: View {
     private func panGesture(viewSize: CGSize, imageSize: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 2)
             .onChanged { value in
-                guard zoom.scale > ImageZoom.minScale else { return }
+                // Same reasoning as `magnifyGesture`'s guard: a drag
+                // recognised over the Live Text overlay must not move
+                // `zoom`, or leaving Live Text would silently pan to
+                // wherever the drag ended.
+                guard mode != .liveText, zoom.scale > ImageZoom.minScale else { return }
                 zoom = ImageZoom(
                     scale: zoomBaseline.scale,
                     offset: CGSize(width: zoomBaseline.offset.width + value.translation.width,
                                    height: zoomBaseline.offset.height + value.translation.height)
                 ).clamped(viewSize: viewSize, imageSize: imageSize)
             }
-            .onEnded { _ in zoomBaseline = zoom }
+            .onEnded { _ in
+                guard mode != .liveText else { return }
+                zoomBaseline = zoom
+            }
     }
 
     /// Applied by both `+`/`−` buttons — a button press is a complete,
