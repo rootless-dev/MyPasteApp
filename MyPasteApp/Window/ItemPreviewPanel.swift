@@ -19,7 +19,21 @@ import AppKit
 import SwiftUI
 
 enum ItemPreviewPanel {
-    static let defaultSize = NSSize(width: 520, height: 380)
+    /// What the content area measures — the panel's SwiftUI body, and
+    /// nothing else. Kept separate from `windowSize` because
+    /// `ItemPreviewView` also hands this to `ImageThumbnailCache.pixels(for:)`
+    /// to size decoded thumbnails; folding the beak into it would silently
+    /// change decode resolution for every image the preview shows.
+    static let contentSize = NSSize(width: 520, height: 380)
+    static let beakHeight: CGFloat = 12
+    static let cornerRadius: CGFloat = 12
+    /// What the window itself measures — `contentSize` plus the strip the
+    /// beak occupies below it. Everything that sizes or positions the
+    /// `NSPanel` uses this; everything that measures content uses
+    /// `contentSize`.
+    static var windowSize: NSSize {
+        NSSize(width: contentSize.width, height: contentSize.height + beakHeight)
+    }
 
     /// Builds the panel shell. `contentView` is left unset on purpose:
     /// `OverlayWindowController.applyPreviewContent(to:item:)` is the only
@@ -27,7 +41,7 @@ enum ItemPreviewPanel {
     /// below only has to be followed in one spot instead of two.
     static func make() -> NSPanel {
         let panel = NSPanel(
-            contentRect: NSRect(origin: .zero, size: defaultSize),
+            contentRect: NSRect(origin: .zero, size: windowSize),
             // Not .borderless: unlike the overlay, this panel doesn't need to
             // become key — the overlay keeps the keyboard. See
             // OverlayWindowController.installClickOutsideMonitors().
@@ -43,6 +57,17 @@ enum ItemPreviewPanel {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
         panel.hidesOnDeactivate = false
         panel.sharingType = WindowPrivacy.sharingType()
+        // The window itself draws nothing — PreviewPanelShape, filled in
+        // ItemPreviewView's background, is the only thing visible. Without
+        // this, .titled's own opaque background and corner mask would sit
+        // behind (and inside) the beak, defeating the point of drawing it.
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        // The system shadow follows the window's rectangle, not the shape
+        // drawn inside it — left on, it would draw a rectangular shadow
+        // around the transparent margin next to the beak. ItemPreviewView's
+        // .shadow on PreviewPanelShape itself replaces it.
+        panel.hasShadow = false
         // .nonactivatingPanel only keeps a click here from activating the
         // app — by itself it does NOT stop the panel from becoming key, and
         // a panel that becomes key sends windowDidResignKey to whichever

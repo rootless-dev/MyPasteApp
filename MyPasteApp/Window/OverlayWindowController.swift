@@ -459,7 +459,7 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         guard let panel = previewPanel else { return }
         panel.orderOut(nil)
         panel.contentView = NSView(
-            frame: NSRect(origin: .zero, size: ItemPreviewPanel.defaultSize)
+            frame: NSRect(origin: .zero, size: ItemPreviewPanel.windowSize)
         )
         previewDisplayedItemID = nil
     }
@@ -531,7 +531,7 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
             },
             onEdit: { [weak self] in self?.itemEditor.open(item: item, focus: .label) }
         ))
-        host.frame = NSRect(origin: .zero, size: ItemPreviewPanel.defaultSize)
+        host.frame = NSRect(origin: .zero, size: ItemPreviewPanel.windowSize)
         host.autoresizingMask = [NSView.AutoresizingMask.width, NSView.AutoresizingMask.height]
         panel.contentView = host
         previewDisplayedItemID = item.id
@@ -554,7 +554,7 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
     /// Deliberately does not draw a pointer/beak connecting the panel to the
     /// card (design-refs/03-preview-web.png) — see the Task 20 report.
     private func positionPreviewPanel(_ panel: NSPanel) {
-        let size = ItemPreviewPanel.defaultSize
+        let size = ItemPreviewPanel.windowSize
         guard let screen = window?.screen ?? NSScreen.main else { return }
         guard let anchor = previewAnchorFrame,
               let overlayWindow = window,

@@ -65,7 +65,24 @@ struct ItemPreviewView: View {
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(width: 520, height: 380)
+        .frame(width: ItemPreviewPanel.contentSize.width, height: ItemPreviewPanel.contentSize.height)
+        // Leaves the strip below the rounded body empty for the beak:
+        // without it, content would run to the bottom of the window and
+        // show through the triangle instead of leaving it as a clean point
+        // of translucent material.
+        .padding(.bottom, ItemPreviewPanel.beakHeight)
+        .background {
+            // The shadow lives here, on the shape, rather than on the VStack
+            // above: a shadow on the content would draw a rectangular
+            // silhouette behind the beak instead of following its point.
+            previewShape
+                .fill(.regularMaterial)
+                .shadow(radius: 12, y: 4)
+        }
+        // Same shape, same parameters as the background fill — see
+        // `previewShape`'s doc comment for why a mismatch here would leak
+        // content past the drawn outline.
+        .clipShape(previewShape)
         // A zoom level chosen for one image has no business surviving onto
         // the next one the panel shows — arrowing through history at 4x
         // would otherwise keep every subsequent item cropped and blown up.
@@ -81,6 +98,19 @@ struct ItemPreviewView: View {
         // catches exactly this case without re-triggering on every
         // unrelated re-render.
         .onChange(of: item.contentHash) { resetZoom() }
+    }
+
+    /// The window's outline, shared by the background fill and the clip
+    /// shape below so the two can never disagree about where the panel's
+    /// edge is. `beakOffset` is pinned to the panel's horizontal centre for
+    /// this spike — Task 4 wires it to wherever the anchored card actually
+    /// sits.
+    private var previewShape: PreviewPanelShape {
+        PreviewPanelShape(
+            beakOffset: ItemPreviewPanel.contentSize.width / 2,
+            beakHeight: ItemPreviewPanel.beakHeight,
+            cornerRadius: ItemPreviewPanel.cornerRadius
+        )
     }
 
     private var header: some View {
@@ -160,7 +190,7 @@ struct ItemPreviewView: View {
                                 id: item.id,
                                 contentHash: item.contentHash,
                                 maxPixel: ImageZoom.thumbnailMaxPixel(
-                                    base: ImageThumbnailCache.pixels(for: ItemPreviewPanel.defaultSize),
+                                    base: ImageThumbnailCache.pixels(for: ItemPreviewPanel.contentSize),
                                     scale: zoom.scale,
                                     imageSize: pixelSize
                                 )
