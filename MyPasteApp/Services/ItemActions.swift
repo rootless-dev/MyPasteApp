@@ -151,6 +151,29 @@ extension ItemActions {
         try? item.modelContext?.save()
     }
 
+    /// Builds an item the app itself captured — today, a colour from the
+    /// screen sampler.
+    ///
+    /// Separate from `makeManualItem` on one axis only: this one is **not**
+    /// born `keepForever`. Something typed by hand exists nowhere else and
+    /// deserves protection; a sampled colour can be sampled again, and
+    /// protecting every sample would quietly grow the set the pruner may
+    /// never touch.
+    ///
+    /// The app builds this itself rather than letting `ClipboardMonitor` pick
+    /// the write up, because the monitor credits the frontmost application —
+    /// and ours isn't frontmost when the system sampler closes. The item
+    /// would be stamped with the icon and colour of whatever was underneath.
+    static func makeCapturedItem(text: String) -> ClipboardItem {
+        ClipboardItem(
+            type: .text,
+            preview: String(text.prefix(ClipboardMonitor.previewTextLength())),
+            contentHash: ClipboardMonitor.hash(text),
+            textContent: text,
+            sourceAppBundleID: Bundle.main.bundleIdentifier
+        )
+    }
+
     static func makeManualItem(text: String) -> ClipboardItem {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let isURL = URL(string: trimmed).map { $0.scheme != nil } ?? false

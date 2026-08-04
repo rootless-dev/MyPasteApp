@@ -266,6 +266,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                  keyEquivalent: "n")
         newItem.target = self
         menu.addItem(newItem)
+        let pickColor = NSMenuItem(title: "Pick Color from Screen",
+                                   action: #selector(pickColorAction),
+                                   keyEquivalent: "")
+        pickColor.target = self
+        menu.addItem(pickColor)
         let prefs = NSMenuItem(title: "Preferences…",
                                action: #selector(openPreferences),
                                keyEquivalent: ",")
@@ -289,6 +294,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func newItemAction() {
         itemEditor.openForNewItem()
+    }
+
+    /// Opens the system colour sampler and files the result.
+    ///
+    /// `NSColorSampler` is the "native color picker": the magnifier runs in
+    /// the system's own process, so this needs no screen-recording permission
+    /// and no capture code of ours. The handler receives nil when the user
+    /// dismisses the loupe with Escape — nothing should happen then.
+    @objc private func pickColorAction() {
+        NSColorSampler().show { [weak self] picked in
+            guard let self, let picked, let color = ColorCode(picked) else { return }
+            let text = color.formatted(as: .hex)
+            let item = ItemActions.makeCapturedItem(text: text)
+            self.modelContainer.mainContext.insert(item)
+            try? self.modelContainer.mainContext.save()
+            // Silently: the item above is already the history's copy of this
+            // colour, and letting the monitor capture the write would file a
+            // second one credited to whatever app is frontmost.
+            self.writer.writeText(text, silently: true)
+        }
     }
 
     /// Built fresh on every menu opening — `showStatusMenu` rebuilds the whole
