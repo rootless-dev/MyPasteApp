@@ -571,21 +571,15 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         let windowRect = contentView.convert(anchor, to: nil)
         let screenRect = overlayWindow.convertToScreen(windowRect)
 
-        let margin: CGFloat = 12
-        let edgeInset: CGFloat = 8
-        var x = screenRect.midX - size.width / 2
-        var y = screenRect.maxY + margin
+        // beakOffset is discarded here — Task 4 is what threads it through
+        // to PreviewPanelShape.
+        let result = PreviewPlacement.solve(anchor: screenRect,
+                                            panelSize: size,
+                                            visibleFrame: screen.visibleFrame,
+                                            cornerRadius: ItemPreviewPanel.cornerRadius,
+                                            beakWidth: PreviewPlacement.beakWidth)
 
-        x = max(screen.visibleFrame.minX + edgeInset,
-                min(x, screen.visibleFrame.maxX - size.width - edgeInset))
-        if y + size.height > screen.visibleFrame.maxY - edgeInset {
-            y = screen.visibleFrame.maxY - size.height - edgeInset
-        }
-        if y < screen.visibleFrame.minY + edgeInset {
-            y = screen.visibleFrame.minY + edgeInset
-        }
-
-        panel.setFrame(NSRect(x: x, y: y, width: size.width, height: size.height), display: false)
+        panel.setFrame(result.frame, display: false)
     }
 
     /// Resolves which `NSScreen` the overlay should appear on.
