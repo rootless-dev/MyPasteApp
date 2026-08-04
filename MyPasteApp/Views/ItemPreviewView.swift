@@ -95,14 +95,18 @@ struct ItemPreviewView: View {
                     .frame(width: geometry.size.width, height: geometry.size.height)
                     .background(CheckerboardBackground())
                     .contentShape(Rectangle())
-                    .onHover { inside in
-                        // The cursor is the only thing on screen saying that
-                        // the next click has an effect.
-                        if mode == .sampler && inside {
-                            NSCursor.crosshair.push()
-                        } else {
-                            NSCursor.pop()
-                        }
+                    .onContinuousHover { phase in
+                        // `set()`, never `push()`/`pop()`: those two are a
+                        // manually balanced global stack, and this view has
+                        // no reliable moment to pop — a click that disarms
+                        // the mode fires no hover event, and a re-render can
+                        // re-enter a session that was already entered.
+                        // `set()` owns the cursor for as long as the pointer
+                        // keeps moving over this view and needs no matching
+                        // call, so nothing can leak out to the rest of the
+                        // app.
+                        guard case .active = phase, mode == .sampler else { return }
+                        NSCursor.crosshair.set()
                     }
                     .onTapGesture { location in
                         sample(at: location, in: geometry.size, data: data)
