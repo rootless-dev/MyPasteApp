@@ -39,13 +39,29 @@ enum OpenWith {
         case .url:
             guard let text = item.textContent,
                   let url = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)),
-                  url.scheme != nil
+                  let scheme = url.scheme?.lowercased(),
+                  openableSchemes.contains(scheme)
             else { return .unsupported }
             return .openable(url)
         case .text, .image:
             return .unsupported
         }
     }
+
+    /// The schemes ⌘O will hand to `NSWorkspace`.
+    ///
+    /// An allowlist, not "any scheme with a colon in it". A `.url` item is
+    /// only ever *text* somebody copied, and `NSWorkspace.open` acts on
+    /// whatever it is handed: copying the literal string
+    /// `file:///Applications/Utilities/Terminal.app` classified as a URL and
+    /// ⌘O launched Terminal; `smb://host/share` opened an outbound connection
+    /// and a credential prompt. Neither is something the user asked this app
+    /// to do by pressing ⌘O over a card.
+    ///
+    /// File items are unaffected — they arrive through the `.file` branch
+    /// above, from real pasteboard file promises, and are still checked
+    /// against the filesystem.
+    static let openableSchemes: Set<String> = ["http", "https", "mailto"]
 
     /// The applications that can open this target, by display name.
     static func candidates(for target: URL) -> [Candidate] {

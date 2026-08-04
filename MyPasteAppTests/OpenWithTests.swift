@@ -51,6 +51,50 @@ struct OpenWithTests {
         #expect(OpenWith.target(for: item) == .unsupported)
     }
 
+    @Test("an https url is openable, and so is mailto")
+    func allowedSchemes() {
+        for text in ["https://example.com", "http://example.com", "mailto:someone@example.com"] {
+            let item = ClipboardItem(type: .url,
+                                     preview: text,
+                                     contentHash: "hash",
+                                     textContent: text)
+            #expect(OpenWith.target(for: item) == .openable(URL(string: text)!),
+                    "\(text) should be openable")
+        }
+    }
+
+    @Test("a scheme outside the allowlist is not opened")
+    func disallowedSchemes() {
+        // A `.url` item is only ever text somebody copied, and
+        // `NSWorkspace.open` acts on whatever it's handed: `file://` pointed
+        // at an app bundle launched it, and `smb://` opened an outbound
+        // connection and a credential prompt — neither of which is what ⌘O
+        // over a card means.
+        let dangerous = [
+            "file:///Applications/Utilities/Terminal.app",
+            "smb://host/share",
+            "ftp://example.com/file",
+            "javascript:alert(1)",
+            "x-apple-shortcuts://run-shortcut?name=Wipe",
+        ]
+        for text in dangerous {
+            let item = ClipboardItem(type: .url,
+                                     preview: text,
+                                     contentHash: "hash",
+                                     textContent: text)
+            #expect(OpenWith.target(for: item) == .unsupported, "\(text) must not be openable")
+        }
+    }
+
+    @Test("the scheme check ignores case")
+    func schemeCaseInsensitive() {
+        let item = ClipboardItem(type: .url,
+                                 preview: "HTTPS://example.com",
+                                 contentHash: "hash",
+                                 textContent: "HTTPS://example.com")
+        #expect(OpenWith.target(for: item) == .openable(URL(string: "HTTPS://example.com")!))
+    }
+
     @Test("text and image items have nothing to open")
     func unsupportedTypes() {
         let text = ClipboardItem(type: .text,
