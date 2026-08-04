@@ -297,6 +297,31 @@ final class ClipboardMonitor {
 
     @discardableResult
     private func insertIfNotDuplicate(_ item: ClipboardItem) -> ClipboardItem {
+        let stored = Self.file(item, in: modelContext)
+        // Only a genuinely new capture makes a sound. A re-copy of something
+        // already in the history is a promotion, not an arrival.
+        if stored === item, Self.soundFeedbackEnabled(from: defaults) {
+            NSSound(named: "Tink")?.play()
+        }
+        return stored
+    }
+
+    /// Files an item into the history, reusing the existing one when the same
+    /// content is already there.
+    ///
+    /// Static and taking its context, because the pasteboard is not the only
+    /// source of items: the colour sampler and "Copy Color as" build theirs
+    /// by hand (`ItemActions.makeCapturedItem`) precisely so the monitor
+    /// doesn't credit whatever app happens to be frontmost. Those paths still
+    /// have to deduplicate — sampling `#FFFFFF` five times is one item copied
+    /// five times, not five items — and this is the one rule that says so.
+    ///
+    /// Returns the *persisted* item, which for a duplicate is the one already
+    /// on screen with its label, board and metadata intact.
+    @discardableResult
+    static func file(_ item: ClipboardItem,
+                     in context: ModelContext,
+                     now: Date = .now) -> ClipboardItem {
         let hash = item.contentHash
         var descriptor = FetchDescriptor<ClipboardItem>(
             predicate: #Predicate { $0.contentHash == hash },
@@ -304,20 +329,15 @@ final class ClipboardMonitor {
         )
         descriptor.fetchLimit = 1
 
-        if let existing = try? modelContext.fetch(descriptor).first {
-            let now = Date.now
+        if let existing = try? context.fetch(descriptor).first {
             existing.createdAt = now
-            existing.expiresAt = Self.expiryAfterRecapture(expiresAt: existing.expiresAt,
-                                                           now: now)
+            existing.expiresAt = expiryAfterRecapture(expiresAt: existing.expiresAt, now: now)
+            try? context.save()
             return existing
         }
 
-        modelContext.insert(item)
-        try? modelContext.save()
-
-        if Self.soundFeedbackEnabled(from: defaults) {
-            NSSound(named: "Tink")?.play()
-        }
+        context.insert(item)
+        try? context.save()
         return item
     }
 

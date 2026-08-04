@@ -50,6 +50,20 @@ final class ClipboardWriter {
         }
     }
 
+    /// Puts a plain string on the pasteboard.
+    ///
+    /// `silently` suppresses the capture of our own write: pass true when the
+    /// string is already in the history (the colour sampler inserts its item
+    /// itself) and false when the string is new content the user asked for
+    /// (converting a colour to another format), which belongs in the history
+    /// like any other copy.
+    func writeText(_ text: String, silently: Bool) {
+        let pb = NSPasteboard.general
+        if silently { monitor?.ignoreNextChange = true }
+        pb.clearContents()
+        pb.setData(Data(text.utf8), forType: .string)
+    }
+
     /// Writes several items to the pasteboard as a single block.
     ///
     /// Deliberately **not** a parameter on `write(_:plainText:)`. The two

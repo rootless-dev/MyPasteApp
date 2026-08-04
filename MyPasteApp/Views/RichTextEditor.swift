@@ -13,6 +13,11 @@ import SwiftUI
 /// brings ⌘B, ⌘I, the Format menu and macOS 15+ Writing Tools for free.
 struct RichTextEditor: NSViewRepresentable {
     @Binding var attributedText: NSAttributedString
+    /// A command the toolbar asked for, consumed and cleared on arrival.
+    ///
+    /// The selection lives in the `NSTextView`, which SwiftUI can't reach —
+    /// so the command travels down instead of the selection travelling up.
+    @Binding var command: RichTextCommand?
     var isRichText: Bool = true
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -36,11 +41,99 @@ struct RichTextEditor: NSViewRepresentable {
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? NSTextView else { return }
+        if let command {
+            // The whole apply — reading the selection, computing the new
+            // text, writing it back to storage, restoring the caret, and
+            // publishing `attributedText` — happens inside this deferred
+            // hop, not here. Doing any of it synchronously during this
+            // view-update pass mutates `ItemEditorView`'s @State (the
+            // "modifying state during a view update" hazard) and, worse,
+            // lets a second command land and apply itself against the same
+            // pre-mutation storage before this one's publish reaches
+            // `attributedText` — corrupting one or both edits. Reading
+            // `command.id` here is safe: it writes nothing.
+            let id = command.id
+            DispatchQueue.main.async { [weak textView] in
+                // Act only if this is still the command that was scheduled.
+                // A different command replacing it in the meantime means
+                // that one now owns the apply-and-publish; running this one
+                // anyway would either double-apply on top of the newer
+                // command's edit or publish a stale snapshot over it. A
+                // superseded hop just no-ops.
+                guard self.command?.id == id, let textView else { return }
+                self.apply(command, to: textView)
+                self.command = nil
+            }
+            return
+        }
         // Only push back when the model actually diverged. Rewriting the
         // storage on every SwiftUI update would reset the insertion point to
         // the start of the document on each keystroke.
         guard textView.textStorage?.isEqual(to: attributedText) == false else { return }
         textView.textStorage?.setAttributedString(attributedText)
+    }
+
+    private func apply(_ command: RichTextCommand, to textView: NSTextView) {
+        guard let storage = textView.textStorage else { return }
+        let current = NSAttributedString(attributedString: storage)
+        let range = textView.selectedRange()
+        let updated: NSAttributedString
+
+        switch command.kind {
+        case .bold:          updated = RichText.toggling(.bold, in: current, range: range)
+        case .italic:        updated = RichText.toggling(.italic, in: current, range: range)
+        case .underline:     updated = RichText.togglingUnderline(in: current, range: range)
+        case .strikethrough: updated = RichText.togglingStrikethrough(in: current, range: range)
+        case .clear:
+            updated = RichText.stripped(current,
+                                        font: textView.font ?? .systemFont(ofSize: 13))
+        }
+
+        // Through `shouldChangeText`/`didChangeText`, never a bare
+        // `setAttributedString`: `allowsUndo` records nothing for a storage
+        // mutation that doesn't announce itself, so ⌘B from the keyboard was
+        // undoable while the toolbar button doing the same thing was not —
+        // and "clear formatting", which destroys every font, colour, link and
+        // paragraph style in a Mail item at once, had no ⌘Z at all.
+        //
+        // The affected range is the whole document, not `range`: `.clear`
+        // rewrites all of it, and an undo registered for a narrower range
+        // would restore only part of what was changed.
+        //
+        // `replacementString` has to tell the truth about the length. Four of
+        // the five commands touch attributes only, and nil is what asks AppKit
+        // for the cheaper attribute-only undo. But `.clear` deletes the U+FFFC
+        // placeholder of every attachment, so it can shorten the document —
+        // and an attribute-only undo entry describes a replacement that never
+        // happened: it would restore the old attributes over a range that no
+        // longer exists, never bring the attachment characters back, and can
+        // raise on the stale range. When the length moves, the new string goes
+        // in, and AppKit registers a real text replacement it can undo.
+        let whole = NSRange(location: 0, length: storage.length)
+        let lengthChanges = updated.length != storage.length
+        guard textView.shouldChangeText(in: whole,
+                                        replacementString: lengthChanges ? updated.string : nil)
+        else { return }
+        storage.beginEditing()
+        storage.setAttributedString(updated)
+        storage.endEditing()
+        textView.didChangeText()
+        // Clamped, for the same reason: the selection was read before the edit,
+        // and a caret at the end of a document that just lost an attachment
+        // now points past the end. See `RichText.clamped`.
+        textView.setSelectedRange(RichText.clamped(range, toLength: storage.length))
+        // Kept even though `didChangeText()` above already reaches the
+        // coordinator, which publishes the same value: the notification is
+        // AppKit's to send, and the caret restore happens between the two, so
+        // this is the publish that is guaranteed to describe the final state.
+        //
+        // Publish from the storage that was just written, not `updated` or
+        // any other snapshot taken earlier: a value computed before this hop
+        // ran can already be stale by the time it lands here — e.g. the user
+        // typed a character while the hop was pending — and publishing it
+        // would silently erase that edit. Storage is the source of truth at
+        // the moment of publish.
+        attributedText = NSAttributedString(attributedString: storage)
     }
 
     func makeCoordinator() -> Coordinator {

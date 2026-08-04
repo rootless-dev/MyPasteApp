@@ -225,8 +225,16 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         }
 
         // Initial state: translated below the window itself.
+        //
+        // The closing pair is removed too, not just the opening one: `hide()`
+        // adds them with `fillMode: .forwards`, so reopening the drawer while
+        // it is still sliding out would leave the layer pinned off-screen and
+        // transparent — an opening animation running on content nobody can
+        // see.
         hostLayer.removeAnimation(forKey: "slideUp")
         hostLayer.removeAnimation(forKey: "fadeIn")
+        hostLayer.removeAnimation(forKey: "slideDown")
+        hostLayer.removeAnimation(forKey: "fadeOut")
         hostLayer.setAffineTransform(CGAffineTransform(translationX: 0, y: -height))
         panel.alphaValue = 1
 
@@ -284,12 +292,63 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         // also covers the "preview open, overlay already gone" edge case.
         hidePreviewPanel()
         guard let panel = window, panel.isVisible else { return }
-        NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.18
-            panel.animator().alphaValue = 0
-        }, completionHandler: {
+
+        // The drawer leaves the way it arrived: by translating the content
+        // view's layer, never the window. `show()` explains why — a
+        // window-level slide crosses monitor boundaries in multi-display
+        // setups and produces a "teleport" glitch. The window stays put at
+        // its final frame and the content slides out of it.
+        guard let hostLayer = panel.contentView?.layer else {
+            panel.alphaValue = 0
             panel.orderOut(nil)
-        })
+            return
+        }
+
+        let height = Self.overlayHeight
+
+        // Any in-flight opening animation has to go first, or its
+        // `fillMode: .forwards` end state fights this one.
+        hostLayer.removeAnimation(forKey: "slideUp")
+        hostLayer.removeAnimation(forKey: "fadeIn")
+
+        hostLayer.shouldRasterize = true
+        hostLayer.rasterizationScale = panel.backingScaleFactor
+
+        // Ease-in, not the spring `show()` uses: a spring overshoots, and
+        // overshooting on the way out reads as the drawer bouncing off the
+        // bottom of the screen rather than leaving.
+        let slide = CABasicAnimation(keyPath: "transform")
+        slide.fromValue = CATransform3DIdentity
+        slide.toValue = CATransform3DMakeTranslation(0, -height, 0)
+        slide.duration = 0.18
+        slide.timingFunction = CAMediaTimingFunction(name: .easeIn)
+        slide.fillMode = .forwards
+        slide.isRemovedOnCompletion = false
+
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 1
+        fade.toValue = 0
+        fade.duration = 0.18
+        fade.timingFunction = CAMediaTimingFunction(name: .easeIn)
+        fade.fillMode = .forwards
+        fade.isRemovedOnCompletion = false
+
+        CATransaction.begin()
+        CATransaction.setCompletionBlock {
+            panel.orderOut(nil)
+            // Back to the resting state the next `show()` expects to find.
+            // `show()` sets both itself, but leaving the layer parked
+            // off-screen and transparent would show an empty drawer for one
+            // frame if anything ever ordered the panel front without it.
+            hostLayer.removeAnimation(forKey: "slideDown")
+            hostLayer.removeAnimation(forKey: "fadeOut")
+            hostLayer.setAffineTransform(.identity)
+            hostLayer.opacity = 1
+            hostLayer.shouldRasterize = false
+        }
+        hostLayer.add(slide, forKey: "slideDown")
+        hostLayer.add(fade, forKey: "fadeOut")
+        CATransaction.commit()
     }
 
     /// Hides without the fade, for when an item was picked.
@@ -303,6 +362,19 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         removeClickOutsideMonitors()
         hidePreviewPanel()
         guard let panel = window, panel.isVisible else { return }
+        // Cancel any slide in flight and put the layer back at rest. Without
+        // this, picking an item while the drawer is mid-animation would leave
+        // a `fillMode: .forwards` end state parked on the layer for the next
+        // opening to fight.
+        if let hostLayer = panel.contentView?.layer {
+            hostLayer.removeAnimation(forKey: "slideUp")
+            hostLayer.removeAnimation(forKey: "fadeIn")
+            hostLayer.removeAnimation(forKey: "slideDown")
+            hostLayer.removeAnimation(forKey: "fadeOut")
+            hostLayer.setAffineTransform(.identity)
+            hostLayer.opacity = 1
+            hostLayer.shouldRasterize = false
+        }
         panel.alphaValue = 0
         panel.orderOut(nil)
     }
@@ -434,9 +506,31 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
     /// of the frame `positionPreviewPanel(_:)` sets, the same bug the Task 19
     /// spike ran into.
     private func applyPreviewContent(to panel: NSPanel, item: ClipboardItem) {
-        let host = NSHostingView(rootView: ItemPreviewView(item: item, onClose: { [weak self] in
-            self?.hidePreviewPanel()
-        }))
+        let host = NSHostingView(rootView: ItemPreviewView(
+            item: item,
+            onClose: { [weak self] in self?.hidePreviewPanel() },
+            onCopyColor: { [weak self] color in
+                guard let self else { return }
+                let text = color.formatted(as: .hex)
+                // Files the item, exactly like the screen sampler and "Copy
+                // Color as" do. The phase's design said this one should copy
+                // *without* filing — the reasoning being that clicking
+                // through several pixels would fill the history with items
+                // nobody asked for. Using it proved the opposite: a colour
+                // you went looking for inside an image is a colour you want
+                // back, and having two of the three colour paths file while
+                // the third silently didn't was impossible to explain.
+                //
+                // `ClipboardMonitor.file`, not a bare insert: sampling the
+                // same colour twice promotes the item already in the history
+                // rather than filing a duplicate — which is most of what the
+                // original worry was about.
+                ClipboardMonitor.file(ItemActions.makeCapturedItem(text: text),
+                                      in: self.modelContainer.mainContext)
+                self.writer.writeText(text, silently: true)
+            },
+            onEdit: { [weak self] in self?.itemEditor.open(item: item, focus: .label) }
+        ))
         host.frame = NSRect(origin: .zero, size: ItemPreviewPanel.defaultSize)
         host.autoresizingMask = [NSView.AutoresizingMask.width, NSView.AutoresizingMask.height]
         panel.contentView = host

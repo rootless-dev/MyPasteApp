@@ -17,7 +17,14 @@ struct LinkPreviewView: View {
     // through to the favicon instead of leaving a blank rectangle.
     var body: some View {
         if let data = item.linkImageData {
+            // `item.contentHash` here is the hash of the *URL text*, not of the
+            // banner bytes — and that is the right identity for them: link
+            // metadata is fetched only when the item has none at all (see
+            // `ClipboardMonitor.needsLinkMetadata`), so a banner that exists is
+            // never replaced in place. Banner and favicon stay apart in the
+            // cache by `maxPixel`, as they always have.
             ThumbnailImage(data: data, id: item.id,
+                           contentHash: item.contentHash,
                            maxPixel: ImageThumbnailCache.pixels(
                                for: CGSize(width: 320, height: 240)),
                            contentMode: .fill) {
@@ -39,6 +46,7 @@ struct LinkPreviewView: View {
                 // 64x64 shadowed badge only once decoded; an undecodable
                 // favicon still falls through to `textFallback` at full size.
                 ThumbnailImage(data: data, id: item.id,
+                               contentHash: item.contentHash,
                                maxPixel: ImageThumbnailCache.pixels(
                                    for: CGSize(width: 64, height: 64)),
                                chrome: .favicon) {

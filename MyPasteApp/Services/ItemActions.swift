@@ -51,6 +51,27 @@ final class ItemActions {
         writer.write(item, plainText: plainText)
     }
 
+    /// Copies a recognised colour in the format the user picked, and files the
+    /// converted string in the history.
+    ///
+    /// The item is built here and written **silently**, exactly like the
+    /// screen sampler's own path in `AppDelegate.pickColorAction`. Letting the
+    /// monitor pick the write up instead — which is what a non-silent write
+    /// does — was wrong twice over: the monitor credits
+    /// `NSWorkspace.frontmostApplication`, and the overlay is a
+    /// `.nonactivatingPanel`, so converting a colour while Safari was in front
+    /// filed an item wearing Safari's icon and header colour. Worse, with
+    /// monitoring paused or an "ignore" rule on the frontmost app, the write
+    /// was dropped entirely and no item was created at all, with nothing
+    /// saying so.
+    func copyColor(_ color: ColorCode, as format: ColorFormat) {
+        let text = color.formatted(as: format)
+        // Through the monitor's own rule, so converting the same colour twice
+        // promotes one item rather than filing two identical ones.
+        ClipboardMonitor.file(ItemActions.makeCapturedItem(text: text), in: modelContext)
+        writer.writeText(text, silently: true)
+    }
+
     func togglePin(_ item: ClipboardItem) {
         item.isPinned.toggle()
         try? modelContext.save()
@@ -106,6 +127,16 @@ final class ItemActions {
     func jumpToHistory(_ item: ClipboardItem) {
         onJump(item)
     }
+
+    /// Opens an item in another application.
+    ///
+    /// Does nothing for an item with no openable target — the menu already
+    /// won't offer it, and `⌘O` over such a card should be a no-op rather than
+    /// an error nobody can act on.
+    func open(_ item: ClipboardItem, with application: URL? = nil) {
+        guard case .openable(let target) = OpenWith.target(for: item) else { return }
+        OpenWith.open(target, with: application)
+    }
 }
 
 /// Builds an item the user wrote by hand.
@@ -149,6 +180,29 @@ extension ItemActions {
     static func assign(_ item: ClipboardItem, to board: Pinboard?) {
         item.pinboard = board
         try? item.modelContext?.save()
+    }
+
+    /// Builds an item the app itself captured — today, a colour from the
+    /// screen sampler.
+    ///
+    /// Separate from `makeManualItem` on one axis only: this one is **not**
+    /// born `keepForever`. Something typed by hand exists nowhere else and
+    /// deserves protection; a sampled colour can be sampled again, and
+    /// protecting every sample would quietly grow the set the pruner may
+    /// never touch.
+    ///
+    /// The app builds this itself rather than letting `ClipboardMonitor` pick
+    /// the write up, because the monitor credits the frontmost application —
+    /// and ours isn't frontmost when the system sampler closes. The item
+    /// would be stamped with the icon and colour of whatever was underneath.
+    static func makeCapturedItem(text: String) -> ClipboardItem {
+        ClipboardItem(
+            type: .text,
+            preview: String(text.prefix(ClipboardMonitor.previewTextLength())),
+            contentHash: ClipboardMonitor.hash(text),
+            textContent: text,
+            sourceAppBundleID: Bundle.main.bundleIdentifier
+        )
     }
 
     static func makeManualItem(text: String) -> ClipboardItem {
@@ -215,6 +269,38 @@ enum ItemEdit {
         let trimmed = label?.trimmingCharacters(in: .whitespacesAndNewlines)
         item.label = (trimmed?.isEmpty ?? true) ? nil : trimmed
 
+        item.createdAt = .now
+        item.lastUsedAt = .now
+
+        try? item.modelContext?.save()
+    }
+}
+
+/// Applies an edit to an image item, recomputing everything derived from its
+/// bytes.
+///
+/// Recomputing `contentHash` is what makes the new bytes visible, and not only
+/// to deduplication: the thumbnail cache key and `ThumbnailImage`'s `.task` id
+/// both carry the hash (see `ImageThumbnailCache.key`), so a rewritten image
+/// is a different key everywhere the moment this runs. There is deliberately
+/// no explicit cache invalidation here — it used to be a call to
+/// `ImageThumbnailCache.invalidate(id:)`, which could clear the cache but had
+/// no way to reach the `@State` a long-lived card holds, so the card kept
+/// drawing the un-rotated image regardless.
+@MainActor
+enum ImageEdit {
+    static func apply(to item: ClipboardItem, imageData: Data) {
+        item.imageData = imageData
+        item.contentHash = ClipboardMonitor.hash(imageData)
+        if let size = ImageMetadata.pixelSize(of: imageData) {
+            // Same shape ClipboardMonitor writes on capture. Leaving it stale
+            // would have the card describing dimensions the image no longer
+            // has.
+            item.preview = "Imagem \(Int(size.width))×\(Int(size.height))"
+        }
+
+        // Editing counts as use, exactly as it does for text — see
+        // `ItemEdit.apply`.
         item.createdAt = .now
         item.lastUsedAt = .now
 
