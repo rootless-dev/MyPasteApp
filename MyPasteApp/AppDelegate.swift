@@ -103,6 +103,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         registerHotkeysCheckingConflict()
         retention.prune()
         startRetentionTimer()
+        DragItemProvider.cleanUpTemporaries()
 
         NotificationCenter.default.addObserver(
             forName: .hotkeyChanged,

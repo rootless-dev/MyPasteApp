@@ -66,6 +66,12 @@ struct ClipboardCardView: View {
                               lineWidth: isOutlined ? 2.5 : 1)
         }
         .shadow(color: .black.opacity(0.10), radius: 6, y: 3)
+        // The drag begins with a mouse-down *inside* the overlay, so
+        // `OverlayWindowController.installClickOutsideMonitors` — which only
+        // watches mouse-down — doesn't read it as a click outside. What can
+        // still close the drawer is the destination app activating on drop;
+        // that's a manual check, recorded in the phase's roteiro.
+        .onDrag { DragItemProvider.make(for: item) }
         .onHover { hovering in
             isHoveringCard = hovering
             if !hovering { isHoveringDelete = false }
