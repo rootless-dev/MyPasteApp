@@ -85,12 +85,31 @@ enum RichText {
 /// A value rather than a closure so `RichTextEditor` can take it as a binding:
 /// SwiftUI has no handle on the `NSTextView` inside, and the view's own
 /// coordinator is the only thing that knows the current selection.
-enum RichTextCommand {
-    case bold
-    case italic
-    case underline
-    case strikethrough
-    case clear
+///
+/// A struct instead of a bare enum: each press needs its own identity, not
+/// just its kind. Two presses can land before the same run-loop turn (a fast
+/// double-click, or `⌘B` autorepeat) — the deferred hop in
+/// `RichTextEditor.updateNSView` that applies a command checks `id` against
+/// whatever is still parked in the binding to tell "this is still the
+/// command I was scheduled for" from "something newer replaced me", which a
+/// value that only carries `.bold`/`.italic`/... can't express.
+struct RichTextCommand {
+    enum Kind {
+        case bold
+        case italic
+        case underline
+        case strikethrough
+        case clear
+    }
+
+    let kind: Kind
+    let id = UUID()
+
+    static var bold: RichTextCommand { RichTextCommand(kind: .bold) }
+    static var italic: RichTextCommand { RichTextCommand(kind: .italic) }
+    static var underline: RichTextCommand { RichTextCommand(kind: .underline) }
+    static var strikethrough: RichTextCommand { RichTextCommand(kind: .strikethrough) }
+    static var clear: RichTextCommand { RichTextCommand(kind: .clear) }
 }
 
 extension RichText {
