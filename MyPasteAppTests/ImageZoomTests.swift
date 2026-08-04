@@ -118,7 +118,45 @@ struct ImageZoomTests {
         #expect(zoom.scale == 4)
     }
 
+    // MARK: - quantizedScale
+
+    @Test("a scale already on a step is returned unchanged")
+    func quantizedScaleOnStepIsUnchanged() {
+        for step in ImageZoom.thumbnailScaleSteps {
+            #expect(ImageZoom.quantizedScale(step) == step)
+        }
+    }
+
+    @Test("a scale between two steps rounds up to the next one")
+    func quantizedScaleRoundsUpBetweenSteps() {
+        #expect(ImageZoom.quantizedScale(1.2) == 2)
+        #expect(ImageZoom.quantizedScale(2.01) == 4)
+        #expect(ImageZoom.quantizedScale(3.99) == 4)
+        #expect(ImageZoom.quantizedScale(5) == 8)
+    }
+
+    @Test("a scale outside the fit...maxScale range is bounded first")
+    func quantizedScaleBoundsBeforeRounding() {
+        #expect(ImageZoom.quantizedScale(0.1) == 1)
+        #expect(ImageZoom.quantizedScale(999) == 8)
+    }
+
     // MARK: - thumbnailMaxPixel
+
+    @Test("a pinch's continuous scale collapses to one of a handful of requests")
+    func maxPixelQuantisesContinuousScale() {
+        // 1.2 and 1.9 both land on the same step (2) as an exact 2x request
+        // would — this is what keeps a pinch from minting a new decode (and
+        // a new cache entry) on every `onChanged` tick.
+        let atStep = ImageZoom.thumbnailMaxPixel(base: 1040, scale: 2,
+                                                  imageSize: CGSize(width: 4000, height: 3000))
+        let justAbove = ImageZoom.thumbnailMaxPixel(base: 1040, scale: 1.2,
+                                                     imageSize: CGSize(width: 4000, height: 3000))
+        let justBelow = ImageZoom.thumbnailMaxPixel(base: 1040, scale: 1.9,
+                                                     imageSize: CGSize(width: 4000, height: 3000))
+        #expect(justAbove == atStep)
+        #expect(justBelow == atStep)
+    }
 
     @Test("requests grow with scale, up to the image's own size")
     func maxPixelGrowsWithScale() {

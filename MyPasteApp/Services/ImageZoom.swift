@@ -108,20 +108,58 @@ struct ImageZoom: Equatable {
     /// image to *anywhere* else, for a difference nobody's eye could use.
     static let pixelCeiling: CGFloat = 4096
 
+    /// Discrete scale values `thumbnailMaxPixel` snaps a continuous zoom up
+    /// to before turning it into a decode request.
+    ///
+    /// `ImageThumbnailCache`'s cache key bakes in the exact `maxPixel`
+    /// requested (see its own doc comment on why `contentHash` is there, and
+    /// by the same logic `maxPixel` has to be too — it's part of what makes
+    /// the decoded bitmap the one asked for). Asking at the raw, continuously
+    /// changing `zoom.scale` meant every tick of a pinch
+    /// (`MagnifyGesture.onChanged` fires many times a second) minted a
+    /// brand-new, uncancellable `Task.detached` decode — up to 4096px on a
+    /// side — nearly all of them thrown away before the next tick even
+    /// landed. Snapping to one of a handful of steps means a whole pinch
+    /// gesture asks for at most a few distinct sizes, however many
+    /// `onChanged` callbacks fired along the way.
+    ///
+    /// Doubling (`1, 2, 4, 8`) rather than, say, five even steps: it lands
+    /// exactly on `maxScale`, so the sharpest possible request is never
+    /// short-changed by rounding, and each step is a decode twice the size
+    /// of the last — visibly sharper, unlike five steps packed into the same
+    /// `1...8` range, where neighbouring steps would look indistinguishable
+    /// at panel size while still doubling how many cache entries one pinch
+    /// can produce. Four steps means a full `.fit`-to-`.maxScale` pinch
+    /// produces at most four decodes total (one per step boundary crossed);
+    /// most real pinches only cover part of that range and cross one or two
+    /// boundaries.
+    static let thumbnailScaleSteps: [CGFloat] = [1, 2, 4, 8]
+
+    /// Rounds `scale` up to the smallest step in `thumbnailScaleSteps` that
+    /// covers it, so a quantised request is never blurrier than what the
+    /// continuous zoom actually needs — only ever sharper than strictly
+    /// necessary, by at most one step.
+    static func quantizedScale(_ scale: CGFloat) -> CGFloat {
+        let bounded = min(max(scale, minScale), maxScale)
+        return thumbnailScaleSteps.first(where: { $0 >= bounded }) ?? maxScale
+    }
+
     /// The thumbnail decode size to request for the panel at a given zoom.
     ///
     /// `ImageThumbnailCache` decodes to the size the bitmap will actually be
     /// drawn at — see its own doc comment on why. At `.fit` that's `base`
     /// (the panel's own pixel size); zoomed in, drawing that same
     /// downsampled bitmap larger just magnifies its own softness, so the
-    /// request grows with `scale`. Bounded twice: never past the image's own
-    /// pixel size — `ImageIO` wouldn't upscale past it anyway (see
-    /// `ImageThumbnailCache.downsample`), but asking would still mint a
-    /// distinct, useless cache entry for every scale step past that point —
-    /// and never past `pixelCeiling`.
+    /// request grows with `scale` — quantised first via `quantizedScale`, so
+    /// a continuously-changing pinch doesn't mint a continuously-changing
+    /// cache key (see that function's doc comment). Bounded twice after
+    /// that: never past the image's own pixel size — `ImageIO` wouldn't
+    /// upscale past it anyway (see `ImageThumbnailCache.downsample`), but
+    /// asking would still mint a distinct, useless cache entry for every
+    /// scale step past that point — and never past `pixelCeiling`.
     static func thumbnailMaxPixel(base: Int, scale: CGFloat, imageSize: CGSize) -> Int {
         guard base > 0 else { return 0 }
-        let requested = CGFloat(base) * max(scale, minScale)
+        let requested = CGFloat(base) * quantizedScale(scale)
         let nativeMax = max(imageSize.width, imageSize.height)
         // `max(base, nativeMax)` keeps this from clamping *down* below
         // `base` for an image smaller than the panel's own base request —
