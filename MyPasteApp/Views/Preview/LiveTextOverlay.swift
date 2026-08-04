@@ -32,13 +32,18 @@ struct LiveTextOverlay: NSViewRepresentable {
 
         let imageView = NSImageView()
         imageView.imageScaling = .scaleProportionallyUpOrDown
-        imageView.image = NSImage(data: data)
+        context.coordinator.draw(data: data, into: imageView)
         imageView.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(imageView)
 
         let overlay = ImageAnalysisOverlayView()
         overlay.trackingImageView = imageView
-        overlay.preferredInteractionTypes = [.textSelection]
+        // `.automatic`, not `[.textSelection]`: selection alone is half of
+        // what was promised. `.automatic` also turns on the system's data
+        // detectors, so a phone number, an address, a date or a URL inside a
+        // screenshot becomes an actionable button — and it keeps "Copy All"
+        // and translation, which selection alone already brought.
+        overlay.preferredInteractionTypes = .automatic
         overlay.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(overlay)
 
@@ -58,6 +63,16 @@ struct LiveTextOverlay: NSViewRepresentable {
     }
 
     func updateNSView(_ view: NSView, context: Context) {
+        // The image belongs here as well as in `makeNSView`. SwiftUI can hand
+        // this same view a different `data` — the preview panel moving to
+        // another item without tearing the overlay down — and an image set
+        // only at construction would leave the old pixels on screen under
+        // text boxes freshly analysed from the new ones. `analyse` below is
+        // already guarded on the data having changed; this assignment is
+        // cheap enough not to need its own guard beyond that.
+        if let imageView = view.subviews.compactMap({ $0 as? NSImageView }).first {
+            context.coordinator.draw(data: data, into: imageView)
+        }
         guard let overlay = view.subviews.compactMap({ $0 as? ImageAnalysisOverlayView }).first
         else { return }
         // Analysis runs once per image: `updateNSView` fires on every SwiftUI
@@ -83,7 +98,21 @@ struct LiveTextOverlay: NSViewRepresentable {
     final class Coordinator {
         private let analyzer = ImageAnalyzer()
         private var analysedData: Data?
+        private var drawnData: Data?
         private var task: Task<Void, Never>?
+
+        /// Puts `data` in the image view, decoding it at most once per image.
+        ///
+        /// Guarded like `analyse`: `updateNSView` fires on every SwiftUI
+        /// update, and re-decoding the original (deliberately not the
+        /// downsampled) image each time would be the most expensive thing in
+        /// the panel.
+        @MainActor
+        func draw(data: Data, into imageView: NSImageView) {
+            guard drawnData != data else { return }
+            drawnData = data
+            imageView.image = NSImage(data: data)
+        }
 
         @MainActor
         func analyse(data: Data, into view: ImageAnalysisOverlayView) {
