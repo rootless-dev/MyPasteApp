@@ -24,6 +24,13 @@ final class PreviewPanelController {
     // monitors in OverlayWindowController need to know about it too. See
     // ItemPreviewPanel.
     private var previewPanel: NSPanel?
+    /// The one `PreviewChrome` for `previewPanel`, created alongside it in
+    /// `showAnchored()` and never cleared afterwards — so whenever
+    /// `previewPanel` is non-nil, this is too. Passed to `ItemPreviewView`
+    /// once when the content is built, then mutated by
+    /// `positionPreviewPanel(_:chrome:)` on every reposition; see
+    /// `PreviewChrome`'s doc comment for why that indirection exists at all.
+    private var previewChrome: PreviewChrome?
     /// The item the preview panel would show right now, and where it sits
     /// on screen — kept up to date by `OverlayView.onPreviewSelectionChange`
     /// on every selection or layout change, whether or not the panel is
@@ -78,14 +85,16 @@ final class PreviewPanelController {
         guard let item = previewItem else { return }
         let panel = previewPanel ?? ItemPreviewPanel.make()
         previewPanel = panel
+        let chrome = previewChrome ?? PreviewChrome()
+        previewChrome = chrome
         panel.sharingType = WindowPrivacy.sharingType()
         // Reopening on the same item the panel already had loaded (e.g. ␣ was
         // pressed again after Escape closed it) doesn't need a rebuild — see
         // `previewDisplayedItemID`.
         if previewDisplayedItemID != item.id {
-            applyPreviewContent(to: panel, item: item)
+            applyPreviewContent(to: panel, item: item, chrome: chrome)
         }
-        positionPreviewPanel(panel)
+        positionPreviewPanel(panel, chrome: chrome)
         // orderFrontRegardless, not makeKeyAndOrderFront: the panel must
         // never take key status away from the overlay. See the brief's Step 3.
         panel.orderFrontRegardless()
@@ -124,6 +133,9 @@ final class PreviewPanelController {
         previewItem = item
         previewAnchorFrame = anchor
         guard let panel = previewPanel, panel.isVisible else { return }
+        // previewChrome is created alongside previewPanel in showAnchored()
+        // and never cleared, so panel existing guarantees this does too.
+        guard let chrome = previewChrome else { return }
         guard let item else {
             // Nothing left to preview (e.g. the last item was deleted, or a
             // search filtered everything out) — closing is the least
@@ -138,11 +150,13 @@ final class PreviewPanelController {
         // content on every animation frame, losing the user's scroll
         // position and text selection inside it. Repositioning stays
         // unconditional below: the panel must keep tracking the card as it
-        // moves regardless of whether its content changed.
+        // moves regardless of whether its content changed, and the beak with
+        // it — `positionPreviewPanel` is what writes the new `beakOffset`
+        // into `chrome`.
         if previewDisplayedItemID != item.id {
-            applyPreviewContent(to: panel, item: item)
+            applyPreviewContent(to: panel, item: item, chrome: chrome)
         }
-        positionPreviewPanel(panel)
+        positionPreviewPanel(panel, chrome: chrome)
     }
 
     /// Builds `ItemPreviewView` for `item` and assigns it as the panel's
@@ -152,11 +166,12 @@ final class PreviewPanelController {
     /// `contentView` — see the comment on `ItemPreviewPanel.make()` for why
     /// the explicit `frame`/`autoresizingMask` here matters: without them,
     /// the window would be resized to the content's intrinsic size instead
-    /// of the frame `positionPreviewPanel(_:)` sets, the same bug the Task 19
-    /// spike ran into.
-    private func applyPreviewContent(to panel: NSPanel, item: ClipboardItem) {
+    /// of the frame `positionPreviewPanel(_:chrome:)` sets, the same bug the
+    /// Task 19 spike ran into.
+    private func applyPreviewContent(to panel: NSPanel, item: ClipboardItem, chrome: PreviewChrome) {
         let host = NSHostingView(rootView: ItemPreviewView(
             item: item,
+            chrome: chrome,
             onClose: { [weak self] in self?.hideAnchored() },
             onCopyColor: { [weak self] color in
                 guard let self else { return }
@@ -187,7 +202,7 @@ final class PreviewPanelController {
     }
 
     /// Positions the panel above the selected card, horizontally centered on
-    /// it.
+    /// it, and points `chrome`'s beak at it.
     ///
     /// `previewAnchorFrame` arrives from `OverlayView` in the `.global`
     /// coordinate space of its SwiftUI tree, which — since `OverlayView` is
@@ -196,13 +211,18 @@ final class PreviewPanelController {
     /// view's bounds. `NSView.convert(_:to:)` turns that into window
     /// coordinates (handling the flip from SwiftUI's top-left origin
     /// automatically), and `convertToScreen` turns those into what
-    /// `setFrame` needs. Falls back to centering on screen when there's no
-    /// anchor yet (the panel was asked to open before any card reported its
-    /// frame) or no overlay window to convert against.
+    /// `setFrame` needs. Falls back to centering on screen, beak-less, when
+    /// there's no anchor yet (the panel was asked to open before any card
+    /// reported its frame) or no overlay window to convert against.
     ///
-    /// Deliberately does not draw a pointer/beak connecting the panel to the
-    /// card (design-refs/03-preview-web.png) — see the Task 20 report.
-    private func positionPreviewPanel(_ panel: NSPanel) {
+    /// `PreviewPlacement.solve` returns `beakOffset` already measured from
+    /// `result.frame`'s left edge — the same origin `PreviewPanelShape` draws
+    /// against inside the panel's content — so it's written into `chrome`
+    /// as-is, with no conversion. Drawing the beak itself, and hiding it near
+    /// a screen edge or a rounded corner where it wouldn't legally point at
+    /// the card (design-refs/03-preview-web.png), is `PreviewPlacement` and
+    /// `PreviewPanelShape`'s job; this method only wires the two together.
+    private func positionPreviewPanel(_ panel: NSPanel, chrome: PreviewChrome) {
         let size = ItemPreviewPanel.windowSize
         guard let screen = overlayWindow?.screen ?? NSScreen.main else { return }
         guard let anchor = previewAnchorFrame,
@@ -215,13 +235,12 @@ final class PreviewPanelController {
                 height: size.height
             )
             panel.setFrame(centered, display: false)
+            chrome.beakOffset = nil
             return
         }
         let windowRect = contentView.convert(anchor, to: nil)
         let screenRect = overlayWindow.convertToScreen(windowRect)
 
-        // beakOffset is discarded here — Task 4 is what threads it through
-        // to PreviewPanelShape.
         let result = PreviewPlacement.solve(anchor: screenRect,
                                             panelSize: size,
                                             visibleFrame: screen.visibleFrame,
@@ -229,5 +248,6 @@ final class PreviewPanelController {
                                             beakWidth: PreviewPlacement.beakWidth)
 
         panel.setFrame(result.frame, display: false)
+        chrome.beakOffset = result.beakOffset
     }
 }

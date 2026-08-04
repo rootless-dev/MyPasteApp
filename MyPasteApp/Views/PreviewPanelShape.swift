@@ -25,9 +25,13 @@ struct PreviewPanelShape: Shape {
     let beakHeight: CGFloat
     let cornerRadius: CGFloat
 
-    /// Width of the beak's base. A local constant for this spike; Task 4
-    /// replaces it with `PreviewPlacement.beakWidth` once that type exists.
-    private let beakWidth: CGFloat = 22
+    /// Width of the beak's base. `PreviewPlacement.beakWidth`, not a value of
+    /// this shape's own — `PreviewPlacement.solve` uses the same number to
+    /// decide how close to a rounded corner the tip is allowed to get, and a
+    /// mismatch between the two would either clip the beak into the corner
+    /// arc or let `solve` approve a tip position this shape draws off the
+    /// edge.
+    private let beakWidth: CGFloat = PreviewPlacement.beakWidth
 
     func path(in rect: CGRect) -> Path {
         let body = CGRect(x: rect.minX, y: rect.minY,

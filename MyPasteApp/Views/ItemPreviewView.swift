@@ -25,6 +25,11 @@ enum PreviewImageMode {
 /// item filling the rest.
 struct ItemPreviewView: View {
     let item: ClipboardItem
+    /// One instance per panel, owned by `PreviewPanelController` and passed
+    /// in unchanged across rebuilds — see `PreviewChrome`'s doc comment for
+    /// why `beakOffset` has to arrive this way instead of as a plain
+    /// parameter.
+    let chrome: PreviewChrome
     let onClose: () -> Void
     /// Copies a sampled colour. Owned by `OverlayWindowController`, which is
     /// what holds the `ClipboardWriter` — this view has no business knowing
@@ -102,12 +107,13 @@ struct ItemPreviewView: View {
 
     /// The window's outline, shared by the background fill and the clip
     /// shape below so the two can never disagree about where the panel's
-    /// edge is. `beakOffset` is pinned to the panel's horizontal centre for
-    /// this spike — Task 4 wires it to wherever the anchored card actually
-    /// sits.
+    /// edge is. `beakOffset` comes from `chrome`, not a parameter of this
+    /// view — reading it here is what lets `PreviewPanelController` move the
+    /// beak by mutating `chrome` alone, without this view (and the
+    /// `NSHostingView` hosting it) ever being rebuilt. See `PreviewChrome`.
     private var previewShape: PreviewPanelShape {
         PreviewPanelShape(
-            beakOffset: ItemPreviewPanel.contentSize.width / 2,
+            beakOffset: chrome.beakOffset,
             beakHeight: ItemPreviewPanel.beakHeight,
             cornerRadius: ItemPreviewPanel.cornerRadius
         )
