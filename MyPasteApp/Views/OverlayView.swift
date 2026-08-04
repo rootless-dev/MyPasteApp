@@ -324,6 +324,19 @@ struct OverlayView: View {
                 )
             }
         )
+        // Double click pastes; a single click only selects. Declared
+        // before the single-click handler because SwiftUI gives the
+        // higher count precedence in that order.
+        //
+        // ⌘ is excluded here for the same reason it is below: while a
+        // multi-paste block is being assembled, ⌘-clicking is how cards
+        // join it, and a fast second ⌘-click must keep toggling marks
+        // rather than paste one card and close the drawer out from
+        // under the block.
+        .onTapGesture(count: 2) {
+            guard !NSEvent.modifierFlags.contains(.command) else { return }
+            pick(item)
+        }
         .onTapGesture {
             // `onTapGesture` doesn't report modifiers,
             // so ⌘ is read from the current event at
@@ -332,20 +345,18 @@ struct OverlayView: View {
             //
             // Three-way, not two: ⌘-click on a
             // markable item toggles the mark; ⌘-click
-            // on one that isn't markable does nothing
-            // — it must not fall through to `pick`,
-            // which would paste it and close the
-            // drawer out from under a block the user
-            // is still assembling. Only a plain click,
-            // with no ⌘ at all, pastes. Mirrors ⌘M,
-            // which returns `.ignored` on the same
-            // gate instead of pasting.
+            // on one that isn't markable does nothing.
+            // A plain click selects the card and
+            // nothing else — it is the mouse's way of
+            // doing what the arrow keys do, so ↵, ⌘C,
+            // ⌘E, ⌘P and ⌫ all act on the card the
+            // user just clicked.
             if NSEvent.modifierFlags.contains(.command) {
                 if MultiPaste.isMarkable(item.type) {
                     marked.toggle(item.id)
                 }
             } else {
-                pick(item)
+                selectedID = item.id
             }
         }
         .contextMenu {
