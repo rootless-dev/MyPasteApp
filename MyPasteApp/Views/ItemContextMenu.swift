@@ -80,6 +80,17 @@ struct ItemContextMenu: View {
         // mirrors this same choice.
         Button(titled("Copy", "⌘C")) { actions.copy(item) }
 
+        if let code = item.textContent, let color = ColorCode.parse(code) {
+            Menu("Copy Color as") {
+                ForEach(ColorFormat.allCases, id: \.self) { format in
+                    // The format's own rendering is the label: seeing
+                    // "rgb(58, 134, 255)" before choosing beats reading "RGB"
+                    // and finding out afterwards.
+                    Button(color.formatted(as: format)) { actions.copyColor(color, as: format) }
+                }
+            }
+        }
+
         if MultiPaste.isMarkable(item.type) {
             // Same trailing-text glyph as every other entry here — see the
             // type-level doc comment for why these aren't `.keyboardShortcut`.

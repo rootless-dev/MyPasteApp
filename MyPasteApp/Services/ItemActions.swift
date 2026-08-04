@@ -51,6 +51,16 @@ final class ItemActions {
         writer.write(item, plainText: plainText)
     }
 
+    /// Copies a recognised colour in the format the user picked.
+    ///
+    /// Not silent, unlike the sampler's own write: the converted string is new
+    /// content the user asked for, and belongs in the history like any other
+    /// copy. `ClipboardWriter` is still the path, so the write goes through
+    /// the same place every other write does.
+    func copyColor(_ color: ColorCode, as format: ColorFormat) {
+        writer.writeText(color.formatted(as: format), silently: false)
+    }
+
     func togglePin(_ item: ClipboardItem) {
         item.isPinned.toggle()
         try? modelContext.save()

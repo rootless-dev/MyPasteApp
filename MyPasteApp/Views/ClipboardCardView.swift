@@ -177,11 +177,16 @@ struct ClipboardCardView: View {
     private func content(density: CardDensity) -> some View {
         switch item.type {
         case .text:
-            Text(item.preview)
-                .font(.system(size: 12, design: .monospaced))
-                .foregroundStyle(.primary)
-                .lineLimit(8)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            if let code = item.textContent, let color = ColorCode.parse(code) {
+                ColorSwatchView(color: color, code: code)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                Text(item.preview)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(.primary)
+                    .lineLimit(8)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
         case .url:
             LinkPreviewView(item: item)
         case .image:

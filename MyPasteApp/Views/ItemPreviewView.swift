@@ -50,10 +50,15 @@ struct ItemPreviewView: View {
     private var content: some View {
         switch item.type {
         case .text, .url:
-            // The whole thing, scrollable. This is the limitation the item exists to
-            // fix: the card truncates at previewTextLength and eight lines, so long
-            // text simply isn't readable in the app.
-            TextPreviewView(text: item.textContent ?? "")
+            if let code = item.textContent, let color = ColorCode.parse(code) {
+                ColorSwatchView(color: color, code: code)
+                    .padding(12)
+            } else {
+                // The whole thing, scrollable. This is the limitation the item exists to
+                // fix: the card truncates at previewTextLength and eight lines, so long
+                // text simply isn't readable in the app.
+                TextPreviewView(text: item.textContent ?? "")
+            }
         case .image:
             if let data = item.imageData {
                 // Scaled to fit the panel rather than shown at natural size in
