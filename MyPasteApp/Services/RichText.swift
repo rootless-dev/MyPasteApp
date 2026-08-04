@@ -137,13 +137,42 @@ extension RichText {
         toggling(attribute: .strikethroughStyle, in: attributed, range: range)
     }
 
+    /// Adds or removes an underline-style attribute (underline or
+    /// strikethrough — both store an `NSUnderlineStyle` raw value) across a
+    /// range.
+    ///
+    /// Applies uniformly, the same rule as `toggling(_:in:range:)`: if any run
+    /// in the range lacks the style, the whole range gains it. Reading only
+    /// the first character (as an earlier version of this did) would let a
+    /// selection that starts underlined but isn't throughout *remove*
+    /// underline from the whole range on one press — the opposite of the
+    /// bold/italic rule.
+    ///
+    /// A run can carry the attribute with an explicit value of `0`
+    /// (`NSUnderlineStyle.none`), which reads as "present" under a bare
+    /// `attribute(_:at:effectiveRange:) != nil` check. `isPresent` treats
+    /// that as absent instead, so such a run doesn't block the whole range
+    /// from being seen as "not yet styled".
     private static func toggling(attribute key: NSAttributedString.Key,
                                  in attributed: NSAttributedString,
                                  range: NSRange) -> NSAttributedString {
         guard range.length > 0 else { return attributed }
         let result = NSMutableAttributedString(attributedString: attributed)
-        let alreadyOn = result.attribute(key, at: range.location, effectiveRange: nil) != nil
-        if alreadyOn {
+
+        func isPresent(_ value: Any?) -> Bool {
+            guard let number = value as? NSNumber else { return false }
+            return number.intValue != 0
+        }
+
+        var everyRunHasIt = true
+        result.enumerateAttribute(key, in: range) { value, _, stop in
+            if !isPresent(value) {
+                everyRunHasIt = false
+                stop.pointee = true
+            }
+        }
+
+        if everyRunHasIt {
             result.removeAttribute(key, range: range)
         } else {
             result.addAttribute(key, value: NSUnderlineStyle.single.rawValue, range: range)

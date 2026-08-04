@@ -42,11 +42,28 @@ struct RichTextEditor: NSViewRepresentable {
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? NSTextView else { return }
         if let command {
-            apply(command, to: textView)
-            // Cleared asynchronously: mutating state during a view update is
-            // what SwiftUI's "Modifying state during view update" warning is
-            // about.
-            DispatchQueue.main.async { self.command = nil }
+            let updated = apply(command, to: textView)
+            // Both the command clear and the `attributedText` publish are
+            // deferred to the same async hop. Publishing `attributedText`
+            // synchronously here would mutate `ItemEditorView`'s @State
+            // during this very view update — the same hazard the command
+            // clear alone was already deferred to avoid — and could let
+            // SwiftUI re-invoke `updateNSView` with `command` still set
+            // before this closure runs, applying the same command twice
+            // (e.g. Bold toggling on then immediately off again). The guard
+            // makes the hop a no-op if `command` was already consumed by the
+            // time it runs, rather than assuming it's still safe to publish.
+            DispatchQueue.main.async {
+                guard self.command != nil else { return }
+                self.command = nil
+                self.attributedText = updated
+            }
+            // Returning here skips the storage-comparison guard below for
+            // this pass: `textView.textStorage` was just set to `updated`
+            // above, but `attributedText` hasn't published yet, so the
+            // comparison would see a mismatch and immediately overwrite the
+            // storage back to the stale value.
+            return
         }
         // Only push back when the model actually diverged. Rewriting the
         // storage on every SwiftUI update would reset the insertion point to
@@ -55,8 +72,8 @@ struct RichTextEditor: NSViewRepresentable {
         textView.textStorage?.setAttributedString(attributedText)
     }
 
-    private func apply(_ command: RichTextCommand, to textView: NSTextView) {
-        guard let storage = textView.textStorage else { return }
+    private func apply(_ command: RichTextCommand, to textView: NSTextView) -> NSAttributedString {
+        guard let storage = textView.textStorage else { return attributedText }
         let current = NSAttributedString(attributedString: storage)
         let range = textView.selectedRange()
         let updated: NSAttributedString
@@ -73,7 +90,7 @@ struct RichTextEditor: NSViewRepresentable {
 
         storage.setAttributedString(updated)
         textView.setSelectedRange(range)
-        attributedText = updated
+        return updated
     }
 
     func makeCoordinator() -> Coordinator {

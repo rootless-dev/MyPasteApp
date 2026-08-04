@@ -84,4 +84,49 @@ struct RichTextFormatTests {
         let result = RichText.toggling(.bold, in: base, range: NSRange(location: 3, length: 0))
         #expect(result.isEqual(to: base))
     }
+
+    @Test("a mixed underline selection becomes uniformly underlined")
+    func mixedSelectionBecomesUniformlyUnderlined() {
+        // Half underlined, half not: the first press should extend underline
+        // to the whole range, not remove it because the first character
+        // already had it — the same rule bold already follows.
+        let half = RichText.togglingUnderline(in: base, range: NSRange(location: 0, length: 5))
+        let all = RichText.togglingUnderline(in: half, range: NSRange(location: 0, length: 11))
+        #expect(all.attribute(.underlineStyle, at: 0, effectiveRange: nil) != nil)
+        #expect(all.attribute(.underlineStyle, at: 6, effectiveRange: nil) != nil)
+
+        let none = RichText.togglingUnderline(in: all, range: NSRange(location: 0, length: 11))
+        #expect(none.attribute(.underlineStyle, at: 0, effectiveRange: nil) == nil)
+        #expect(none.attribute(.underlineStyle, at: 6, effectiveRange: nil) == nil)
+    }
+
+    @Test("a mixed strikethrough selection becomes uniformly struck through")
+    func mixedSelectionBecomesUniformlyStruckThrough() {
+        let half = RichText.togglingStrikethrough(in: base, range: NSRange(location: 0, length: 5))
+        let all = RichText.togglingStrikethrough(in: half, range: NSRange(location: 0, length: 11))
+        #expect(all.attribute(.strikethroughStyle, at: 0, effectiveRange: nil) != nil)
+        #expect(all.attribute(.strikethroughStyle, at: 6, effectiveRange: nil) != nil)
+
+        let none = RichText.togglingStrikethrough(in: all, range: NSRange(location: 0, length: 11))
+        #expect(none.attribute(.strikethroughStyle, at: 0, effectiveRange: nil) == nil)
+        #expect(none.attribute(.strikethroughStyle, at: 6, effectiveRange: nil) == nil)
+    }
+
+    @Test("a run with an explicit zero underline style counts as not underlined")
+    func explicitZeroStyleCountsAsAbsent() {
+        // The empty NSUnderlineStyle option set rawValue is 0. A run carrying
+        // that value has the attribute key present but styled as "no line" —
+        // it must not block the rest of the range from being seen as "not
+        // yet styled".
+        let withExplicitZero = NSMutableAttributedString(attributedString: base)
+        withExplicitZero.addAttribute(.underlineStyle,
+                                      value: NSUnderlineStyle([]).rawValue,
+                                      range: NSRange(location: 0, length: 11))
+
+        let result = RichText.togglingUnderline(in: withExplicitZero,
+                                                 range: NSRange(location: 0, length: 11))
+        #expect(result.attribute(.underlineStyle, at: 0, effectiveRange: nil) != nil)
+        let style = result.attribute(.underlineStyle, at: 0, effectiveRange: nil) as? Int
+        #expect(style == NSUnderlineStyle.single.rawValue)
+    }
 }
