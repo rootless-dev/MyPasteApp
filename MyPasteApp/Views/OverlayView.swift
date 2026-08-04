@@ -337,20 +337,28 @@ struct OverlayView: View {
             guard !NSEvent.modifierFlags.contains(.command) else { return }
             pick(item)
         }
-        .onTapGesture {
-            // `onTapGesture` doesn't report modifiers,
-            // so ⌘ is read from the current event at
-            // the moment of the click — the same shape
-            // `pastesPlainText` already uses for ⇧.
-            //
-            // Three-way, not two: ⌘-click on a
-            // markable item toggles the mark; ⌘-click
-            // on one that isn't markable does nothing.
-            // A plain click selects the card and
-            // nothing else — it is the mouse's way of
-            // doing what the arrow keys do, so ↵, ⌘C,
-            // ⌘E, ⌘P and ⌫ all act on the card the
-            // user just clicked.
+        // `simultaneousGesture`, not a second `onTapGesture`: two
+        // competing tap recognisers make the single-click one wait out
+        // `NSEvent.doubleClickInterval` (half a second by default)
+        // before it can rule out a second click, and selection that
+        // arrives half a second after the click feels broken. Declared
+        // simultaneous, it fires on mouse-up with no arbitration.
+        //
+        // The cost is that a double click also runs this once per
+        // click, selecting the card before pasting it — which is
+        // exactly what a user would expect to see anyway, and `pick`
+        // acts on the item it was handed, never on `selectedID`.
+        //
+        // `onTapGesture` doesn't report modifiers, so ⌘ is read from
+        // the current event at the moment of the click — the same
+        // shape `pastesPlainText` already uses for ⇧.
+        //
+        // Three-way, not two: ⌘-click on a markable item toggles the
+        // mark; ⌘-click on one that isn't markable does nothing. A
+        // plain click selects the card and nothing else — it is the
+        // mouse's way of doing what the arrow keys do, so ↵, ⌘C, ⌘E,
+        // ⌘P and ⌫ all act on the card the user just clicked.
+        .simultaneousGesture(TapGesture().onEnded {
             if NSEvent.modifierFlags.contains(.command) {
                 if MultiPaste.isMarkable(item.type) {
                     marked.toggle(item.id)
@@ -358,7 +366,7 @@ struct OverlayView: View {
             } else {
                 selectedID = item.id
             }
-        }
+        })
         .contextMenu {
             ItemContextMenu(item: item,
                             actions: itemActions,
