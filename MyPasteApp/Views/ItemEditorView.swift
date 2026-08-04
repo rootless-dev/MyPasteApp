@@ -120,6 +120,12 @@ struct ItemEditorView: View {
             Divider()
 
             HStack {
+                if hasEditableBody {
+                    Text(TextStats.summary(attributed.string))
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
                 Spacer()
                 Button("Cancel", role: .cancel) { onClose() }
                     .keyboardShortcut(.cancelAction)
