@@ -22,15 +22,16 @@ struct DragPayloadTests {
     @Test("text drags as text")
     func textDragsAsText() {
         let kind = DragPayload.kind(for: textItem("hello"))
-        guard case .text(let string, let rtf) = kind else {
+        guard case .text(let string, let formatted) = kind else {
             Issue.record("expected text, got \(kind)")
             return
         }
         #expect(string == "hello")
-        #expect(rtf == nil)
+        // A plain item has no rich flavour to lose.
+        #expect(formatted == nil)
     }
 
-    @Test("formatted text carries its formatting too")
+    @Test("formatted text carries its RTF too")
     func richTextDragsBoth() throws {
         let attributed = NSAttributedString(
             string: "hello",
@@ -43,13 +44,35 @@ struct DragPayloadTests {
         item.richTextData = rtfData
         item.richTextFormat = .rtf
 
-        guard case .text(let string, let rtf) = DragPayload.kind(for: item) else {
+        guard case .text(let string, let formatted) = DragPayload.kind(for: item) else {
             Issue.record("expected text")
             return
         }
         // Dragging and pasting must not disagree about what the item is.
         #expect(string == "hello")
-        #expect(rtf != nil)
+        #expect(formatted?.format == .rtf)
+        #expect(formatted?.data != nil)
+    }
+
+    @Test("an HTML-only capture drags its HTML too, not silently as plain text")
+    func htmlTextDragsBoth() throws {
+        // A browser copy that never puts RTF on the pasteboard falls back to
+        // HTML (RichText.preferredFormat). The drag must not lose that
+        // formatting just because it isn't RTF — ⌘V on the same item pastes
+        // it, so dragging has to be able to as well.
+        let htmlData = try #require("<b>hello</b>".data(using: .utf8))
+
+        let item = textItem("hello")
+        item.richTextData = htmlData
+        item.richTextFormat = .html
+
+        guard case .text(let string, let formatted) = DragPayload.kind(for: item) else {
+            Issue.record("expected text")
+            return
+        }
+        #expect(string == "hello")
+        #expect(formatted?.format == .html)
+        #expect(formatted?.data == htmlData)
     }
 
     @Test("a file drags as the urls that still exist")
@@ -126,5 +149,17 @@ struct DragPayloadTests {
         #expect(fromNil == fromSlashes)
         #expect(fromNil.hasPrefix("Image "))
         #expect(fromNil.hasSuffix(".png"))
+    }
+
+    @Test("the fallback name is stable no matter the device's calendar")
+    func fallbackNameIsCalendarIndependent() {
+        // Left unpinned, a device set to a non-Gregorian calendar (Thai
+        // Buddhist, Japanese era) would stamp that calendar's year into the
+        // name with nothing explaining why. The literal below is the
+        // Gregorian, en_US_POSIX rendering of this timestamp — it must come
+        // out the same regardless of the system's calendar or locale.
+        let date = Date(timeIntervalSince1970: 1_770_000_000)
+        let name = DragPayload.imageFileName(label: nil, date: date)
+        #expect(name == "Image 2026-02-01 23-40-00.png")
     }
 }
