@@ -60,11 +60,26 @@ struct ColorCode: Equatable {
     /// colour *inside* the text would turn every stylesheet in the history
     /// into a colour item, and leave "Copy Color as" with no single answer.
     static func parse(_ text: String) -> ColorCode? {
+        // Before the trim, which copies the whole string. Every text card asks
+        // this question while building its body — on hover, on selection, on a
+        // mark changing — so a 1 MB text item was paying a megabyte copy per
+        // re-render to be told it isn't a colour. `utf8.count` is O(1) for a
+        // native Swift string; the trim is not.
+        guard text.utf8.count <= maxParsableLength else { return nil }
+
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         if trimmed.hasPrefix("#") { return parseHex(trimmed) }
         return parseFunction(trimmed)
     }
+
+    /// The longest input `parse` will even look at, in UTF-8 bytes.
+    ///
+    /// The longest colour this understands is an `hsla(...)` with decimals in
+    /// every slot — well under 60 bytes. 128 leaves room for surrounding
+    /// whitespace and still rejects, in constant time, everything that is
+    /// plainly a document rather than a colour.
+    static let maxParsableLength = 128
 
     private static func parseHex(_ text: String) -> ColorCode? {
         let digits = String(text.dropFirst())
@@ -145,8 +160,16 @@ struct ColorCode: Equatable {
     // MARK: - HSL
 
     private init(hue: Double, saturation: Double, lightness: Double, alpha: Double) {
+        // Hue is an angle, so it wraps in both directions: `hsl(-60, …)` is
+        // `hsl(300, …)`. A bare `truncatingRemainder` keeps the sign, and a
+        // negative `hp` fell through every `case ..<n` to the last one and
+        // produced negative channels — which then clamped, silently, to a
+        // colour that isn't the one asked for, including through
+        // "Copy Color as".
+        let wrapped = (hue.truncatingRemainder(dividingBy: 360) + 360)
+            .truncatingRemainder(dividingBy: 360)
         let c = (1 - abs(2 * lightness - 1)) * saturation
-        let hp = hue.truncatingRemainder(dividingBy: 360) / 60
+        let hp = wrapped / 60
         let x = c * (1 - abs(hp.truncatingRemainder(dividingBy: 2) - 1))
         let m = lightness - c / 2
 

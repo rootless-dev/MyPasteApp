@@ -15,6 +15,11 @@ struct ColorSwatchView: View {
     /// The text to print over the swatch — the item's own code, as written.
     let code: String
 
+    /// The checkerboard is drawn over the window's own background, so what a
+    /// translucent colour composites against depends on the appearance the
+    /// app is running in. See `checkerboardBackdropLuminance`.
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
         ZStack {
             CheckerboardBackground()
@@ -50,12 +55,21 @@ struct ColorSwatchView: View {
     /// black channels and pick white text — even though what's actually on
     /// screen, blended with that backdrop, reads as near-white.
     private var legibleForeground: Color {
-        let luminance = color.luminance(overBackdropLuminance: Self.checkerboardBackdropLuminance)
+        let luminance = color.luminance(
+            overBackdropLuminance: Self.checkerboardBackdropLuminance(for: colorScheme))
         return luminance > 0.55 ? .black : .white
     }
 
-    /// `CheckerboardBackground`'s effective luminance in light appearance:
-    /// half `.gray.opacity(0.25)` squares, half the plain background behind
-    /// them.
-    private static let checkerboardBackdropLuminance = 0.85
+    /// `CheckerboardBackground`'s effective luminance: half
+    /// `.gray.opacity(0.25)` squares, half the plain window background behind
+    /// them — and that background is what the appearance changes.
+    ///
+    /// A single light-appearance constant judged `rgba(255, 255, 255, 0.05)`
+    /// as composited over near-white, so it picked black text — while in dark
+    /// mode what is actually on screen is near-black, and black on black is
+    /// unreadable. The two values are the same blend computed against a
+    /// near-white and a near-black window background.
+    private static func checkerboardBackdropLuminance(for scheme: ColorScheme) -> Double {
+        scheme == .dark ? 0.15 : 0.85
+    }
 }

@@ -56,9 +56,41 @@ struct ColorCodeTests {
         #expect(color.byteComponents == (56, 132, 255))
     }
 
+    @Test("a negative hue wraps instead of clamping")
+    func negativeHueWraps() throws {
+        // Hue is an angle: -60° is 300°, which is magenta. Without the wrap
+        // the arithmetic produced negative channels that clamped to something
+        // else entirely, silently — including through "Copy Color as".
+        let negative = try #require(ColorCode.parse("hsl(-60, 100%, 50%)"))
+        let equivalent = try #require(ColorCode.parse("hsl(300, 100%, 50%)"))
+        #expect(negative.byteComponents == equivalent.byteComponents)
+        #expect(negative.byteComponents == (255, 0, 255))
+    }
+
+    @Test("a hue past 360 wraps too, in both directions")
+    func hueWrapsBothWays() throws {
+        let over = try #require(ColorCode.parse("hsl(420, 100%, 50%)"))
+        let under = try #require(ColorCode.parse("hsl(-300, 100%, 50%)"))
+        let plain = try #require(ColorCode.parse("hsl(60, 100%, 50%)"))
+        #expect(over.byteComponents == plain.byteComponents)
+        #expect(under.byteComponents == plain.byteComponents)
+    }
+
     @Test("leading and trailing whitespace is ignored")
     func trimsWhitespace() {
         #expect(ColorCode.parse("  #3A86FF \n") != nil)
+    }
+
+    @Test("input longer than a colour could ever be is rejected without a copy")
+    func rejectsLongInputEarly() {
+        // The guard exists so a 1 MB text card doesn't copy a megabyte on
+        // every re-render just to be told it isn't a colour. The behaviour it
+        // buys — nothing that long is a colour — is what's pinned here.
+        #expect(ColorCode.parse(String(repeating: "a", count: 1_000_000)) == nil)
+        let padded = String(repeating: " ", count: ColorCode.maxParsableLength) + "#3A86FF"
+        #expect(ColorCode.parse(padded) == nil)
+        // And the cap is comfortably above any real colour, whitespace included.
+        #expect(ColorCode.parse("   hsla(217.5, 100%, 61%, 0.5)   ") != nil)
     }
 
     @Test("text that merely contains a colour is not a colour")
