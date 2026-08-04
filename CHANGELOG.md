@@ -1,5 +1,51 @@
 # Changelog
 
+## [1.4.0](https://github.com/rootless-dev/MyPasteApp/compare/v1.3.0...v1.4.0) (2026-08-04)
+
+
+### Features
+
+* **items:** file items into pinboards and set per-item retention from the menu ([ab13ddb](https://github.com/rootless-dev/MyPasteApp/commit/ab13ddbf11908da35d6f1e25d6edb944d870a081))
+* **pinboards:** add the navigation scope and give escape its step ([24f40d8](https://github.com/rootless-dev/MyPasteApp/commit/24f40d87476b778dd853b9ae29ad758103ee450d))
+* **pinboards:** add the Pinboard model, its palette and the item fields ([f6577ea](https://github.com/rootless-dev/MyPasteApp/commit/f6577eaddfc402d95739446140eb3b31c09ce712))
+* **pinboards:** add the scope strip to the overlay's top bar ([d6efee6](https://github.com/rootless-dev/MyPasteApp/commit/d6efee6d7528cf478c75420f6c07f56b6a56dcbc))
+* **pinboards:** colour card headers by board and mark membership in the history ([4260df7](https://github.com/rootless-dev/MyPasteApp/commit/4260df708ae54b804e88a1eb6c1551351b1f1f8b))
+* **pinboards:** create, rename, recolour and delete boards ([7a16140](https://github.com/rootless-dev/MyPasteApp/commit/7a161404c2c306a7b7cf06dd3fc616a6d8dcf734))
+* **pinboards:** scope the card list, wire the strip and cycle with ctrl-tab ([2bdd295](https://github.com/rootless-dev/MyPasteApp/commit/2bdd295c3935cc5b4b8bdb8c0850b6e280d8fdd9))
+* **pinboards:** tell a rename click from a scope click ([4f9d319](https://github.com/rootless-dev/MyPasteApp/commit/4f9d31939f220e68a2ec9a5b627da23c12ec8d91))
+* **privacy:** add per-app capture rules with migration from the ignored-apps list ([1f9776a](https://github.com/rootless-dev/MyPasteApp/commit/1f9776ab74536c7b3491d1f432c8ce5f8cfb1b9e))
+* **privacy:** reject banned apps before reading, and filter the rest by type ([e9fd9c5](https://github.com/rootless-dev/MyPasteApp/commit/e9fd9c5538c9c25d4cf024c174bb6019b7489afd))
+* **retention:** honour per-item retention and protect pinboards from pruning ([fe704bd](https://github.com/rootless-dev/MyPasteApp/commit/fe704bd702521fe8ac0bcddd71aa1d655084322a))
+* **retention:** let a future expiry date protect an item ([21a6221](https://github.com/rootless-dev/MyPasteApp/commit/21a6221cee12ea6e9f64720278cc7a22ab327044))
+* **retention:** prune every five minutes, not only at launch ([feaff6f](https://github.com/rootless-dev/MyPasteApp/commit/feaff6f8e273a4d4a321c21a9935b6f7bb4e9fca))
+* **settings:** replace the bundle-ID editor with an app rules list ([39b0117](https://github.com/rootless-dev/MyPasteApp/commit/39b0117c935c60df80a9ecdae409b718a016d01b))
+
+
+### Bug Fixes
+
+* **capture:** drop a stale expiry when an item is copied again ([d251c14](https://github.com/rootless-dev/MyPasteApp/commit/d251c148c66cff39ee394dafb1c0afe6c89e9bfc))
+* **overlay:** stop ctrl-tab and the empty state from lying ([ef9ff4e](https://github.com/rootless-dev/MyPasteApp/commit/ef9ff4e0a31489cf1488662e246763eacd2ad670))
+* **pinboards:** give the rename field the keyboard, and the overlay a gate ([e3282f2](https://github.com/rootless-dev/MyPasteApp/commit/e3282f2cd0c23f216f4103dbf5388862beb9c65d))
+* **pinboards:** hand the keyboard back when the rename field leaves ([b373b6b](https://github.com/rootless-dev/MyPasteApp/commit/b373b6bf8a5526e834a0ed77c966ca44d5367b2d))
+* **pinboards:** keep the preview-close path alive and sync scope selection ([28edcb2](https://github.com/rootless-dev/MyPasteApp/commit/28edcb270f056ce3105c3205c74c32c8af3218a4))
+* **pinboards:** reset the inline rename when the drawer reopens ([f758512](https://github.com/rootless-dev/MyPasteApp/commit/f7585129276f55fc3abe88c5d7422e5c6a1af8c8))
+* **privacy:** match the legacy separator set when migrating ignored apps ([76d5985](https://github.com/rootless-dev/MyPasteApp/commit/76d59857742b1892a14cff05509c1a678339a118))
+* **tests:** register Pinboard on the six containers still missing it ([3954b6b](https://github.com/rootless-dev/MyPasteApp/commit/3954b6b7df79bb75b431f1f4b0f74c263188896b))
+
+
+### Refactoring
+
+* **privacy:** make the pre-read gate a function the suite can hold ([b690128](https://github.com/rootless-dev/MyPasteApp/commit/b6901280b9eff2a14371b596e14868bb926f0c79))
+* **privacy:** retire the legacy per-app ignore list parser ([dbaaddf](https://github.com/rootless-dev/MyPasteApp/commit/dbaaddf0e055da9241f0db8c5228d09e4b496907))
+
+
+### Documentation
+
+* **fase-5:** add the design spec and implementation plan ([8a6f113](https://github.com/rootless-dev/MyPasteApp/commit/8a6f113f2a504042e74de4ffdb5c4e7510637cde))
+* **fase-5:** add the manual verification script ([b3f31aa](https://github.com/rootless-dev/MyPasteApp/commit/b3f31aa954653460336634f755cb95bf9805c01d))
+* **fase-5:** say what was measured, and finish the four protections ([7200005](https://github.com/rootless-dev/MyPasteApp/commit/720000544bec6503c3a1cb2b30e0c8d123b61f8e))
+* **verify:** cover task 7, the filing menus and the new retention rules ([61bcbab](https://github.com/rootless-dev/MyPasteApp/commit/61bcbab563625fba594d0208907b1101eeaa4bf8))
+
 ## [1.3.0](https://github.com/rootless-dev/MyPasteApp/compare/v1.2.0...v1.3.0) (2026-08-03)
 
 
