@@ -225,8 +225,16 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         }
 
         // Initial state: translated below the window itself.
+        //
+        // The closing pair is removed too, not just the opening one: `hide()`
+        // adds them with `fillMode: .forwards`, so reopening the drawer while
+        // it is still sliding out would leave the layer pinned off-screen and
+        // transparent — an opening animation running on content nobody can
+        // see.
         hostLayer.removeAnimation(forKey: "slideUp")
         hostLayer.removeAnimation(forKey: "fadeIn")
+        hostLayer.removeAnimation(forKey: "slideDown")
+        hostLayer.removeAnimation(forKey: "fadeOut")
         hostLayer.setAffineTransform(CGAffineTransform(translationX: 0, y: -height))
         panel.alphaValue = 1
 
@@ -284,12 +292,63 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         // also covers the "preview open, overlay already gone" edge case.
         hidePreviewPanel()
         guard let panel = window, panel.isVisible else { return }
-        NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.18
-            panel.animator().alphaValue = 0
-        }, completionHandler: {
+
+        // The drawer leaves the way it arrived: by translating the content
+        // view's layer, never the window. `show()` explains why — a
+        // window-level slide crosses monitor boundaries in multi-display
+        // setups and produces a "teleport" glitch. The window stays put at
+        // its final frame and the content slides out of it.
+        guard let hostLayer = panel.contentView?.layer else {
+            panel.alphaValue = 0
             panel.orderOut(nil)
-        })
+            return
+        }
+
+        let height = Self.overlayHeight
+
+        // Any in-flight opening animation has to go first, or its
+        // `fillMode: .forwards` end state fights this one.
+        hostLayer.removeAnimation(forKey: "slideUp")
+        hostLayer.removeAnimation(forKey: "fadeIn")
+
+        hostLayer.shouldRasterize = true
+        hostLayer.rasterizationScale = panel.backingScaleFactor
+
+        // Ease-in, not the spring `show()` uses: a spring overshoots, and
+        // overshooting on the way out reads as the drawer bouncing off the
+        // bottom of the screen rather than leaving.
+        let slide = CABasicAnimation(keyPath: "transform")
+        slide.fromValue = CATransform3DIdentity
+        slide.toValue = CATransform3DMakeTranslation(0, -height, 0)
+        slide.duration = 0.18
+        slide.timingFunction = CAMediaTimingFunction(name: .easeIn)
+        slide.fillMode = .forwards
+        slide.isRemovedOnCompletion = false
+
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 1
+        fade.toValue = 0
+        fade.duration = 0.18
+        fade.timingFunction = CAMediaTimingFunction(name: .easeIn)
+        fade.fillMode = .forwards
+        fade.isRemovedOnCompletion = false
+
+        CATransaction.begin()
+        CATransaction.setCompletionBlock {
+            panel.orderOut(nil)
+            // Back to the resting state the next `show()` expects to find.
+            // `show()` sets both itself, but leaving the layer parked
+            // off-screen and transparent would show an empty drawer for one
+            // frame if anything ever ordered the panel front without it.
+            hostLayer.removeAnimation(forKey: "slideDown")
+            hostLayer.removeAnimation(forKey: "fadeOut")
+            hostLayer.setAffineTransform(.identity)
+            hostLayer.opacity = 1
+            hostLayer.shouldRasterize = false
+        }
+        hostLayer.add(slide, forKey: "slideDown")
+        hostLayer.add(fade, forKey: "fadeOut")
+        CATransaction.commit()
     }
 
     /// Hides without the fade, for when an item was picked.
@@ -303,6 +362,19 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         removeClickOutsideMonitors()
         hidePreviewPanel()
         guard let panel = window, panel.isVisible else { return }
+        // Cancel any slide in flight and put the layer back at rest. Without
+        // this, picking an item while the drawer is mid-animation would leave
+        // a `fillMode: .forwards` end state parked on the layer for the next
+        // opening to fight.
+        if let hostLayer = panel.contentView?.layer {
+            hostLayer.removeAnimation(forKey: "slideUp")
+            hostLayer.removeAnimation(forKey: "fadeIn")
+            hostLayer.removeAnimation(forKey: "slideDown")
+            hostLayer.removeAnimation(forKey: "fadeOut")
+            hostLayer.setAffineTransform(.identity)
+            hostLayer.opacity = 1
+            hostLayer.shouldRasterize = false
+        }
         panel.alphaValue = 0
         panel.orderOut(nil)
     }
