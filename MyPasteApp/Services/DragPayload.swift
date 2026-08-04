@@ -72,7 +72,14 @@ enum DragPayload {
     /// The Finder rejects a promised file whose name it can't use, and the
     /// failure looks like "the drag didn't work" with nothing explaining why —
     /// which is the exact failure the roadmap item exists to avoid.
-    static func imageFileName(label: String?, date: Date) -> String {
+    ///
+    /// - Parameter timeZone: the zone the fallback timestamp is rendered in.
+    ///   Defaults to the device's own — the name follows the user's clock, so
+    ///   someone who drags a file at 8pm sees 8pm in the name, not an hour
+    ///   shifted by however far their zone sits from UTC. Injected only so a
+    ///   test can pin a zone and get a deterministic string; production code
+    ///   never passes anything but the default.
+    static func imageFileName(label: String?, date: Date, timeZone: TimeZone = .current) -> String {
         let cleaned = (label ?? "")
             .components(separatedBy: CharacterSet(charactersIn: "/:\\?%*|\"<>"))
             .joined(separator: "-")
@@ -80,7 +87,7 @@ enum DragPayload {
 
         let base: String
         if cleaned.isEmpty {
-            base = "Image " + Self.stamp.string(from: date)
+            base = "Image " + Self.stamp(timeZone: timeZone).string(from: date)
         } else {
             base = String(cleaned.prefix(60))
         }
@@ -106,11 +113,16 @@ enum DragPayload {
     /// user's calendar. Left unpinned, a device set to a non-Gregorian
     /// calendar (Thai Buddhist, Japanese era) would emit that calendar's
     /// year — e.g. "Image 2569-...png" — with nothing explaining why.
-    private static let stamp: DateFormatter = {
+    ///
+    /// Built fresh per call rather than cached: a `DateFormatter` mutated in
+    /// place isn't safe to share if this is ever called off the main actor,
+    /// and a fallback name is rare enough that building one is not hot.
+    private static func stamp(timeZone: TimeZone) -> DateFormatter {
         let formatter = DateFormatter()
         formatter.calendar = Calendar(identifier: .gregorian)
         formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = timeZone
         formatter.dateFormat = "yyyy-MM-dd HH-mm-ss"
         return formatter
-    }()
+    }
 }

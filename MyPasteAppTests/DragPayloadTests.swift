@@ -151,15 +151,25 @@ struct DragPayloadTests {
         #expect(fromNil.hasSuffix(".png"))
     }
 
-    @Test("the fallback name is stable no matter the device's calendar")
-    func fallbackNameIsCalendarIndependent() {
+    @Test("the fallback name is stable no matter the device's calendar, and honours the injected zone")
+    func fallbackNameIsCalendarIndependent() throws {
         // Left unpinned, a device set to a non-Gregorian calendar (Thai
         // Buddhist, Japanese era) would stamp that calendar's year into the
-        // name with nothing explaining why. The literal below is the
-        // Gregorian, en_US_POSIX rendering of this timestamp — it must come
-        // out the same regardless of the system's calendar or locale.
+        // name with nothing explaining why. Pinning `timeZone` too (rather
+        // than leaving it at the device default) is what makes this
+        // assertion reproduce on any CI runner, in any zone: the literal
+        // below is the Gregorian, en_US_POSIX, UTC rendering of this
+        // timestamp.
         let date = Date(timeIntervalSince1970: 1_770_000_000)
-        let name = DragPayload.imageFileName(label: nil, date: date)
-        #expect(name == "Image 2026-02-01 23-40-00.png")
+        let utc = try #require(TimeZone(identifier: "UTC"))
+        let name = DragPayload.imageFileName(label: nil, date: date, timeZone: utc)
+        #expect(name == "Image 2026-02-02 02-40-00.png")
+
+        // Proves the parameter is actually honoured rather than ignored: the
+        // same instant, rendered in a zone 14 hours further east, lands on a
+        // different local time and therefore a different name.
+        let elsewhere = try #require(TimeZone(identifier: "Pacific/Kiritimati"))
+        let otherName = DragPayload.imageFileName(label: nil, date: date, timeZone: elsewhere)
+        #expect(otherName != name)
     }
 }
