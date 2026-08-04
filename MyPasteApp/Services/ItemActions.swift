@@ -268,10 +268,14 @@ enum ItemEdit {
 /// Applies an edit to an image item, recomputing everything derived from its
 /// bytes.
 ///
-/// `@MainActor` because of the cache: dropping the stale thumbnail is part of
-/// applying the edit, not an extra step a caller might forget. The card and
-/// the preview keep drawing the old image otherwise — the cache is keyed by
-/// item id, and the id doesn't change when the bytes do.
+/// Recomputing `contentHash` is what makes the new bytes visible, and not only
+/// to deduplication: the thumbnail cache key and `ThumbnailImage`'s `.task` id
+/// both carry the hash (see `ImageThumbnailCache.key`), so a rewritten image
+/// is a different key everywhere the moment this runs. There is deliberately
+/// no explicit cache invalidation here — it used to be a call to
+/// `ImageThumbnailCache.invalidate(id:)`, which could clear the cache but had
+/// no way to reach the `@State` a long-lived card holds, so the card kept
+/// drawing the un-rotated image regardless.
 @MainActor
 enum ImageEdit {
     static func apply(to item: ClipboardItem, imageData: Data) {
@@ -283,8 +287,6 @@ enum ImageEdit {
             // has.
             item.preview = "Imagem \(Int(size.width))×\(Int(size.height))"
         }
-
-        ImageThumbnailCache.shared.invalidate(id: item.id)
 
         // Editing counts as use, exactly as it does for text — see
         // `ItemEdit.apply`.

@@ -72,19 +72,29 @@ struct ImageEditTests {
         #expect(item.lastUsedAt != nil)
     }
 
-    @Test("the cached thumbnail is dropped")
-    func dropsTheThumbnail() async throws {
+    @Test("the thumbnail key moves with the bytes")
+    func thumbnailKeyChanges() throws {
+        // What the card actually keys on. This used to assert that an
+        // `NSCache` entry had been removed by an explicit `invalidate` call —
+        // which tested a mechanism that could never reach the card's own
+        // `@State`, and which asserted a *presence* `NSCache` never promises
+        // (it may evict anything at any time, so the test failed under load).
+        // The key is a pure function, so this is a real guarantee.
         let context = try makeContext()
         let original = try #require(ImagePixelTests.quadrantPNG())
         let item = makeImageItem(data: original)
         context.insert(item)
 
-        _ = await ImageThumbnailCache.shared.thumbnail(for: original, id: item.id, maxPixel: 64)
-        #expect(ImageThumbnailCache.shared.cached(id: item.id, maxPixel: 64) != nil)
+        let keyBefore = ImageThumbnailCache.key(id: item.id,
+                                                contentHash: item.contentHash,
+                                                maxPixel: 64)
 
         let rotated = try #require(ImageRotation.rotate(original, quarterTurns: 1))
         ImageEdit.apply(to: item, imageData: rotated)
 
-        #expect(ImageThumbnailCache.shared.cached(id: item.id, maxPixel: 64) == nil)
+        let keyAfter = ImageThumbnailCache.key(id: item.id,
+                                               contentHash: item.contentHash,
+                                               maxPixel: 64)
+        #expect(keyBefore != keyAfter)
     }
 }

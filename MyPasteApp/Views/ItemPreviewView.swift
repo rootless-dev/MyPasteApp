@@ -105,6 +105,7 @@ struct ItemPreviewView: View {
                             ThumbnailImage(
                                 data: data,
                                 id: item.id,
+                                contentHash: item.contentHash,
                                 maxPixel: ImageThumbnailCache.pixels(for: ItemPreviewPanel.defaultSize)
                             ) {
                                 Text(item.preview).font(.caption)

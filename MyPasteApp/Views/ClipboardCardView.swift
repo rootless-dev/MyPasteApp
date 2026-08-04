@@ -200,6 +200,7 @@ struct ClipboardCardView: View {
                 ThumbnailImage(
                     data: data,
                     id: item.id,
+                    contentHash: item.contentHash,
                     maxPixel: ImageThumbnailCache.pixels(
                         for: CGSize(width: density.width, height: density.height)
                     )
