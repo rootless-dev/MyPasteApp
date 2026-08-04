@@ -113,6 +113,15 @@ struct ColorCodeTests {
         #expect(color.formatted(as: .hsl) == "hsl(0, 0%, 50%)")
     }
 
+    @Test("a hue that rounds up to 360 wraps back to 0")
+    func formatsHueWrapsAt360() throws {
+        // #FF0001's raw hue is ~359.7647 — rounding lands it on 360, which is
+        // the same angle as 0. Left unwrapped, formatting would print
+        // "hsl(360, ...)" instead of the canonical "hsl(0, ...)".
+        let color = try #require(ColorCode.parse("#FF0001"))
+        #expect(color.formatted(as: .hsl) == "hsl(0, 100%, 50%)")
+    }
+
     // MARK: - NSColor
 
     @Test("reads an NSColor through sRGB")

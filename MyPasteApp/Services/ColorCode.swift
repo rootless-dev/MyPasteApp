@@ -193,7 +193,10 @@ struct ColorCode: Equatable {
             return opaque ? "rgb(\(base))" : "rgba(\(base), \(alphaText))"
         case .hsl:
             let (h, s, l) = hsl
-            let base = "\(Int(h.rounded())), \(percent(s))%, \(percent(l))%"
+            // Rounding can push a hue right up to 360, which is the same
+            // angle as 0 — wrap it back so "hsl(360, ...)" never appears.
+            let hueDegrees = Int(h.rounded()) % 360
+            let base = "\(hueDegrees), \(percent(s))%, \(percent(l))%"
             return opaque ? "hsl(\(base))" : "hsla(\(base), \(alphaText))"
         }
     }
