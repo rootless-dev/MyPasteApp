@@ -116,6 +116,16 @@ final class ItemActions {
     func jumpToHistory(_ item: ClipboardItem) {
         onJump(item)
     }
+
+    /// Opens an item in another application.
+    ///
+    /// Does nothing for an item with no openable target — the menu already
+    /// won't offer it, and `⌘O` over such a card should be a no-op rather than
+    /// an error nobody can act on.
+    func open(_ item: ClipboardItem, with application: URL? = nil) {
+        guard case .openable(let target) = OpenWith.target(for: item) else { return }
+        OpenWith.open(target, with: application)
+    }
 }
 
 /// Builds an item the user wrote by hand.

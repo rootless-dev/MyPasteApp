@@ -797,6 +797,23 @@ struct OverlayView: View {
             onDismiss()
             return .handled
         })
+        .onKeyPress(keys: ["o"], action: gated { press in
+            // `gated` is not optional here: without it this fires while the
+            // pinboard rename field has the keyboard. See `handlesKeys`.
+            guard press.modifiers.contains(.command) else { return .ignored }
+            // Only file and URL items have somewhere to be opened; over any
+            // other card the key travels on, rather than being swallowed by a
+            // handler that would do nothing with it.
+            guard let item = filtered.first(where: { $0.id == selectedID }),
+                  case .openable = OpenWith.target(for: item) else {
+                return .ignored
+            }
+            itemActions.open(item)
+            // Same as ⌘E: the drawer's job is done, and the app being opened
+            // is about to take the foreground anyway.
+            onDismiss()
+            return .handled
+        })
         .onKeyPress(keys: ["n"], action: gated { press in
             guard press.modifiers.contains(.command) else { return .ignored }
             // Unlike ⌘E/⌘R, this needs no selected card — it opens an empty
