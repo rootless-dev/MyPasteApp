@@ -66,6 +66,18 @@ struct LiveTextOverlay: NSViewRepresentable {
         context.coordinator.analyse(data: data, into: overlay)
     }
 
+    // The `Group { if mode == .liveText { ... } else { ... } } ` swap in
+    // ItemPreviewView is a structural identity change, not a state update:
+    // flipping `mode` away from `.liveText` doesn't reconfigure this view,
+    // it tears it down (a fresh `makeNSView`/`Coordinator` is built if the
+    // mode flips back on). Without this, an analysis still in flight when
+    // the user turns Live Text off keeps running to completion in the
+    // background and writes into an overlay nothing displays anymore —
+    // harmless to correctness, but wasted work on every quick on/off toggle.
+    static func dismantleNSView(_ view: NSView, coordinator: Coordinator) {
+        coordinator.cancel()
+    }
+
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     final class Coordinator {
@@ -89,6 +101,12 @@ struct LiveTextOverlay: NSViewRepresentable {
                 ) else { return }
                 view.analysis = analysis
             }
+        }
+
+        /// Cancels any analysis in flight. Called from `dismantleNSView` when
+        /// this view is torn down while the analyzer is still running.
+        func cancel() {
+            task?.cancel()
         }
     }
 }
