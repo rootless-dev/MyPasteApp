@@ -6,6 +6,17 @@
 import AppKit
 import SwiftUI
 
+/// Which mode the image preview is in.
+///
+/// One at a time, always: two modes armed over the same image would leave a
+/// click on it with two meanings. Task 8 adds `.liveText` to this enum, and
+/// the exclusivity comes for free from it being one value rather than two
+/// booleans.
+enum PreviewImageMode {
+    case none
+    case sampler
+}
+
 /// The contents of the preview panel.
 ///
 /// Follows design-refs/03-preview-web.png and 04-preview-imagem.png: a title
@@ -14,6 +25,13 @@ import SwiftUI
 struct ItemPreviewView: View {
     let item: ClipboardItem
     let onClose: () -> Void
+    /// Copies a sampled colour. Owned by `OverlayWindowController`, which is
+    /// what holds the `ClipboardWriter` — this view has no business knowing
+    /// about pasteboards.
+    var onCopyColor: (ColorCode) -> Void = { _ in }
+
+    @State private var mode: PreviewImageMode = .none
+    @State private var copiedText: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -66,16 +84,33 @@ struct ItemPreviewView: View {
                 // its top-left corner and made the reader scroll to see any of
                 // it. The point of the preview is seeing the whole thing at
                 // once — the dimensions in the header say what was given up.
-                ThumbnailImage(
-                    data: data,
-                    id: item.id,
-                    maxPixel: ImageThumbnailCache.pixels(for: ItemPreviewPanel.defaultSize)
-                ) {
-                    Text(item.preview).font(.caption)
+                GeometryReader { geometry in
+                    ThumbnailImage(
+                        data: data,
+                        id: item.id,
+                        maxPixel: ImageThumbnailCache.pixels(for: ItemPreviewPanel.defaultSize)
+                    ) {
+                        Text(item.preview).font(.caption)
+                    }
+                    .frame(width: geometry.size.width, height: geometry.size.height)
+                    .background(CheckerboardBackground())
+                    .contentShape(Rectangle())
+                    .onHover { inside in
+                        // The cursor is the only thing on screen saying that
+                        // the next click has an effect.
+                        if mode == .sampler && inside {
+                            NSCursor.crosshair.push()
+                        } else {
+                            NSCursor.pop()
+                        }
+                    }
+                    .onTapGesture { location in
+                        sample(at: location, in: geometry.size, data: data)
+                    }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(CheckerboardBackground())
                 .padding(12)
+                .overlay(alignment: .bottomTrailing) { modeButtons }
+                .overlay(alignment: .top) { copiedBanner }
             } else {
                 Text(item.preview).font(.caption)
             }
@@ -112,6 +147,75 @@ struct ItemPreviewView: View {
             return "\(Int(size.width)) × \(Int(size.height))"
         case .file:
             return nil
+        }
+    }
+
+    // MARK: - Sampling
+
+    /// Turns a click into a colour, then turns the mode off.
+    ///
+    /// One sample per arming, on purpose: a mode that stays on is a mode the
+    /// user forgets is on, and every later click silently replaces the
+    /// pasteboard.
+    private func sample(at location: CGPoint, in viewSize: CGSize, data: Data) {
+        guard mode == .sampler else { return }
+        guard let size = ImageMetadata.pixelSize(of: data),
+              let pixel = ImagePixel.pixel(at: location, viewSize: viewSize, imageSize: size),
+              let color = ImagePixel.color(in: data, x: pixel.x, y: pixel.y)
+        else { return }
+
+        onCopyColor(color)
+        mode = .none
+        show(copied: color.formatted(as: .hex))
+    }
+
+    private func show(copied text: String) {
+        copiedText = text
+        Task {
+            try? await Task.sleep(for: .seconds(1.4))
+            if copiedText == text { copiedText = nil }
+        }
+    }
+
+    // MARK: - Overlays
+
+    private var modeButtons: some View {
+        HStack(spacing: 6) {
+            modeButton(systemName: "eyedropper",
+                       help: "Sample a colour from this image",
+                       isOn: mode == .sampler) {
+                mode = mode == .sampler ? .none : .sampler
+            }
+        }
+        .padding(18)
+    }
+
+    private func modeButton(systemName: String,
+                            help: String,
+                            isOn: Bool,
+                            action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(isOn ? .white : .primary)
+                .frame(width: 28, height: 28)
+                .background(Circle().fill(isOn ? Color.accentColor : Color.black.opacity(0.18)))
+        }
+        .buttonStyle(.plain)
+        .help(help)
+    }
+
+    @ViewBuilder
+    private var copiedBanner: some View {
+        if let copiedText {
+            Text("Copied \(copiedText)")
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Capsule().fill(.black.opacity(0.7)))
+                .foregroundStyle(.white)
+                .padding(.top, 18)
+                .transition(.opacity)
         }
     }
 }

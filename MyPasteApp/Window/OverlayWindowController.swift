@@ -434,9 +434,15 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
     /// of the frame `positionPreviewPanel(_:)` sets, the same bug the Task 19
     /// spike ran into.
     private func applyPreviewContent(to panel: NSPanel, item: ClipboardItem) {
-        let host = NSHostingView(rootView: ItemPreviewView(item: item, onClose: { [weak self] in
-            self?.hidePreviewPanel()
-        }))
+        let host = NSHostingView(rootView: ItemPreviewView(
+            item: item,
+            onClose: { [weak self] in self?.hidePreviewPanel() },
+            onCopyColor: { [weak self] color in
+                // Not silent: a sampled colour the user asked to copy is new
+                // content, and belongs in the history like any other copy.
+                self?.writer.writeText(color.formatted(as: .hex), silently: false)
+            }
+        ))
         host.frame = NSRect(origin: .zero, size: ItemPreviewPanel.defaultSize)
         host.autoresizingMask = [NSView.AutoresizingMask.width, NSView.AutoresizingMask.height]
         panel.contentView = host
