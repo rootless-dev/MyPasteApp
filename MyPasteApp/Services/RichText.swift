@@ -242,4 +242,27 @@ extension RichText {
     static func withoutAttachmentPlaceholders(_ text: String) -> String {
         text.replacingOccurrences(of: "\u{FFFC}", with: "")
     }
+
+    /// Fills in `color` wherever `attributed` has no foreground colour of its
+    /// own, leaving every run that already specifies one exactly as authored.
+    ///
+    /// Exists for panels that draw on a background the source text never
+    /// anticipated. HTML captured from a web page routinely carries an
+    /// explicit dark foreground meant for a white page; drawn unchanged on a
+    /// dark preview background (`drawsBackground = false`) it's nearly
+    /// invisible. Overwriting every run's colour would fix that case but
+    /// flatten every other one — a deliberately red heading would come back
+    /// the same colour as the body. Only the runs that never had an opinion
+    /// get one.
+    static func applyingDefaultForegroundColor(_ attributed: NSAttributedString,
+                                                default color: NSColor) -> NSAttributedString {
+        guard attributed.length > 0 else { return attributed }
+        let result = NSMutableAttributedString(attributedString: attributed)
+        let whole = NSRange(location: 0, length: result.length)
+        result.enumerateAttribute(.foregroundColor, in: whole, options: []) { value, range, _ in
+            guard value == nil else { return }
+            result.addAttribute(.foregroundColor, value: color, range: range)
+        }
+        return result
+    }
 }

@@ -87,3 +87,50 @@ struct RichTextDecodeTests {
         #expect(RichText.decode(data: garbage, format: .rtf) == nil)
     }
 }
+
+@Suite("Rich text — default foreground colour")
+struct RichTextForegroundColorTests {
+    /// The case the preview panel exists to fix: a run with no colour of its
+    /// own must get one, or it renders invisible on a dark background.
+    @Test("Fills in the default colour where none was set")
+    func fillsInMissingColor() {
+        let plain = NSAttributedString(string: "hello")
+        let result = RichText.applyingDefaultForegroundColor(plain, default: .textColor)
+        var range = NSRange()
+        let color = result.attribute(.foregroundColor, at: 0, effectiveRange: &range) as? NSColor
+        #expect(color == .textColor)
+        #expect(range == NSRange(location: 0, length: plain.length))
+    }
+
+    /// A colour the source explicitly chose — a heading pulled from a web
+    /// page, say — must survive untouched. Overwriting it would trade one
+    /// invisible-text bug for a "every colour looks the same" one.
+    @Test("Leaves an explicit colour alone")
+    func leavesExplicitColorAlone() {
+        let styled = NSAttributedString(string: "red",
+                                        attributes: [.foregroundColor: NSColor.red])
+        let result = RichText.applyingDefaultForegroundColor(styled, default: .textColor)
+        let color = result.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor
+        #expect(color == .red)
+    }
+
+    /// A mixed run — part coloured, part not — only gets the fallback where
+    /// it was missing.
+    @Test("Fills only the runs that lack a colour")
+    func fillsOnlyMissingRuns() {
+        let mixed = NSMutableAttributedString(string: "redplain")
+        mixed.addAttribute(.foregroundColor, value: NSColor.red, range: NSRange(location: 0, length: 3))
+        let result = RichText.applyingDefaultForegroundColor(mixed, default: .textColor)
+        let first = result.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor
+        let second = result.attribute(.foregroundColor, at: 5, effectiveRange: nil) as? NSColor
+        #expect(first == .red)
+        #expect(second == .textColor)
+    }
+
+    @Test("An empty string is returned unchanged")
+    func emptyStringUnchanged() {
+        let empty = NSAttributedString(string: "")
+        let result = RichText.applyingDefaultForegroundColor(empty, default: .textColor)
+        #expect(result.length == 0)
+    }
+}

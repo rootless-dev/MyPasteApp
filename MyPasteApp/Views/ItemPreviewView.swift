@@ -84,8 +84,12 @@ struct ItemPreviewView: View {
             } else {
                 // The whole thing, scrollable. This is the limitation the item exists to
                 // fix: the card truncates at previewTextLength and eight lines, so long
-                // text simply isn't readable in the app.
-                TextPreviewView(text: item.textContent ?? "")
+                // text simply isn't readable in the app. Rich text data goes along too,
+                // so an item with formatting renders formatted here the same way the
+                // editor already shows it — see TextPreviewView.content.
+                TextPreviewView(text: item.textContent ?? "",
+                                 richTextData: item.richTextData,
+                                 richTextFormat: item.richTextFormat)
             }
         case .image:
             if let data = item.imageData {
