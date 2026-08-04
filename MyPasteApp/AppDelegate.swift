@@ -307,9 +307,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSColorSampler().show { [weak self] picked in
             guard let self, let picked, let color = ColorCode(picked) else { return }
             let text = color.formatted(as: .hex)
-            let item = ItemActions.makeCapturedItem(text: text)
-            self.modelContainer.mainContext.insert(item)
-            try? self.modelContainer.mainContext.save()
+            // Through `ClipboardMonitor.file`, not a bare `insert`: sampling
+            // the same colour twice must promote the item that's already in
+            // the history rather than file a second, identical one — the same
+            // rule a pasteboard capture obeys.
+            ClipboardMonitor.file(ItemActions.makeCapturedItem(text: text),
+                                  in: self.modelContainer.mainContext)
             // Silently: the item above is already the history's copy of this
             // colour, and letting the monitor capture the write would file a
             // second one credited to whatever app is frontmost.

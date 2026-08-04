@@ -51,14 +51,25 @@ final class ItemActions {
         writer.write(item, plainText: plainText)
     }
 
-    /// Copies a recognised colour in the format the user picked.
+    /// Copies a recognised colour in the format the user picked, and files the
+    /// converted string in the history.
     ///
-    /// Not silent, unlike the sampler's own write: the converted string is new
-    /// content the user asked for, and belongs in the history like any other
-    /// copy. `ClipboardWriter` is still the path, so the write goes through
-    /// the same place every other write does.
+    /// The item is built here and written **silently**, exactly like the
+    /// screen sampler's own path in `AppDelegate.pickColorAction`. Letting the
+    /// monitor pick the write up instead — which is what a non-silent write
+    /// does — was wrong twice over: the monitor credits
+    /// `NSWorkspace.frontmostApplication`, and the overlay is a
+    /// `.nonactivatingPanel`, so converting a colour while Safari was in front
+    /// filed an item wearing Safari's icon and header colour. Worse, with
+    /// monitoring paused or an "ignore" rule on the frontmost app, the write
+    /// was dropped entirely and no item was created at all, with nothing
+    /// saying so.
     func copyColor(_ color: ColorCode, as format: ColorFormat) {
-        writer.writeText(color.formatted(as: format), silently: false)
+        let text = color.formatted(as: format)
+        // Through the monitor's own rule, so converting the same colour twice
+        // promotes one item rather than filing two identical ones.
+        ClipboardMonitor.file(ItemActions.makeCapturedItem(text: text), in: modelContext)
+        writer.writeText(text, silently: true)
     }
 
     func togglePin(_ item: ClipboardItem) {
