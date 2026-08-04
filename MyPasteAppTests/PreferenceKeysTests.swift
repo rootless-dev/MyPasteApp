@@ -35,6 +35,7 @@ struct PreferenceKeysTests {
         #expect(PreferenceKeys.alwaysPastePlainText == "alwaysPastePlainText")
         #expect(PreferenceKeys.enableImageOCR == "enableImageOCR")
         #expect(PreferenceKeys.multiPasteSeparator == "multiPasteSeparator")
+        #expect(PreferenceKeys.appRules == "appRules")
     }
 
     @Test("No two keys collide")

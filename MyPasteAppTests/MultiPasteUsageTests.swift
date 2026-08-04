@@ -18,7 +18,7 @@ final class MultiPasteUsageTests {
 
     init() throws {
         container = try ModelContainer(
-            for: ClipboardItem.self,
+            for: ClipboardItem.self, Pinboard.self,
             configurations: ModelConfiguration(isStoredInMemoryOnly: true)
         )
     }

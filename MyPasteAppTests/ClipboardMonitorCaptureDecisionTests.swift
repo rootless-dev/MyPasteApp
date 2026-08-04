@@ -8,11 +8,23 @@ import Testing
 
 @testable import MyPasteApp
 
-/// Covers the guard ordering inside `ClipboardMonitor.poll()`: pause wins
-/// outright, then a privacy marker, and only once both are clear does
-/// anything get captured. `poll()` itself can't be exercised directly (it's
-/// private and hard-wired to `NSPasteboard.general`), so these tests target
-/// the pure decision it delegates to instead.
+/// Covers the two pure decisions `ClipboardMonitor.poll()` delegates to:
+/// `shouldRead`, which is everything decided before a byte of content is read
+/// off the pasteboard (pause, privacy markers, an app banned outright), and
+/// `AppRules.allows`, which needs the type and therefore the read.
+///
+/// **The order in which `poll()` calls them is not tested here, and cannot
+/// be.** `poll()` is private and wired to `NSPasteboard.general`, and what
+/// matters about the order is when a side effect happens — the read — which no
+/// assertion over pure functions can observe. Moving the whole
+/// `guard Self.shouldRead(...)` to after `readCurrentItem()` leaves every test
+/// in this file green.
+///
+/// What these tests do pin is *membership*: the banned-app rule is part of the
+/// pre-read decision rather than a separate guard somewhere else, so taking it
+/// out of `shouldRead` fails `bannedAppIsRejectedBeforeReading` below. Where
+/// `poll()` chooses to call `shouldRead` is owned by code review and by step
+/// F7 of `VERIFICACAO-FASE-5.md`.
 @MainActor
 @Suite("Clipboard monitor capture decision")
 struct ClipboardMonitorCaptureDecisionTests {
@@ -52,5 +64,73 @@ struct ClipboardMonitorCaptureDecisionTests {
             isPaused: true,
             types: [plainText, PasteboardPrivacy.concealed],
             settings: permissive) == false)
+    }
+
+    // MARK: - The pre-read gate (roadmap item 18)
+
+    private let banned = [AppRule(bundleID: "com.apple.Passwords", allowedTypes: [])]
+
+    @Test("A banned app is rejected by the gate that runs before the read")
+    func bannedAppIsRejectedBeforeReading() {
+        // This is the phase's headline privacy change, stated as the one thing
+        // a test can state about it: the ban is part of `shouldRead`, whose
+        // inputs are a bundle ID and pasteboard metadata — never content. Take
+        // the rule out of this function — to put it in a guard of its own
+        // after the read, say — and this fails. Leaving it here and calling
+        // `shouldRead` late does not; see the suite comment above.
+        #expect(ClipboardMonitor.shouldRead(isPaused: false,
+                                            types: [plainText],
+                                            settings: permissive,
+                                            sourceApp: "com.apple.Passwords",
+                                            rules: banned) == false)
+    }
+
+    @Test("An app with no rule passes the pre-read gate")
+    func unlistedAppPassesTheGate() {
+        #expect(ClipboardMonitor.shouldRead(isPaused: false,
+                                            types: [plainText],
+                                            settings: permissive,
+                                            sourceApp: "com.apple.Safari",
+                                            rules: banned))
+    }
+
+    @Test("Pause and privacy markers still stop an otherwise allowed app")
+    func pauseAndMarkersStillApplyToAllowedApps() {
+        // `shouldRead` composes the pause/marker rule rather than replacing
+        // it: an app nobody banned is still not read while paused, nor when
+        // the pasteboard carries a concealed marker.
+        #expect(ClipboardMonitor.shouldRead(isPaused: true,
+                                            types: [plainText],
+                                            settings: permissive,
+                                            sourceApp: "com.apple.Safari",
+                                            rules: banned) == false)
+        #expect(ClipboardMonitor.shouldRead(isPaused: false,
+                                            types: [plainText, PasteboardPrivacy.concealed],
+                                            settings: permissive,
+                                            sourceApp: "com.apple.Safari",
+                                            rules: banned) == false)
+    }
+
+    @Test("An unknown source app is not treated as banned")
+    func nilSourceAppPassesTheGate() {
+        // `NSWorkspace.frontmostApplication` can return nil, and a rule list
+        // must never turn "I don't know which app" into a silent capture stop.
+        #expect(ClipboardMonitor.shouldRead(isPaused: false,
+                                            types: [plainText],
+                                            settings: permissive,
+                                            sourceApp: nil,
+                                            rules: banned))
+    }
+
+    // MARK: - The post-read gate
+
+    @Test("A text-only app doesn't get its images stored")
+    func typedRuleDropsOtherTypes() {
+        // The half that cannot move earlier: filtering by type needs the type,
+        // which needs the read.
+        let rules = [AppRule(bundleID: "com.tinyspeck.slackmacgap", allowedTypes: [.text])]
+
+        #expect(AppRules.allows(type: .text, from: "com.tinyspeck.slackmacgap", rules: rules))
+        #expect(AppRules.allows(type: .image, from: "com.tinyspeck.slackmacgap", rules: rules) == false)
     }
 }

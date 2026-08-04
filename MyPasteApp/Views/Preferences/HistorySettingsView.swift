@@ -27,20 +27,26 @@ struct HistorySettingsView: View {
                         value: $previewTextLength, in: 80...500, step: 20)
             }
             Section {
-                Button("Clear non-pinned history") { clearHistory() }
+                Button("Clear history") { clearHistory() }
+                Text("Keeps pinned items, items in pinboards, items set to never expire, and items whose expiry date is still ahead.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
     }
 
-    /// Copied from the former `PreferencesView.clearHistory`.
+    /// Uses the pruner's own rule rather than a predicate of its own.
+    ///
+    /// It used to carry `#Predicate { !$0.isPinned }`, which since Phase 5
+    /// would have emptied every pinboard the user had just filled — the button
+    /// promised "non-pinned" and would have deleted curated collections.
     private func clearHistory() {
-        let descriptor = FetchDescriptor<ClipboardItem>(
-            predicate: #Predicate { !$0.isPinned }
-        )
-        if let items = try? modelContext.fetch(descriptor) {
-            for item in items { modelContext.delete(item) }
-            try? modelContext.save()
+        let now = Date.now
+        let items = (try? modelContext.fetch(FetchDescriptor<ClipboardItem>())) ?? []
+        for item in items where !RetentionPolicy.isProtected(item, now: now) {
+            modelContext.delete(item)
         }
+        try? modelContext.save()
     }
 }

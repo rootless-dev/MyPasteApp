@@ -110,9 +110,10 @@ final class ItemActions {
 
 /// Builds an item the user wrote by hand.
 ///
-/// Pinned on creation because `isPinned` is the only thing
-/// `RetentionPolicy.prune()` protects today, in both passes. Roadmap item
-/// 17 (`expiresAt`) is the proper answer and replaces this when it exists.
+/// Born with `keepForever` rather than `isPinned`: hand-written items should
+/// survive the pruner — that was always the intent — but pinning also sorts
+/// them to the front of the history, which nobody asked for. Roadmap item 17
+/// gave the app the field that says exactly what was meant.
 extension ItemActions {
     /// Resolves whether a paste should hand over plain text.
     ///
@@ -126,6 +127,30 @@ extension ItemActions {
         alwaysPlainText || shiftHeld
     }
 
+    /// Writes both retention fields at once.
+    ///
+    /// Static and free-standing because it needs nothing from an instance —
+    /// and because writing the two fields together is the whole point: a
+    /// caller that set only the one that changed is how the meaningless
+    /// "keep forever **and** expires on Tuesday" state would be born. See
+    /// `ItemRetention.fields`.
+    static func setRetention(_ retention: ItemRetention, on item: ClipboardItem) {
+        let fields = retention.fields
+        item.keepForever = fields.keepForever
+        item.expiresAt = fields.expiresAt
+        try? item.modelContext?.save()
+    }
+
+    /// Files an item under a board, or lets it go with nil.
+    ///
+    /// Doesn't touch `createdAt` or `lastUsedAt`: filing something is not
+    /// using it, and promoting it would reshuffle the history the user is
+    /// looking at while they organise it.
+    static func assign(_ item: ClipboardItem, to board: Pinboard?) {
+        item.pinboard = board
+        try? item.modelContext?.save()
+    }
+
     static func makeManualItem(text: String) -> ClipboardItem {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let isURL = URL(string: trimmed).map { $0.scheme != nil } ?? false
@@ -137,7 +162,7 @@ extension ItemActions {
             // This app really is where the item came from, which is also what
             // gives the card its colour and icon with no extra code.
             sourceAppBundleID: Bundle.main.bundleIdentifier,
-            isPinned: true
+            keepForever: true
         )
     }
 }

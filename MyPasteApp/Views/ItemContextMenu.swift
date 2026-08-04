@@ -49,6 +49,10 @@ struct ItemContextMenu: View {
     /// own `delete(_:)` also unmarks the item and hands off `selectedID` to
     /// its neighbour, bookkeeping this view has no notion of and shouldn't.
     let onDelete: () -> Void
+    /// Every board, in strip order, for the "Add to Pinboard" submenu.
+    let boards: [Pinboard]
+    /// Creates a board and files this item into it, without changing the scope.
+    let onFileInNewBoard: () -> Void
 
     @AppStorage(PreferenceKeys.alwaysPastePlainText) private var alwaysPastePlainText = false
 
@@ -101,6 +105,35 @@ struct ItemContextMenu: View {
 
         Divider()
 
+        Menu(item.pinboard == nil ? "Add to Pinboard" : "Move to Pinboard") {
+            ForEach(boards) { board in
+                Button(board.name) { ItemActions.assign(item, to: board) }
+            }
+            if !boards.isEmpty { Divider() }
+            Button("New Pinboard…") { onFileInNewBoard() }
+        }
+
+        if item.pinboard != nil {
+            Button("Remove from Pinboard") { ItemActions.assign(item, to: nil) }
+        }
+
+        Menu(keepTitle) {
+            Button(checked("Follow global policy", when: currentRetention == .global)) {
+                ItemActions.setRetention(.global, on: item)
+            }
+            Button(checked("Never expire", when: currentRetention == .forever)) {
+                ItemActions.setRetention(.forever, on: item)
+            }
+            Divider()
+            ForEach(RetentionOffer.allCases, id: \.self) { offer in
+                Button(offer.title) {
+                    ItemActions.setRetention(.until(offer.date(from: .now)), on: item)
+                }
+            }
+        }
+
+        Divider()
+
         Button(titled("Delete", "⌫")) { onDelete() }
 
         Divider()
@@ -131,5 +164,29 @@ struct ItemContextMenu: View {
     /// handler for the same key.
     private func titled(_ title: String, _ shortcut: String) -> String {
         "\(title)    \(shortcut)"
+    }
+
+    private var currentRetention: ItemRetention {
+        ItemRetention.of(keepForever: item.keepForever, expiresAt: item.expiresAt)
+    }
+
+    /// Names the current state on the parent entry, so the menu can be read as
+    /// an answer to "what happens to this item?" without opening the submenu.
+    /// A duration chosen yesterday says nothing today, which is why the date
+    /// is resolved rather than echoed back as "in 1 hour".
+    private var keepTitle: String {
+        switch currentRetention {
+        case .global: return "Keep"
+        case .forever: return "Keep — never expires"
+        case .until(let date):
+            let formatted = date.formatted(date: .abbreviated, time: .shortened)
+            return "Keep — expires \(formatted)"
+        }
+    }
+
+    /// A leading checkmark as plain text, for the same reason the shortcut
+    /// glyphs here are plain text — see the type-level doc comment.
+    private func checked(_ title: String, when isCurrent: Bool) -> String {
+        isCurrent ? "✓ \(title)" : "   \(title)"
     }
 }
