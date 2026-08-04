@@ -10,7 +10,7 @@
 //  the panel opens with the overlay staying open, the arrow keys keep
 //  navigating cards, clicking inside the panel closes nothing, and clicking
 //  outside both closes both. This file is now that panel's shell — the real
-//  content is ItemPreviewView, and OverlayWindowController owns showing it,
+//  content is ItemPreviewView, and PreviewPanelController owns showing it,
 //  keeping it positioned, and keeping it in sync with the overlay's
 //  selection.
 //
@@ -36,7 +36,7 @@ enum ItemPreviewPanel {
     }
 
     /// Builds the panel shell. `contentView` is left unset on purpose:
-    /// `OverlayWindowController.applyPreviewContent(to:item:)` is the only
+    /// `PreviewPanelController.applyPreviewContent(to:item:)` is the only
     /// place that builds the `NSHostingView` and assigns it, so the rule
     /// below only has to be followed in one spot instead of two.
     static func make() -> NSPanel {

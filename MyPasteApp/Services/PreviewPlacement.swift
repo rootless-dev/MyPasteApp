@@ -10,7 +10,7 @@ import Foundation
 /// it's previewing.
 ///
 /// Pure geometry — no `NSScreen`/`NSWindow`/`NSView` — on purpose:
-/// `OverlayWindowController.positionPreviewPanel(_:)` still owns converting
+/// `PreviewPanelController.positionPreviewPanel(_:)` still owns converting
 /// `previewAnchorFrame` to screen coordinates and calling `panel.setFrame`,
 /// because those genuinely need a live window to convert against. Everything
 /// downstream of "here's the card's frame in screen coordinates" is just
