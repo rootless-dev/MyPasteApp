@@ -37,6 +37,26 @@ struct ItemPreviewView: View {
 
     @State private var mode: PreviewImageMode = .none
     @State private var copiedText: String?
+    /// Live value, always the result of the last `.clamped(...)` call — see
+    /// `ImageZoom`'s doc comment for why this state doesn't just live as a
+    /// `scaleEffect`/`offset` on the view.
+    @State private var zoom: ImageZoom = .fit
+    /// The value `zoom` had when the current gesture began. A `MagnifyGesture`
+    /// and a `DragGesture` each report a *cumulative* delta from wherever
+    /// they started, not an increment since the last callback — multiplying
+    /// or adding that delta onto `zoom` itself on every `onChanged` would
+    /// compound it every frame. Read at the start of a gesture, written back
+    /// only at its end (or by a button press, which is itself a complete,
+    /// instantaneous gesture).
+    @State private var zoomBaseline: ImageZoom = .fit
+    /// Mirrors the image `GeometryReader`'s size, so the zoom buttons — built
+    /// outside that reader, in `modeButtons`, to keep them positioned exactly
+    /// like the sampler/Live Text buttons already there — can still call
+    /// `ImageZoom.clamped`/`unzoomed` without threading the size through as a
+    /// parameter. Empty until the first layout pass; the zoom buttons are
+    /// harmless no-ops until then, same as any button pressed before a frame
+    /// has ever been measured.
+    @State private var previewViewSize: CGSize = .zero
 
     var body: some View {
         VStack(spacing: 0) {
@@ -46,6 +66,10 @@ struct ItemPreviewView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(width: 520, height: 380)
+        // A zoom level chosen for one image has no business surviving onto
+        // the next one the panel shows — arrowing through history at 4x
+        // would otherwise keep every subsequent item cropped and blown up.
+        .onChange(of: item.id) { resetZoom() }
     }
 
     private var header: some View {
@@ -99,24 +123,54 @@ struct ItemPreviewView: View {
                 // it. The point of the preview is seeing the whole thing at
                 // once — the dimensions in the header say what was given up.
                 GeometryReader { geometry in
+                    // Non-optional for the gesture/clamp math below, which
+                    // already treats `.zero` the same as "unknown" — see
+                    // `ImageZoom.clamped`.
+                    let pixelSize = imageSize ?? .zero
                     Group {
                         if mode == .liveText {
                             // Draws its own image rather than sitting on top of
                             // ThumbnailImage's — see LiveTextOverlay's doc comment
                             // for why that's what keeps the selection boxes aligned.
+                            // Deliberately NOT zoomed: LiveTextOverlay hosts its own
+                            // NSImageView as `trackingImageView` so VisionKit's
+                            // selection boxes line up with it exactly; scaling this
+                            // branch would need the overlay's geometry taught the
+                            // same transform ImagePixel had to learn, for a mode
+                            // where "zoom in, then select" is already redundant
+                            // with VisionKit's own text-relative selection. The
+                            // zoom controls hide themselves while this mode is on
+                            // (see `modeButtons`) rather than sit there doing
+                            // nothing.
                             LiveTextOverlay(data: data)
                         } else {
                             ThumbnailImage(
                                 data: data,
                                 id: item.id,
                                 contentHash: item.contentHash,
-                                maxPixel: ImageThumbnailCache.pixels(for: ItemPreviewPanel.defaultSize)
+                                maxPixel: ImageZoom.thumbnailMaxPixel(
+                                    base: ImageThumbnailCache.pixels(for: ItemPreviewPanel.defaultSize),
+                                    scale: zoom.scale,
+                                    imageSize: pixelSize
+                                )
                             ) {
                                 Text(item.preview).font(.caption)
                             }
+                            // About the view's own centre, same as
+                            // `ImageZoom.unzoomed` assumes — see its doc comment.
+                            .scaleEffect(zoom.scale)
+                            .offset(zoom.offset)
                         }
                     }
                     .frame(width: geometry.size.width, height: geometry.size.height)
+                    // The whole point of zoom is a peephole: a scaled-up
+                    // image is deliberately bigger than this frame, with
+                    // `offset` choosing which part shows. Without clipping,
+                    // SwiftUI draws the overflow anyway — bleeding over the
+                    // header and the mode buttons instead of being cropped
+                    // to what `clamped` already guarantees is a valid,
+                    // fully-covering view of the image.
+                    .clipped()
                     .background(CheckerboardBackground())
                     .contentShape(Rectangle())
                     .onContinuousHover { phase in
@@ -135,6 +189,17 @@ struct ItemPreviewView: View {
                     .onTapGesture { location in
                         sample(at: location, in: geometry.size, data: data)
                     }
+                    // Pinch and drag are additive to the tap above, not a
+                    // replacement for it: `MagnifyGesture` only recognises an
+                    // actual pinch, and the drag below needs 2pt of movement
+                    // before it recognises anything, so a plain click still
+                    // reaches `onTapGesture` for sampling. `.simultaneousGesture`
+                    // rather than `.gesture` is what keeps them from competing
+                    // over the same click in the first place.
+                    .simultaneousGesture(magnifyGesture(viewSize: geometry.size, imageSize: pixelSize))
+                    .simultaneousGesture(panGesture(viewSize: geometry.size, imageSize: pixelSize))
+                    .onAppear { previewViewSize = geometry.size }
+                    .onChange(of: geometry.size) { _, newSize in previewViewSize = newSize }
                 }
                 .padding(12)
                 .overlay(alignment: .bottomTrailing) { modeButtons }
@@ -170,12 +235,21 @@ struct ItemPreviewView: View {
         case .text, .url:
             return "\(item.textContent?.count ?? 0) caracteres"
         case .image:
-            guard let data = item.imageData,
-                  let size = ImageMetadata.pixelSize(of: data) else { return nil }
+            guard let size = imageSize else { return nil }
             return "\(Int(size.width)) × \(Int(size.height))"
         case .file:
             return nil
         }
+    }
+
+    /// Pixel size of the current image, read from the file header — cheap,
+    /// see `ImageMetadata.pixelSize`. `nil` when `item` isn't an image or the
+    /// data can't be read; every zoom call site treats that the same as
+    /// `.zero`, which `ImageZoom.clamped`/`thumbnailMaxPixel` both already
+    /// handle without dividing by it.
+    private var imageSize: CGSize? {
+        guard let data = item.imageData else { return nil }
+        return ImageMetadata.pixelSize(of: data)
     }
 
     // MARK: - Sampling
@@ -187,8 +261,14 @@ struct ItemPreviewView: View {
     /// pasteboard.
     private func sample(at location: CGPoint, in viewSize: CGSize, data: Data) {
         guard mode == .sampler else { return }
+        // The click lands in the *zoomed* view; ImagePixel only knows how to
+        // read a point in the fit-and-centred one. Without this, sampling
+        // while zoomed in would silently read whatever pixel happens to sit
+        // under the untransformed coordinate — see ImageZoom's doc comment.
+        let point = ImageZoom.unzoomed(location, viewSize: viewSize,
+                                       scale: zoom.scale, offset: zoom.offset)
         guard let size = ImageMetadata.pixelSize(of: data),
-              let pixel = ImagePixel.pixel(at: location, viewSize: viewSize, imageSize: size),
+              let pixel = ImagePixel.pixel(at: point, viewSize: viewSize, imageSize: size),
               let color = ImagePixel.color(in: data, x: pixel.x, y: pixel.y)
         else { return }
 
@@ -203,6 +283,63 @@ struct ItemPreviewView: View {
             try? await Task.sleep(for: .seconds(1.4))
             if copiedText == text { copiedText = nil }
         }
+    }
+
+    // MARK: - Zoom
+
+    /// How much a single `+`/`−` press changes the scale by. Multiplicative
+    /// rather than a fixed increment so it feels like the same-sized step at
+    /// any zoom level, the way pinch-to-zoom already does.
+    private static let zoomButtonStep: CGFloat = 1.5
+
+    /// Recognises a pinch and updates `zoom.scale` live as it happens.
+    ///
+    /// `value.magnification` is cumulative from wherever the gesture
+    /// started, not incremental — see `zoomBaseline`'s doc comment for why
+    /// this multiplies onto the baseline rather than onto `zoom` itself.
+    private func magnifyGesture(viewSize: CGSize, imageSize: CGSize) -> some Gesture {
+        MagnifyGesture()
+            .onChanged { value in
+                zoom = ImageZoom(scale: zoomBaseline.scale * value.magnification,
+                                 offset: zoomBaseline.offset)
+                    .clamped(viewSize: viewSize, imageSize: imageSize)
+            }
+            .onEnded { _ in zoomBaseline = zoom }
+    }
+
+    /// Recognises a drag and pans the image by it.
+    ///
+    /// No explicit "only while zoomed" guard is needed for correctness:
+    /// `clamped` forces `offset` to `.zero` whenever the drawn image is no
+    /// bigger than the view on an axis, which is exactly the situation at
+    /// `.fit`. The guard here just skips the arithmetic in that case rather
+    /// than computing an offset that's going to be clamped straight back to
+    /// zero anyway.
+    private func panGesture(viewSize: CGSize, imageSize: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 2)
+            .onChanged { value in
+                guard zoom.scale > ImageZoom.minScale else { return }
+                zoom = ImageZoom(
+                    scale: zoomBaseline.scale,
+                    offset: CGSize(width: zoomBaseline.offset.width + value.translation.width,
+                                   height: zoomBaseline.offset.height + value.translation.height)
+                ).clamped(viewSize: viewSize, imageSize: imageSize)
+            }
+            .onEnded { _ in zoomBaseline = zoom }
+    }
+
+    /// Applied by both `+`/`−` buttons — a button press is a complete,
+    /// instantaneous gesture, so it writes `zoomBaseline` immediately rather
+    /// than waiting for an `onEnded` that will never come.
+    private func stepZoom(by factor: CGFloat) {
+        let target = ImageZoom(scale: zoom.scale * factor, offset: zoom.offset)
+        zoom = target.clamped(viewSize: previewViewSize, imageSize: imageSize ?? .zero)
+        zoomBaseline = zoom
+    }
+
+    private func resetZoom() {
+        zoom = .fit
+        zoomBaseline = .fit
     }
 
     // MARK: - Overlays
@@ -221,13 +358,47 @@ struct ItemPreviewView: View {
                     mode = mode == .liveText ? .none : .liveText
                 }
             }
+            // Hidden rather than disabled while Live Text is on: that mode
+            // draws its own un-zoomed image (see the doc comment where
+            // LiveTextOverlay is used), so a zoom control here would look
+            // clickable while doing nothing to what's on screen.
+            if mode != .liveText {
+                zoomButtons
+            }
         }
         .padding(18)
+    }
+
+    @ViewBuilder
+    private var zoomButtons: some View {
+        modeButton(systemName: "minus.magnifyingglass",
+                   help: "Zoom out",
+                   isOn: false,
+                   enabled: zoom.scale > ImageZoom.minScale) {
+            stepZoom(by: 1 / Self.zoomButtonStep)
+        }
+        modeButton(systemName: "plus.magnifyingglass",
+                   help: "Zoom in",
+                   isOn: false,
+                   enabled: zoom.scale < ImageZoom.maxScale) {
+            stepZoom(by: Self.zoomButtonStep)
+        }
+        // Only while actually zoomed — a fit-scale image has nothing to
+        // reset, and a button that's always there is one more thing on
+        // screen for no reason most of the time.
+        if zoom.scale > ImageZoom.minScale {
+            modeButton(systemName: "arrow.up.left.and.down.right.magnifyingglass",
+                       help: "Zoom to fit",
+                       isOn: false) {
+                resetZoom()
+            }
+        }
     }
 
     private func modeButton(systemName: String,
                             help: String,
                             isOn: Bool,
+                            enabled: Bool = true,
                             action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
@@ -238,6 +409,8 @@ struct ItemPreviewView: View {
         }
         .buttonStyle(.plain)
         .help(help)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.35)
     }
 
     @ViewBuilder
