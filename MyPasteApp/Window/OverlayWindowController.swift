@@ -438,9 +438,14 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
             item: item,
             onClose: { [weak self] in self?.hidePreviewPanel() },
             onCopyColor: { [weak self] color in
-                // Not silent: a sampled colour the user asked to copy is new
-                // content, and belongs in the history like any other copy.
-                self?.writer.writeText(color.formatted(as: .hex), silently: false)
+                // Silent: sampling is looking closely at something already
+                // inside the app, not bringing something new in — clicking
+                // through several pixels of the same image must not fill the
+                // history with items nobody asked for. The screen sampler is
+                // the opposite case (it brings a colour in from outside the
+                // app) and creates its item explicitly for exactly that
+                // reason.
+                self?.writer.writeText(color.formatted(as: .hex), silently: true)
             },
             onEdit: { [weak self] in self?.itemEditor.open(item: item, focus: .label) }
         ))
