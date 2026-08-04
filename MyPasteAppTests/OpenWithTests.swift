@@ -51,9 +51,14 @@ struct OpenWithTests {
         #expect(OpenWith.target(for: item) == .unsupported)
     }
 
-    @Test("an https url is openable, and so is mailto")
+    @Test("web and contact-card schemes are openable")
     func allowedSchemes() {
-        for text in ["https://example.com", "http://example.com", "mailto:someone@example.com"] {
+        // `tel`, `sms` and `facetime` are as ordinary a copy as an email
+        // address — a user lifts them off a contact card — and their worst
+        // case is a compose window they can close.
+        for text in ["https://example.com", "http://example.com",
+                     "mailto:someone@example.com", "tel:+15551234567",
+                     "sms:+15551234567", "facetime:someone@example.com"] {
             let item = ClipboardItem(type: .url,
                                      preview: text,
                                      contentHash: "hash",

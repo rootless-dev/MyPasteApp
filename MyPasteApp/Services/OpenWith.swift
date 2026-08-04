@@ -58,10 +58,19 @@ enum OpenWith {
     /// and a credential prompt. Neither is something the user asked this app
     /// to do by pressing ⌘O over a card.
     ///
+    /// What's on the list is what a person copies *in order to open it*: web
+    /// addresses, and the contact-card schemes — `tel`, `sms`, `facetime` —
+    /// which are exactly as ordinary a copy as an email address and whose
+    /// worst case is a compose window the user can close. What's off it is
+    /// anything that reaches the filesystem, the network stack or another
+    /// app's command surface: `file`, `smb`, `javascript`, and app schemes.
+    ///
     /// File items are unaffected — they arrive through the `.file` branch
     /// above, from real pasteboard file promises, and are still checked
     /// against the filesystem.
-    static let openableSchemes: Set<String> = ["http", "https", "mailto"]
+    static let openableSchemes: Set<String> = [
+        "http", "https", "mailto", "tel", "sms", "facetime",
+    ]
 
     /// The applications that can open this target, by display name.
     static func candidates(for target: URL) -> [Candidate] {
