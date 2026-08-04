@@ -1,0 +1,133 @@
+//
+//  ColorCodeTests.swift
+//  MyPasteAppTests
+//
+
+import AppKit
+import Testing
+@testable import MyPasteApp
+
+@Suite("ColorCode")
+struct ColorCodeTests {
+
+    // MARK: - Parsing
+
+    @Test("six-digit hex")
+    func sixDigitHex() throws {
+        let color = try #require(ColorCode.parse("#3A86FF"))
+        #expect(color.byteComponents == (58, 134, 255))
+        #expect(color.alpha == 1)
+    }
+
+    @Test("three-digit hex expands each digit")
+    func threeDigitHex() throws {
+        let color = try #require(ColorCode.parse("#abc"))
+        #expect(color.byteComponents == (170, 187, 204))
+    }
+
+    @Test("eight-digit hex carries alpha")
+    func eightDigitHex() throws {
+        let color = try #require(ColorCode.parse("#3A86FF80"))
+        #expect(color.byteComponents == (58, 134, 255))
+        #expect(abs(color.alpha - 128.0 / 255.0) < 0.001)
+    }
+
+    @Test("rgb with and without spaces")
+    func rgbFunction() throws {
+        let spaced = try #require(ColorCode.parse("rgb(58, 134, 255)"))
+        let tight = try #require(ColorCode.parse("RGB(58,134,255)"))
+        #expect(spaced == tight)
+        #expect(spaced.byteComponents == (58, 134, 255))
+    }
+
+    @Test("rgba carries alpha")
+    func rgbaFunction() throws {
+        let color = try #require(ColorCode.parse("rgba(58, 134, 255, 0.5)"))
+        #expect(color.alpha == 0.5)
+    }
+
+    @Test("hsl round-trips close to the rgb it came from")
+    func hslFunction() throws {
+        // hsl→rgb is not the exact inverse of rgb→hsl at integer precision:
+        // #3A86FF reports as hsl(217, 100%, 61%), and that hsl parses back to
+        // (56, 132, 255). Both numbers are pinned here on purpose — a change
+        // to the rounding shows up as a failure instead of drifting quietly.
+        let color = try #require(ColorCode.parse("hsl(217, 100%, 61%)"))
+        #expect(color.byteComponents == (56, 132, 255))
+    }
+
+    @Test("leading and trailing whitespace is ignored")
+    func trimsWhitespace() {
+        #expect(ColorCode.parse("  #3A86FF \n") != nil)
+    }
+
+    @Test("text that merely contains a colour is not a colour")
+    func rejectsEmbeddedColour() {
+        // The whole point of the rule: a stylesheet in the history must not
+        // turn into a colour item, or "Copy Color as" has no single answer.
+        #expect(ColorCode.parse("body { color: #3A86FF; }") == nil)
+        #expect(ColorCode.parse("#3A86FF is the accent") == nil)
+    }
+
+    @Test("malformed input is rejected")
+    func rejectsGarbage() {
+        #expect(ColorCode.parse("") == nil)
+        #expect(ColorCode.parse("#12345") == nil)
+        #expect(ColorCode.parse("#GGGGGG") == nil)
+        #expect(ColorCode.parse("rgb(58, 134)") == nil)
+        #expect(ColorCode.parse("rgb(300, 0, 0)") == nil)
+        #expect(ColorCode.parse("hsl(217, 100, 61%)") == nil)
+    }
+
+    // MARK: - Formatting
+
+    @Test("hex is upper case and drops alpha when opaque")
+    func formatsHex() throws {
+        let color = try #require(ColorCode.parse("rgb(58, 134, 255)"))
+        #expect(color.formatted(as: .hex) == "#3A86FF")
+    }
+
+    @Test("hex keeps alpha when translucent")
+    func formatsHexWithAlpha() throws {
+        let color = try #require(ColorCode.parse("rgba(58, 134, 255, 0.5)"))
+        #expect(color.formatted(as: .hex) == "#3A86FF80")
+    }
+
+    @Test("rgb and hsl formatting")
+    func formatsFunctions() throws {
+        let color = try #require(ColorCode.parse("#3A86FF"))
+        #expect(color.formatted(as: .rgb) == "rgb(58, 134, 255)")
+        #expect(color.formatted(as: .hsl) == "hsl(217, 100%, 61%)")
+    }
+
+    @Test("translucent colours use the a-suffixed functions")
+    func formatsFunctionsWithAlpha() throws {
+        let color = try #require(ColorCode.parse("#3A86FF80"))
+        #expect(color.formatted(as: .rgb) == "rgba(58, 134, 255, 0.5)")
+        #expect(color.formatted(as: .hsl) == "hsla(217, 100%, 61%, 0.5)")
+    }
+
+    @Test("grey has no meaningful hue and reports zero saturation")
+    func formatsGrey() throws {
+        let color = try #require(ColorCode.parse("#808080"))
+        #expect(color.formatted(as: .hsl) == "hsl(0, 0%, 50%)")
+    }
+
+    // MARK: - NSColor
+
+    @Test("reads an NSColor through sRGB")
+    func fromNSColor() throws {
+        let color = try #require(ColorCode(NSColor(srgbRed: 58.0 / 255,
+                                                  green: 134.0 / 255,
+                                                  blue: 1,
+                                                  alpha: 1)))
+        #expect(color.formatted(as: .hex) == "#3A86FF")
+    }
+}
+
+private extension ColorCode {
+    /// The three channels as 0...255 integers, for readable expectations.
+    var byteComponents: (Int, Int, Int) {
+        (Int((red * 255).rounded()), Int((green * 255).rounded()), Int((blue * 255).rounded()))
+    }
+}
