@@ -29,6 +29,10 @@ struct ItemPreviewView: View {
     /// what holds the `ClipboardWriter` — this view has no business knowing
     /// about pasteboards.
     var onCopyColor: (ColorCode) -> Void = { _ in }
+    /// Opens the item editor. Only offered for images: text and URL already
+    /// have ⌘E, and a second path to the same window is a second thing to
+    /// keep in step.
+    var onEdit: (() -> Void)? = nil
 
     @State private var mode: PreviewImageMode = .none
     @State private var copiedText: String?
@@ -54,6 +58,11 @@ struct ItemPreviewView: View {
             Text(typeLabel)
                 .font(.system(size: 13, weight: .semibold))
             Spacer()
+            if item.type == .image, let onEdit {
+                Button("Edit") { onEdit() }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12, weight: .semibold))
+            }
             if let footnote {
                 Text(footnote)
                     .font(.system(size: 11))

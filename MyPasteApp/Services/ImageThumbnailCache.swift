@@ -23,6 +23,15 @@ final class ImageThumbnailCache {
 
     private let cache = NSCache<NSString, NSImage>()
 
+    /// Which sizes were ever handed out for each id.
+    ///
+    /// `NSCache` can't be enumerated, and the key includes the pixel size the
+    /// caller asked for — so without this record, invalidating means guessing
+    /// which sizes exist. The card and the preview panel use different ones,
+    /// and a missed size means a card still drawing the image from before the
+    /// edit until the app restarts.
+    private var issuedSizes: [UUID: Set<Int>] = [:]
+
     /// - Parameter totalCostLimit: bytes of decoded bitmap to keep. 32 MB
     ///   holds a screen's worth of cards comfortably; `NSCache` also evicts on
     ///   its own under memory pressure. Injectable for tests.
@@ -53,7 +62,19 @@ final class ImageThumbnailCache {
         cache.setObject(image,
                         forKey: Self.key(id: id, maxPixel: maxPixel),
                         cost: decoded.bytesPerRow * decoded.height)
+        issuedSizes[id, default: []].insert(maxPixel)
         return image
+    }
+
+    /// Drops every cached size for one item.
+    ///
+    /// Called whenever an item's `imageData` is rewritten — the id stays the
+    /// same, so nothing else would tell the cache its entry is stale.
+    func invalidate(id: UUID) {
+        for maxPixel in issuedSizes[id] ?? [] {
+            cache.removeObject(forKey: Self.key(id: id, maxPixel: maxPixel))
+        }
+        issuedSizes[id] = nil
     }
 
     // MARK: - Pure helpers

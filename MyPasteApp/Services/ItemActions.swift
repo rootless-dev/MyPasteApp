@@ -254,3 +254,33 @@ enum ItemEdit {
         try? item.modelContext?.save()
     }
 }
+
+/// Applies an edit to an image item, recomputing everything derived from its
+/// bytes.
+///
+/// `@MainActor` because of the cache: dropping the stale thumbnail is part of
+/// applying the edit, not an extra step a caller might forget. The card and
+/// the preview keep drawing the old image otherwise — the cache is keyed by
+/// item id, and the id doesn't change when the bytes do.
+@MainActor
+enum ImageEdit {
+    static func apply(to item: ClipboardItem, imageData: Data) {
+        item.imageData = imageData
+        item.contentHash = ClipboardMonitor.hash(imageData)
+        if let size = ImageMetadata.pixelSize(of: imageData) {
+            // Same shape ClipboardMonitor writes on capture. Leaving it stale
+            // would have the card describing dimensions the image no longer
+            // has.
+            item.preview = "Imagem \(Int(size.width))×\(Int(size.height))"
+        }
+
+        ImageThumbnailCache.shared.invalidate(id: item.id)
+
+        // Editing counts as use, exactly as it does for text — see
+        // `ItemEdit.apply`.
+        item.createdAt = .now
+        item.lastUsedAt = .now
+
+        try? item.modelContext?.save()
+    }
+}

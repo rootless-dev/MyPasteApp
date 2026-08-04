@@ -441,7 +441,8 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
                 // Not silent: a sampled colour the user asked to copy is new
                 // content, and belongs in the history like any other copy.
                 self?.writer.writeText(color.formatted(as: .hex), silently: false)
-            }
+            },
+            onEdit: { [weak self] in self?.itemEditor.open(item: item, focus: .label) }
         ))
         host.frame = NSRect(origin: .zero, size: ItemPreviewPanel.defaultSize)
         host.autoresizingMask = [NSView.AutoresizingMask.width, NSView.AutoresizingMask.height]
