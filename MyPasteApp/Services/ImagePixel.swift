@@ -56,16 +56,28 @@ enum ImagePixel {
               x < image.width, y < image.height
         else { return nil }
 
-        var pixel = [UInt8](repeating: 0, count: 4)
-        guard let context = pixel.withUnsafeMutableBytes({ buffer -> CGContext? in
-            CGContext(data: buffer.baseAddress,
-                      width: 1,
-                      height: 1,
-                      bitsPerComponent: 8,
-                      bytesPerRow: 4,
-                      space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
-        }) else { return nil }
+        // Explicitly allocated, not an `Array`'s `withUnsafeMutableBytes`
+        // buffer: that pointer is only valid *inside* the closure, and both
+        // the `draw` below and the four reads after it happen outside it. The
+        // context outliving the pointer it was handed is undefined behaviour
+        // whose failure mode is silent — every sample reporting #000000 at
+        // alpha 0 — which is exactly the kind of bug nobody traces back here.
+        let pixel = UnsafeMutablePointer<UInt8>.allocate(capacity: 4)
+        pixel.initialize(repeating: 0, count: 4)
+        defer {
+            pixel.deinitialize(count: 4)
+            pixel.deallocate()
+        }
+
+        guard let context = CGContext(
+            data: pixel,
+            width: 1,
+            height: 1,
+            bitsPerComponent: 8,
+            bytesPerRow: 4,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return nil }
 
         // CGContext counts rows from the bottom, the image's y counts from the
         // top: row `y` of the image sits at `height - 1 - y` in context space.
