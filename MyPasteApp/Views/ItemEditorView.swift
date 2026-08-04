@@ -36,6 +36,7 @@ struct ItemEditorView: View {
     @AppStorage(PreferenceKeys.previewTextLength) private var previewTextLength: Int = 200
     @State private var attributed: NSAttributedString
     @State private var label: String
+    @State private var formatCommand: RichTextCommand?
     @FocusState private var labelFocused: Bool
 
     /// Quarter turns the user has asked for but not saved yet.
@@ -113,7 +114,18 @@ struct ItemEditorView: View {
             if hasEditableBody {
                 Divider()
 
-                RichTextEditor(attributedText: $attributed)
+                HStack(spacing: 14) {
+                    Spacer()
+                    formatButton("bold", .bold, "Bold")
+                    formatButton("italic", .italic, "Italic")
+                    formatButton("underline", .underline, "Underline")
+                    formatButton("strikethrough", .strikethrough, "Strikethrough")
+                    formatButton("eraser", .clear, "Clear formatting")
+                    Spacer()
+                }
+                .padding(.vertical, 6)
+
+                RichTextEditor(attributedText: $attributed, command: $formatCommand)
                     .frame(minWidth: 480, minHeight: 280)
             }
 
@@ -135,6 +147,16 @@ struct ItemEditorView: View {
             .padding(12)
         }
         .onAppear { labelFocused = (initialFocus == .label) }
+    }
+
+    private func formatButton(_ symbol: String,
+                              _ command: RichTextCommand,
+                              _ help: String) -> some View {
+        Button { formatCommand = command } label: {
+            Image(systemName: symbol).font(.system(size: 13))
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
 
     private func imageBody(data: Data) -> some View {
