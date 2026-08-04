@@ -17,9 +17,15 @@ struct PinboardPill: View {
     let colorHex: String?
     let isSelected: Bool
     let isCollapsed: Bool
-    /// Where the drawer's keyboard is pointed, so the rename field can hand it
-    /// back on the way out. Same contract as `SearchFieldView` — see the
-    /// `onDisappear` below.
+    /// Where the drawer's keyboard is pointed. The rename field tags itself
+    /// `.boardName` on this, the drawer's one focus system, and hands the
+    /// keyboard back to `.list` on the way out.
+    ///
+    /// It used to drive a private `@FocusState` of its own instead, and the
+    /// two systems did not merge: this one stayed at `.list` while the pill
+    /// believed its field had the keyboard, so the letters typed into a new
+    /// board's name reached `OverlayView`'s handlers and opened the search.
+    /// See the note on `OverlayFocusTarget`.
     @FocusState.Binding var focusTarget: OverlayFocusTarget?
     let action: () -> Void
     /// While true, the pill shows a text field instead of its label.
@@ -30,7 +36,6 @@ struct PinboardPill: View {
     var onBeginRename: () -> Void = {}
 
     @State private var draft = ""
-    @FocusState private var isFieldFocused: Bool
 
     var body: some View {
         pill
@@ -57,11 +62,16 @@ struct PinboardPill: View {
                         .textFieldStyle(.plain)
                         .font(.system(size: 12, weight: .medium))
                         .frame(width: 90)
-                        .focused($isFieldFocused)
+                        // The tag goes on the field itself, never on a
+                        // container that merely holds it — the same rule
+                        // `SearchFieldView` follows, and for the same reason:
+                        // a `@FocusState` written to a value no view in the
+                        // tree claims is dropped and reverts.
+                        .focused($focusTarget, equals: .boardName)
                         .onSubmit { onCommitName(draft) }
                         .onAppear {
                             draft = title
-                            isFieldFocused = true
+                            focusTarget = .boardName
                         }
                         // Losing focus commits, the way renaming does in
                         // Finder. Without this the field had no way out other
@@ -73,8 +83,12 @@ struct PinboardPill: View {
                         // Committing rather than cancelling because the text
                         // is already typed and visible — dropping it on a
                         // stray click would discard work the user can see.
-                        .onChange(of: isFieldFocused) { _, focused in
-                            guard !focused else { return }
+                        // Only this pill carries the modifier — it lives inside
+                        // `if isEditing`, and `PinboardScope.renamingBoardID`
+                        // is a single optional, so no second pill is ever
+                        // watching the same transition.
+                        .onChange(of: focusTarget) { _, target in
+                            guard target != .boardName else { return }
                             onCommitName(draft)
                         }
                         // Escape leaves the field without renaming. The board

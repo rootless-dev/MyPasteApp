@@ -19,8 +19,9 @@ struct OverlayTopBar: View {
     /// inline rename field. Applying it to a container that merely *contains*
     /// a field doesn't move the keyboard into it — and for the search field
     /// the tag is what gives `focusTarget = .search` somewhere to land at all.
-    /// The rename field never takes the tag; it only hands the keyboard back
-    /// to `.list` when it leaves.
+    /// The rename field carries `.boardName` for the same reason: it used to
+    /// run on a private `@FocusState` of its own, and two focus systems in one
+    /// tree is what sent the letters of a new pinboard's name into the search.
     @FocusState.Binding var focusTarget: OverlayFocusTarget?
     var onActivate: () -> Void
     var onOpenFilters: () -> Void
@@ -35,6 +36,7 @@ struct OverlayTopBar: View {
     var boardContextMenu: (Pinboard) -> AnyView = { _ in AnyView(EmptyView()) }
     var editingBoardID: UUID?
     var onCommitBoardName: (Pinboard, String) -> Void = { _, _ in }
+    var onBeginRenameBoard: (Pinboard) -> Void = { _ in }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -51,7 +53,8 @@ struct OverlayTopBar: View {
                             onCreate: onCreateBoard,
                             contextMenu: boardContextMenu,
                             editingID: editingBoardID,
-                            onCommitName: onCommitBoardName)
+                            onCommitName: onCommitBoardName,
+                            onBeginRename: onBeginRenameBoard)
             } else {
                 Button(action: onActivate) {
                     Image(systemName: "magnifyingglass")
@@ -71,7 +74,8 @@ struct OverlayTopBar: View {
                             onCreate: onCreateBoard,
                             contextMenu: boardContextMenu,
                             editingID: editingBoardID,
-                            onCommitName: onCommitBoardName)
+                            onCommitName: onCommitBoardName,
+                            onBeginRename: onBeginRenameBoard)
             }
         }
         .frame(maxWidth: .infinity)

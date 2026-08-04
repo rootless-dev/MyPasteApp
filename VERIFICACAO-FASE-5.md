@@ -71,6 +71,44 @@ sandboxado, não há um container por bundle ID.
       em edição (ex.: ainda "Untitled" se você não tinha confirmado nome
       nenhum).
 
+- [ ] **B4a ⚠️ Um clique navega, não renomeia.** Com pelo menos dois boards
+      criados e nomeados, clique **uma vez** numa pílula que não é a ativa.
+      **Critério:** o escopo troca para aquele board — a lista de cards passa
+      a mostrar só o conteúdo dele — e a pílula continua exibindo o nome como
+      texto. Se aparecer um campo de texto, o clique abriu edição, que é
+      exatamente o que este passo existe para pegar.
+
+- [ ] **B4b** Duplo clique no nome de uma pílula de pinboard: ela entra em
+      edição, com o texto atual selecionado e o foco no campo. **O escopo não
+      muda** — se você estava no Histórico, continua no Histórico. Renomeie e
+      confirme com `↵`.
+
+- [ ] **B4c ⚠️ Clicar fora confirma o que foi digitado.** Entre em edição
+      (duplo clique ou `+`), digite um nome e, **sem apertar `↵`**, clique
+      noutra pílula. **Critério:** a edição fecha, o nome digitado fica
+      salvo, e o clique leva você ao escopo da pílula que você clicou. O
+      campo não pode continuar aberto depois disso — um campo que só fecha
+      com `↵` ou `⎋` é o que fazia a pílula parecer que abria edição sozinha
+      ao ser clicada.
+
+- [ ] **B4d 🔴 As letras vão para o campo da pílula, e `⌫` não apaga card.**
+      O passo mais importante do bloco: é o bug que apareceu em uso real, e
+      todos os dezesseis atalhos da gaveta ficavam armados por cima do campo
+      aberto. Aperte `+` e digite `teste` imediatamente, sem clicar em nada.
+      **Critério, os três juntos:**
+      1. as letras aparecem **no campo da pílula**;
+      2. a barra de busca **não** abre — se ela abrir com "teste" dentro, é
+         exatamente a falha relatada, e as pílulas terão colapsado para só o
+         ponto colorido;
+      3. com o cursor no meio do nome, aperte `⌫` duas vezes: some **uma
+         letra por vez do nome** e **nenhum card do histórico**. Antes da
+         correção, `⌫` com a busca fechada e nada marcado resolvia para
+         apagar o card selecionado — sem desfazer. Confira a contagem de
+         cards antes e depois.
+
+      Repita entrando na renomeação por duplo clique e pela entrada "Rename"
+      do menu da pílula: são três portas para o mesmo campo.
+
 - [ ] **B5** Botão direito numa pílula de pinboard: aparecem "Rename",
       "Delete" e as oito cores, cada uma com nome (Red, Orange, Yellow,
       Green, Blue, Purple, Pink, Grey) e não só o quadrado colorido.
