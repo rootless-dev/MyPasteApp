@@ -58,70 +58,11 @@ struct ClipboardPreferencesTests {
         #expect(ClipboardMonitor.soundFeedbackEnabled(from: defaults.store) == enabled)
     }
 
-    // MARK: - Ignored apps
-
-    @Test("No ignore list means nothing is ignored")
-    func ignoredAppsUnset() {
-        #expect(ClipboardMonitor.ignoredBundleIDs(from: defaults.store).isEmpty)
-    }
-
-    @Test("Blank input yields no bundle IDs", arguments: ["", "   ", "\n", "\n\n  \n", ",", ",,"])
-    func ignoredAppsBlank(raw: String) {
-        defaults.store.set(raw, forKey: "ignoredAppsRaw")
-        #expect(ClipboardMonitor.ignoredBundleIDs(from: defaults.store).isEmpty)
-    }
-
-    @Test("A single bundle ID is parsed")
-    func ignoredAppsSingle() {
-        defaults.store.set("com.agilebits.onepassword7", forKey: "ignoredAppsRaw")
-        #expect(ClipboardMonitor.ignoredBundleIDs(from: defaults.store)
-                == ["com.agilebits.onepassword7"])
-    }
-
-    @Test("Newline-separated IDs are parsed")
-    func ignoredAppsNewlines() {
-        defaults.store.set("com.apple.keychainaccess\ncom.1password.1password",
-                           forKey: "ignoredAppsRaw")
-        #expect(ClipboardMonitor.ignoredBundleIDs(from: defaults.store)
-                == ["com.apple.keychainaccess", "com.1password.1password"])
-    }
-
-    @Test("Comma-separated IDs are parsed")
-    func ignoredAppsCommas() {
-        defaults.store.set("com.apple.keychainaccess,com.1password.1password",
-                           forKey: "ignoredAppsRaw")
-        #expect(ClipboardMonitor.ignoredBundleIDs(from: defaults.store)
-                == ["com.apple.keychainaccess", "com.1password.1password"])
-    }
-
-    @Test("Separators can be mixed and surrounding spaces are trimmed")
-    func ignoredAppsMixedAndTrimmed() {
-        defaults.store.set("  com.a  ,\n  com.b\n\ncom.c ,, ", forKey: "ignoredAppsRaw")
-        #expect(ClipboardMonitor.ignoredBundleIDs(from: defaults.store)
-                == ["com.a", "com.b", "com.c"])
-    }
-
-    @Test("A list pasted from a CRLF file has no stray carriage returns")
-    func ignoredAppsCRLF() {
-        // Regression guard: splitting on "\n" alone left a trailing "\r" glued
-        // to each ID, so no bundle ID ever matched.
-        defaults.store.set("com.a\r\ncom.b\r\n", forKey: "ignoredAppsRaw")
-        #expect(ClipboardMonitor.ignoredBundleIDs(from: defaults.store) == ["com.a", "com.b"])
-    }
-
-    @Test("Repeating an ID doesn't duplicate it")
-    func ignoredAppsDeduplicates() {
-        defaults.store.set("com.a\ncom.a\ncom.a", forKey: "ignoredAppsRaw")
-        #expect(ClipboardMonitor.ignoredBundleIDs(from: defaults.store) == ["com.a"])
-    }
-
-    @Test("Matching is exact, so a prefix doesn't ignore a different app")
-    func ignoredAppsExactMatch() {
-        defaults.store.set("com.apple.Safari", forKey: "ignoredAppsRaw")
-        let ignored = ClipboardMonitor.ignoredBundleIDs(from: defaults.store)
-        #expect(ignored.contains("com.apple.Safari"))
-        #expect(!ignored.contains("com.apple.SafariTechnologyPreview"))
-    }
+    // Ignored-apps list parsing used to be tested here, directly against
+    // ClipboardMonitor.ignoredBundleIDs(from:). Task 10 (Phase 5) moved that
+    // responsibility to AppRules.load's legacy migration path and deleted
+    // the function; the equivalent coverage now lives in AppRulesTests under
+    // "Migration — legacy list parsing".
 }
 
 @Suite("Content hash")

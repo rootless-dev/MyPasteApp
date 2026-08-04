@@ -12,6 +12,9 @@ struct OverlayView: View {
     @Query(sort: \ClipboardItem.createdAt, order: .reverse)
     private var items: [ClipboardItem]
 
+    @Query(sort: \Pinboard.createdAt, order: .forward)
+    private var boards: [Pinboard]
+
     @State private var selectedID: UUID?
     /// Selection to honour on the next list change, instead of the top card.
     ///
@@ -54,6 +57,11 @@ struct OverlayView: View {
     /// Owned by `OverlayWindowController`, like `search` and for the same
     /// reason. The controller clears it on every `show()`.
     let marked: MarkedSelection
+    /// Owned by `OverlayWindowController`, like `search` and `marked`, and for
+    /// the same reason. The controller resets it on every `show()` — which
+    /// covers the inline rename it also holds (`renamingBoardID`), not just
+    /// the active board.
+    let scope: PinboardScope
     let onPick: (ClipboardItem, Bool) -> Void
     let onPickMultiple: ([ClipboardItem], Bool) -> Void
     let onDismiss: () -> Void
@@ -99,6 +107,7 @@ struct OverlayView: View {
          itemEditor: ItemEditorWindowController,
          search: SearchState,
          marked: MarkedSelection,
+         scope: PinboardScope,
          onPick: @escaping (ClipboardItem, Bool) -> Void,
          onPickMultiple: @escaping ([ClipboardItem], Bool) -> Void,
          onDismiss: @escaping () -> Void,
@@ -111,6 +120,7 @@ struct OverlayView: View {
         self.itemEditor = itemEditor
         self.search = search
         self.marked = marked
+        self.scope = scope
         self.onPick = onPick
         self.onPickMultiple = onPickMultiple
         self.onDismiss = onDismiss
@@ -127,6 +137,10 @@ struct OverlayView: View {
     private var itemActions: ItemActions {
         ItemActions(modelContext: modelContext, writer: writer, onPaste: onPick,
                     editorWindow: itemEditor, onPreview: preview, onJump: jumpToHistory)
+    }
+
+    private var pinboardActions: PinboardActions {
+        PinboardActions(modelContext: modelContext)
     }
 
     /// Whether this paste should hand over plain text.
@@ -146,9 +160,14 @@ struct OverlayView: View {
             return a.createdAt > b.createdAt
         }
         let now = Date.now
-        return sorted.filter {
-            ItemSearch.matches(item: $0, query: search.text, filter: search.filter, now: now)
-        }
+        // Scope first, search second: two separate questions, asked in the
+        // order the user asked them — "show me this shelf", then "find this on
+        // it". See `PinboardScope.contains`.
+        return sorted
+            .filter { PinboardScope.contains(item: $0, activeID: scope.activeID) }
+            .filter {
+                ItemSearch.matches(item: $0, query: search.text, filter: search.filter, now: now)
+            }
     }
 
     /// Whether Space should open the preview rather than type a space.
@@ -187,6 +206,28 @@ struct OverlayView: View {
         isPreviewOpen
     }
 
+    /// What the card strip says when it has nothing to show.
+    ///
+    /// Three different empties, and naming the wrong one sends the user
+    /// looking for something that isn't there:
+    ///
+    /// - a board nobody has filled yet — "no results" would have them hunting
+    ///   for a filter that doesn't exist
+    /// - a history nobody has copied into yet, on a fresh install — "no
+    ///   results" names a search that was never made
+    /// - a search or a filter that matched nothing, which is the only one of
+    ///   the three that really is a result count
+    ///
+    /// A scoped board answers first even when the history is empty: the user
+    /// is standing inside the board and that is what the message is about.
+    static func emptyStateMessage(isScoped: Bool,
+                                  hasSearchContent: Bool,
+                                  historyIsEmpty: Bool) -> String {
+        if isScoped && !hasSearchContent { return "Empty Pinboard" }
+        if historyIsEmpty && !hasSearchContent { return "Nothing copied yet" }
+        return "No results"
+    }
+
     /// Which card should be selected after the list changes shape.
     ///
     /// The plain behaviour is "follow the top card", which is right when items
@@ -208,84 +249,169 @@ struct OverlayView: View {
     /// field and the panel it opened.
     private static let filterPanelTopInset: CGFloat = 46
 
+    /// Split out of `body`: with the pinboard wiring added, the compiler
+    /// timed out type-checking the top bar and the card list as one
+    /// expression. Giving the bar its own typed property is what brought it
+    /// back under budget.
+    @ViewBuilder
+    private var topBar: some View {
+        // `activateSearch` takes a defaulted parameter, so it can't be
+        // handed over as a bare `() -> Void` — Swift doesn't apply
+        // defaults when a function is used as a value.
+        OverlayTopBar(state: search,
+                      focusTarget: $focusTarget,
+                      onActivate: { activateSearch() },
+                      onOpenFilters: { search.isFilterPanelOpen.toggle() },
+                      markedCount: marked.count,
+                      boards: boards,
+                      activeScopeID: scope.activeID,
+                      onSelectScope: selectScope,
+                      onCreateBoard: createBoard,
+                      boardContextMenu: { board in
+                          AnyView(PinboardContextMenu(
+                              board: board,
+                              actions: pinboardActions,
+                              onRename: { scope.beginRenaming(board.id) },
+                              onDeleted: {
+                                  if scope.activeID == board.id { scope.select(nil) }
+                                  if scope.renamingBoardID == board.id { scope.endRenaming() }
+                              }))
+                      },
+                      editingBoardID: scope.renamingBoardID,
+                      onCommitBoardName: { board, name in
+                          pinboardActions.rename(board, to: name)
+                          scope.endRenaming()
+                      },
+                      onBeginRenameBoard: { scope.beginRenaming($0.id) })
+    }
+
+    /// The active board's colour, or nil in the history.
+    private var activeBoardColor: Color? {
+        guard let activeID = scope.activeID else { return nil }
+        return boards.first { $0.id == activeID }.flatMap { Color(hex: $0.colorHex) }
+    }
+
+    /// One card in the strip, factored out of `body` for the same reason
+    /// `topBar` was: the compiler couldn't type-check the `ForEach` closure
+    /// and everything around it as a single expression once the pinboard
+    /// wiring landed.
+    @ViewBuilder
+    private func cardCell(index: Int, item: ClipboardItem) -> some View {
+        ClipboardCardView(
+            item: item,
+            isSelected: selectedID == item.id,
+            quickPasteLabel: showQuickPasteNumbers
+                ? QuickPaste.label(forIndex: index)
+                : nil,
+            markOrder: marked.order(of: item.id),
+            anyMarked: !marked.isEmpty,
+            headerColorOverride: activeBoardColor,
+            boardDotColor: scope.isScoped
+                ? nil
+                : item.pinboard.flatMap { Color(hex: $0.colorHex) },
+            onDelete: { delete(item) }
+        )
+        .id(item.id)
+        .background(
+            // Reports this card's on-screen frame so the
+            // preview panel can anchor above it. Color.clear
+            // keeps this purely observational — it doesn't
+            // intercept the tap/context-menu gestures below.
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: CardFramePreferenceKey.self,
+                    value: [item.id: proxy.frame(in: .global)]
+                )
+            }
+        )
+        .onTapGesture {
+            // `onTapGesture` doesn't report modifiers,
+            // so ⌘ is read from the current event at
+            // the moment of the click — the same shape
+            // `pastesPlainText` already uses for ⇧.
+            //
+            // Three-way, not two: ⌘-click on a
+            // markable item toggles the mark; ⌘-click
+            // on one that isn't markable does nothing
+            // — it must not fall through to `pick`,
+            // which would paste it and close the
+            // drawer out from under a block the user
+            // is still assembling. Only a plain click,
+            // with no ⌘ at all, pastes. Mirrors ⌘M,
+            // which returns `.ignored` on the same
+            // gate instead of pasting.
+            if NSEvent.modifierFlags.contains(.command) {
+                if MultiPaste.isMarkable(item.type) {
+                    marked.toggle(item.id)
+                }
+            } else {
+                pick(item)
+            }
+        }
+        .contextMenu {
+            ItemContextMenu(item: item,
+                            actions: itemActions,
+                            destinationAppName: destinationAppName(),
+                            isSearchNarrowed: search.hasContent,
+                            isMarked: marked.contains(item.id),
+                            onToggleMark: { marked.toggle(item.id) },
+                            onDelete: { delete(item) },
+                            boards: boards,
+                            onFileInNewBoard: {
+                                let board = pinboardActions.create()
+                                ItemActions.assign(item, to: board)
+                                scope.beginRenaming(board.id)
+                            })
+        }
+    }
+
+    /// Split from the keyboard handlers below for the same reason `topBar`
+    /// and `cardCell` were: the whole thing as one expression was over the
+    /// compiler's type-checking budget once the pinboard wiring landed.
     var body: some View {
+        keyHandled(contentStack)
+    }
+
+    private var contentStack: some View {
         ZStack(alignment: .top) {
             VStack(spacing: 0) {
-                // `activateSearch` takes a defaulted parameter, so it can't be
-                // handed over as a bare `() -> Void` — Swift doesn't apply
-                // defaults when a function is used as a value.
-                OverlayTopBar(state: search,
-                              focusTarget: $focusTarget,
-                              onActivate: { activateSearch() },
-                              onOpenFilters: { search.isFilterPanelOpen.toggle() },
-                              markedCount: marked.count)
+                topBar
 
+                // The `ScrollViewReader` stays mounted even when `filtered`
+                // is empty — the empty-state text is an `.overlay`, not a
+                // sibling branch that would replace this subtree. Swapping it
+                // out here (an `if filtered.isEmpty { Text(...) } else {
+                // ScrollViewReader {...} }`) used to remove the whole
+                // subtree, including the `ForEach`, in the same update that
+                // emptied the list — and SwiftUI gives no guarantee that an
+                // `onChange`/`onPreferenceChange` on a view leaving the tree
+                // still fires. `notifyPreviewSelection()` below is exactly
+                // that: `OverlayWindowController.updatePreviewSelection`
+                // depends on receiving `item: nil` to close a preview panel
+                // that's anchored to a card no longer on screen (search
+                // narrowed to nothing, or `⌃Tab` into an empty board), and a
+                // dropped notification left the panel open, anchored to a
+                // stale `cardFrames` entry.
                 ScrollViewReader { proxy in
                     ScrollView(.horizontal, showsIndicators: false) {
                         LazyHStack(spacing: 12) {
                             ForEach(Array(filtered.enumerated()), id: \.element.id) { index, item in
-                                ClipboardCardView(
-                                    item: item,
-                                    isSelected: selectedID == item.id,
-                                    quickPasteLabel: showQuickPasteNumbers
-                                        ? QuickPaste.label(forIndex: index)
-                                        : nil,
-                                    markOrder: marked.order(of: item.id),
-                                    anyMarked: !marked.isEmpty,
-                                    onDelete: { delete(item) }
-                                )
-                                .id(item.id)
-                                .background(
-                                    // Reports this card's on-screen frame so the
-                                    // preview panel can anchor above it. Color.clear
-                                    // keeps this purely observational — it doesn't
-                                    // intercept the tap/context-menu gestures below.
-                                    GeometryReader { proxy in
-                                        Color.clear.preference(
-                                            key: CardFramePreferenceKey.self,
-                                            value: [item.id: proxy.frame(in: .global)]
-                                        )
-                                    }
-                                )
-                                .onTapGesture {
-                                    // `onTapGesture` doesn't report modifiers,
-                                    // so ⌘ is read from the current event at
-                                    // the moment of the click — the same shape
-                                    // `pastesPlainText` already uses for ⇧.
-                                    //
-                                    // Three-way, not two: ⌘-click on a
-                                    // markable item toggles the mark; ⌘-click
-                                    // on one that isn't markable does nothing
-                                    // — it must not fall through to `pick`,
-                                    // which would paste it and close the
-                                    // drawer out from under a block the user
-                                    // is still assembling. Only a plain click,
-                                    // with no ⌘ at all, pastes. Mirrors ⌘M,
-                                    // which returns `.ignored` on the same
-                                    // gate instead of pasting.
-                                    if NSEvent.modifierFlags.contains(.command) {
-                                        if MultiPaste.isMarkable(item.type) {
-                                            marked.toggle(item.id)
-                                        }
-                                    } else {
-                                        pick(item)
-                                    }
-                                }
-                                .contextMenu {
-                                    ItemContextMenu(item: item,
-                                                    actions: itemActions,
-                                                    destinationAppName: destinationAppName(),
-                                                    isSearchNarrowed: search.hasContent,
-                                                    isMarked: marked.contains(item.id),
-                                                    onToggleMark: { marked.toggle(item.id) },
-                                                    onDelete: { delete(item) })
-                                }
+                                cardCell(index: index, item: item)
                             }
                         }
                         .padding(.horizontal, 16)
                         .padding(.vertical, 12)
                     }
                     .frame(maxHeight: .infinity)
+                    .overlay {
+                        if filtered.isEmpty {
+                            Text(Self.emptyStateMessage(isScoped: scope.isScoped,
+                                                        hasSearchContent: search.hasContent,
+                                                        historyIsEmpty: items.isEmpty))
+                                .font(.system(size: 15))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                     .onChange(of: selectedID) { _, newID in
                         if let id = newID {
                             withAnimation { proxy.scrollTo(id, anchor: .center) }
@@ -381,12 +507,101 @@ struct OverlayView: View {
         .onChange(of: search.openCount) { _, _ in
             focusTarget = .list
         }
-        .onKeyPress(.escape) {
+    }
+
+    /// Whether the overlay's own key handlers may act at all.
+    ///
+    /// While a pinboard pill is showing its inline rename field, they may not:
+    /// every key belongs to that field, and the drawer's job is to answer
+    /// `.ignored` so the key travels on to it. This app has never neutralised
+    /// shortcuts by having a field consume them — `SearchTextField` says as
+    /// much about `↵`, which is the overlay's and never reaches the field — it
+    /// neutralises them by state, the way `SearchState.activationCharacter`
+    /// returns nil while the search is already open. This is that same
+    /// mechanism for the rename, which had none: all sixteen handlers stayed
+    /// armed over an open field. `⌫` was the expensive one — with the search
+    /// closed and nothing marked it resolves to `.deleteItem`, so backspacing
+    /// over a mistyped board name deleted the selected card from the history,
+    /// with no undo.
+    ///
+    /// Keyed to the rename state and **not** to `focusTarget == .boardName`,
+    /// though both describe the same window. The state is true from the update
+    /// that puts the field on screen — `PinboardBar.editingID` is derived from
+    /// it — while the focus only becomes `.boardName` once the field has
+    /// appeared and SwiftUI has resolved the write from its `onAppear`. That
+    /// gap is precisely the window this bug was reported in: `+` pressed and
+    /// typed into immediately. A focus write can also be dropped when no view
+    /// claims the value (see `SearchTextField.focusTarget`); a plain optional
+    /// on `PinboardScope` cannot.
+    static func handlesKeys(isRenamingBoard: Bool) -> Bool {
+        !isRenamingBoard
+    }
+
+    /// What `⌫` resolves to in the drawer, the gate included; nil means the
+    /// overlay leaves the key alone.
+    ///
+    /// The one handler that gets its gate stated twice — once by `gated`, which
+    /// never lets it run during a rename, and once here. Not a second rule:
+    /// both call `handlesKeys`, so there is still one condition. It is written
+    /// out because `⌫` is the only key in the drawer whose action destroys data
+    /// the user cannot get back, and this is the form the suite can hold — a
+    /// test of `handlesKeys` alone would go on passing if the `.delete` handler
+    /// were ever moved out from behind the wrapper.
+    static func backspaceAction(isRenamingBoard: Bool,
+                                isActive: Bool,
+                                textIsEmpty: Bool,
+                                hasTokens: Bool,
+                                hasMarks: Bool) -> SearchState.BackspaceAction? {
+        guard handlesKeys(isRenamingBoard: isRenamingBoard) else { return nil }
+        return SearchState.backspaceAction(isActive: isActive,
+                                           textIsEmpty: textIsEmpty,
+                                           hasTokens: hasTokens,
+                                           hasMarks: hasMarks)
+    }
+
+    /// The one place the rename state is read for keyboard purposes.
+    private var isRenamingBoard: Bool { scope.renamingBoardID != nil }
+
+    private var handlesKeys: Bool {
+        Self.handlesKeys(isRenamingBoard: isRenamingBoard)
+    }
+
+    /// Puts one key handler behind `handlesKeys`.
+    ///
+    /// Two overloads because `onKeyPress` comes in two closure shapes: the
+    /// single-key `action:` takes no argument, everything with `phases:` or
+    /// `keys:`/`characters:` takes the `KeyPress`.
+    private func gated(_ handler: @escaping () -> KeyPress.Result) -> () -> KeyPress.Result {
+        { handlesKeys ? handler() : .ignored }
+    }
+
+    private func gated(_ handler: @escaping (KeyPress) -> KeyPress.Result) -> (KeyPress) -> KeyPress.Result {
+        { press in handlesKeys ? handler(press) : .ignored }
+    }
+
+    /// Every `onKeyPress` handler in the drawer, applied to `contentStack`.
+    ///
+    /// **Every handler here goes through `gated`, and any new one must too.**
+    /// Nothing in the compiler enforces that — `onKeyPress` is a stock SwiftUI
+    /// modifier and will happily take a bare closure — so it is a convention,
+    /// held by this comment and by `OverlayKeyGateTests`. A handler that skips
+    /// the wrapper fires over an open rename field, which is the whole bug.
+    ///
+    /// The gate is deliberately not applied to the chain as a whole (an `if`
+    /// around `content`): the two branches of a `ViewBuilder` conditional are
+    /// different views, so flipping it would tear down and rebuild
+    /// `contentStack` — the card list, its scroll position, and the rename
+    /// field itself — every time a rename began or ended.
+    @ViewBuilder
+    private func keyHandled<Content: View>(_ content: Content) -> some View {
+        content
+        .onKeyPress(.escape, action: gated {
             switch SearchState.escapeAction(isFilterPanelOpen: search.isFilterPanelOpen,
                                             isPreviewOpen: isPreviewOpen(),
                                             isActive: search.isActive,
                                             hasContent: search.hasContent,
-                                            hasMarks: !marked.isEmpty) {
+                                            hasMarks: !marked.isEmpty,
+                                            hasScope: scope.isScoped) {
             case .closeFilterPanel:
                 search.isFilterPanelOpen = false
             case .hidePreview:
@@ -395,15 +610,17 @@ struct OverlayView: View {
                 closeSearch()
             case .clearMarks:
                 marked.clear()
+            case .leaveScope:
+                selectScope(nil)
             case .dismissOverlay:
                 onDismiss()
             }
             return .handled
-        }
+        })
         // ␣ is the first of three keys that share one rule — see
         // `typesIntoDetachedField` below, and its two other callers on
         // `.delete` and on the generic character handler.
-        .onKeyPress(.space) {
+        .onKeyPress(.space, action: gated {
             switch Self.spaceAction(searchText: search.text,
                                     isPreviewOpen: isPreviewOpen()) {
             case .type:
@@ -423,11 +640,11 @@ struct OverlayView: View {
                 onHidePreview()
                 return .handled
             }
-        }
+        })
         // `phases: .down` is required here: the single-key `onKeyPress(_:action:)`
         // overload only exposes a no-argument closure, so reading
         // `press.modifiers` (for ⇧↵) needs the `phases:` overload instead.
-        .onKeyPress(.return, phases: .down) { press in
+        .onKeyPress(.return, phases: .down, action: gated { press in
             let plain = ItemActions.resolvePastePlainText(
                 alwaysPlainText: alwaysPastePlainText,
                 shiftHeld: press.modifiers.contains(.shift)
@@ -448,10 +665,30 @@ struct OverlayView: View {
             }
             pick(item, plainText: plain)
             return .handled
-        }
-        .onKeyPress(.leftArrow) { moveSelection(-1); return .handled }
-        .onKeyPress(.rightArrow) { moveSelection(1); return .handled }
-        .onKeyPress(keys: ["1", "2", "3", "4", "5", "6", "7", "8", "9"]) { press in
+        })
+        .onKeyPress(.leftArrow, action: gated { moveSelection(-1); return .handled })
+        .onKeyPress(.rightArrow, action: gated { moveSelection(1); return .handled })
+        // ⌃Tab cycles scopes forward, ⌃⇧Tab back, History included in the
+        // cycle. Control rather than Command because the menu bar AppKit
+        // builds for the `Settings` scene owns a set of ⌘ keys — Phase 4
+        // learned that the hard way with ⌘M. If the system swallows these
+        // anyway (step E1 of the manual script), the fallback already chosen
+        // is ⌥→ / ⌥←, which is a one-line change here.
+        //
+        // `phases: .down` is required here for the same reason it is on ⌘↵
+        // above: the single-key `onKeyPress(_:action:)` overload only exposes
+        // a no-argument closure, and reading `press.modifiers` needs the
+        // `phases:` overload instead.
+        .onKeyPress(.tab, phases: .down, action: gated { press in
+            guard press.modifiers.contains(.control) else { return .ignored }
+            // With no board yet there is only the History scope, so there is
+            // nothing to cycle to and the key belongs to whoever wants it
+            // next. Answering `.handled` here would swallow it for nothing.
+            guard !boards.isEmpty else { return .ignored }
+            cycleScope(forward: !press.modifiers.contains(.shift))
+            return .handled
+        })
+        .onKeyPress(keys: ["1", "2", "3", "4", "5", "6", "7", "8", "9"], action: gated { press in
             // The index follows `filtered`, not the full list: with a search
             // active, ⌘3 has to paste the third card actually on screen.
             guard press.modifiers.contains(.command),
@@ -466,8 +703,8 @@ struct OverlayView: View {
             // variant this phase — see task-12 brief, item 6.
             pick(filtered[index], plainText: alwaysPastePlainText)
             return .handled
-        }
-        .onKeyPress(keys: ["c"]) { press in
+        })
+        .onKeyPress(keys: ["c"], action: gated { press in
             guard press.modifiers.contains(.command) else { return .ignored }
             guard let item = filtered.first(where: { $0.id == selectedID }) else {
                 return .ignored
@@ -481,27 +718,27 @@ struct OverlayView: View {
             // explicit way to get plain text out of the overlay.
             itemActions.copy(item)
             return .handled
-        }
-        .onKeyPress(keys: ["p"]) { press in
+        })
+        .onKeyPress(keys: ["p"], action: gated { press in
             guard press.modifiers.contains(.command) else { return .ignored }
             if let item = filtered.first(where: { $0.id == selectedID }) {
                 itemActions.togglePin(item)
                 return .handled
             }
             return .ignored
-        }
+        })
         // Marks the selected card for a multi-item paste. Only "m" lowercase:
         // with no ⇧ in the combination there's no uppercase variant to
         // register — the trap that left ⌘⇧K silently dead in Phase 2 — and
         // with no ⌥ there's no layout-dependent alternate character either.
-        .onKeyPress(keys: ["m"]) { press in
+        .onKeyPress(keys: ["m"], action: gated { press in
             guard press.modifiers.contains(.command) else { return .ignored }
             guard let item = filtered.first(where: { $0.id == selectedID }),
                   MultiPaste.isMarkable(item.type) else { return .ignored }
             marked.toggle(item.id)
             return .handled
-        }
-        .onKeyPress(.delete) {
+        })
+        .onKeyPress(.delete, action: gated {
             // Second of the three keys sharing `typesIntoDetachedField`.
             // Only when there's a character to delete: with the text empty the
             // existing rule below already says `.removeLastToken`, which is a
@@ -510,10 +747,13 @@ struct OverlayView: View {
                 focusSearchField { if !$0.isEmpty { $0.removeLast() } }
                 return .handled
             }
-            switch SearchState.backspaceAction(isActive: search.isActive,
-                                               textIsEmpty: search.text.isEmpty,
-                                               hasTokens: !search.filter.isEmpty,
-                                               hasMarks: !marked.isEmpty) {
+            guard let action = Self.backspaceAction(isRenamingBoard: isRenamingBoard,
+                                                    isActive: search.isActive,
+                                                    textIsEmpty: search.text.isEmpty,
+                                                    hasTokens: !search.filter.isEmpty,
+                                                    hasMarks: !marked.isEmpty)
+            else { return .ignored }
+            switch action {
             case .deleteItem:
                 if let item = filtered.first(where: { $0.id == selectedID }) {
                     delete(item)
@@ -534,8 +774,8 @@ struct OverlayView: View {
                 // ⌫ to name, so it must not fall through to anything else.
                 return .handled
             }
-        }
-        .onKeyPress(keys: ["e"]) { press in
+        })
+        .onKeyPress(keys: ["e"], action: gated { press in
             guard press.modifiers.contains(.command) else { return .ignored }
             // Image and file items aren't editable as text — same gate as
             // `ItemContextMenu`'s "Edit" entry.
@@ -546,8 +786,8 @@ struct OverlayView: View {
             itemActions.edit(item)
             onDismiss()
             return .handled
-        }
-        .onKeyPress(keys: ["r"]) { press in
+        })
+        .onKeyPress(keys: ["r"], action: gated { press in
             guard press.modifiers.contains(.command) else { return .ignored }
             // Unlike ⌘E, renaming applies to every type — no gate here.
             guard let item = filtered.first(where: { $0.id == selectedID }) else {
@@ -556,28 +796,28 @@ struct OverlayView: View {
             itemActions.rename(item)
             onDismiss()
             return .handled
-        }
-        .onKeyPress(keys: ["n"]) { press in
+        })
+        .onKeyPress(keys: ["n"], action: gated { press in
             guard press.modifiers.contains(.command) else { return .ignored }
             // Unlike ⌘E/⌘R, this needs no selected card — it opens an empty
             // editor. The item itself isn't created until Save runs.
             itemActions.newItem()
             onDismiss()
             return .handled
-        }
+        })
         // Both cases registered, like ⌘F below: with ⇧ held the key arrives
         // uppercased, which is what made ⌘⇧K silently dead in Phase 2.
         //
         // Gated on `hasContent` for the same reason the menu entry is: with
         // the whole history already on screen there is nothing to jump out of.
-        .onKeyPress(keys: ["j", "J"]) { press in
+        .onKeyPress(keys: ["j", "J"], action: gated { press in
             guard press.modifiers.contains(.command), search.hasContent else { return .ignored }
             guard let item = filtered.first(where: { $0.id == selectedID }) else {
                 return .ignored
             }
             jumpToHistory(item)
             return .handled
-        }
+        })
         // Typing with the search closed opens it — the behaviour Paste teaches
         // in its own onboarding card ("Start typing to search"). The character
         // must not be swallowed by the transition.
@@ -588,7 +828,8 @@ struct OverlayView: View {
         // held with ⌘, ⌃ or ⌥. This handler then returns `.ignored` and the
         // key goes on to whichever handler wants it.
         .onKeyPress(characters: .alphanumerics.union(.punctuationCharacters).union(.symbols),
-                    phases: .down) { press in
+                    phases: .down,
+                    action: gated { press in
             guard let character = press.characters.first else { return .ignored }
             // Last of the three keys sharing `typesIntoDetachedField`.
             //
@@ -612,14 +853,14 @@ struct OverlayView: View {
             else { return .ignored }
             activateSearch(seeding: seed)
             return .handled
-        }
+        })
         // Both cases registered: with ⇧ held the key arrives uppercased, which
         // is what made ⌘⇧K silently dead in Phase 2.
-        .onKeyPress(keys: ["f", "F"]) { press in
+        .onKeyPress(keys: ["f", "F"], action: gated { press in
             guard press.modifiers.contains(.command) else { return .ignored }
             activateSearch()
             return .handled
-        }
+        })
     }
 
     /// Whether a key that belongs to the search field has arrived here instead
@@ -645,6 +886,14 @@ struct OverlayView: View {
     /// standing between a future change that re-detaches the field and a key
     /// the user typed disappearing in silence — the failure mode this whole
     /// phase exists to make impossible.
+    ///
+    /// `.boardName` satisfies this as written — a rename opened while the
+    /// search is also open is "active, and the keyboard is not on the field" —
+    /// and that is deliberately *not* excluded here. All three callers sit
+    /// behind `gated`, which returns `.ignored` before any of them runs while a
+    /// rename is live, so the case is unreachable; spelling the rename out a
+    /// second time would put a copy of the gate's condition where the gate
+    /// already is, which is the arrangement `keyHandled` exists to avoid.
     private var typesIntoDetachedField: Bool {
         search.isActive && focusTarget != .search
     }
@@ -848,6 +1097,43 @@ struct OverlayView: View {
         } else {
             selectedID = list.first?.id
         }
+    }
+
+    private func selectScope(_ id: UUID?) {
+        scope.select(id)
+        // Synchronous, not deferred through `onChange(of: filtered.first?.id)`
+        // the way a search change is: `filtered` already reads
+        // `scope.activeID`, so the new list's first card is knowable in this
+        // same turn. Routing through that `onChange` instead (by zeroing
+        // `selectedID` here and waiting) breaks whenever the two scopes share
+        // a first item — a card that's both in this board and the
+        // newest/pinned card in the full history — because the id doesn't
+        // change and the `onChange` never fires, leaving `selectedID` at nil
+        // and every single-item shortcut (↵, ⌘C, ⌘P, ⌘E, ⌘R, ⌘J, ⌫) ignored
+        // until an arrow key is pressed.
+        selectedID = filtered.first?.id
+    }
+
+    /// Creates a board, makes it the active scope and opens its pill for
+    /// renaming — the one flow `design-refs/14-pinboard-novo-vazio.png` shows.
+    private func createBoard() {
+        let board = pinboardActions.create()
+        scope.select(board.id)
+        scope.beginRenaming(board.id)
+        selectedID = nil
+    }
+
+    /// Steps through History → board 1 → board 2 → … → History.
+    ///
+    /// "Is there anywhere to step to" is the caller's question, not this one's
+    /// — the `⌃Tab` handler has to answer `.ignored` in that case rather than
+    /// eat the key, so the check lives there.
+    private func cycleScope(forward: Bool) {
+        let ids: [UUID?] = [nil] + boards.map { Optional($0.id) }
+        let current = ids.firstIndex(of: scope.activeID) ?? 0
+        let step = forward ? 1 : -1
+        let next = (current + step + ids.count) % ids.count
+        selectScope(ids[next])
     }
 }
 

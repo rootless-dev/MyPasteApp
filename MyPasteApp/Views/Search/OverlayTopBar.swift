@@ -9,21 +9,34 @@ import SwiftUI
 ///
 /// At rest it's just the magnifier, as in the Paste reference
 /// (`design-refs/01-barra-principal.png`); searching, it becomes a wide field
-/// (`12-busca-ativa.png`). The empty stack to the right is where Phase 5's
-/// pinboard pills go — reserving it now is what keeps that phase from having
-/// to redraw this layout.
+/// (`12-busca-ativa.png`). The `PinboardBar` scope strip sits to the right in
+/// both states, collapsing to markers only while the search field is open.
 struct OverlayTopBar: View {
     @Bindable var state: SearchState
-    /// Passed in rather than declared here, and forwarded straight to
-    /// `SearchFieldView`, which puts `.focused` on the `SearchTextField`
-    /// itself. Applying it to a container that merely *contains* a field
-    /// doesn't move the keyboard into it — and for that field the tag is what
-    /// gives `focusTarget = .search` somewhere to land at all.
+    /// Passed in rather than declared here, and forwarded to the two views
+    /// that own a text field: `SearchFieldView`, which puts `.focused` on the
+    /// `SearchTextField` itself, and `PinboardBar`, whose pills hold the
+    /// inline rename field. Applying it to a container that merely *contains*
+    /// a field doesn't move the keyboard into it — and for the search field
+    /// the tag is what gives `focusTarget = .search` somewhere to land at all.
+    /// The rename field carries `.boardName` for the same reason: it used to
+    /// run on a private `@FocusState` of its own, and two focus systems in one
+    /// tree is what sent the letters of a new pinboard's name into the search.
     @FocusState.Binding var focusTarget: OverlayFocusTarget?
     var onActivate: () -> Void
     var onOpenFilters: () -> Void
     /// How many items are marked for a multi-item paste, or zero.
     var markedCount: Int = 0
+    /// The pinboards to offer as scopes, ordered by creation.
+    var boards: [Pinboard] = []
+    /// The active scope, or nil for the history.
+    var activeScopeID: UUID?
+    var onSelectScope: (UUID?) -> Void = { _ in }
+    var onCreateBoard: () -> Void = {}
+    var boardContextMenu: (Pinboard) -> AnyView = { _ in AnyView(EmptyView()) }
+    var editingBoardID: UUID?
+    var onCommitBoardName: (Pinboard, String) -> Void = { _, _ in }
+    var onBeginRenameBoard: (Pinboard) -> Void = { _ in }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -32,6 +45,16 @@ struct OverlayTopBar: View {
                                 focusTarget: $focusTarget,
                                 onOpenFilters: onOpenFilters)
                     .frame(maxWidth: 470)
+                PinboardBar(boards: boards,
+                            activeID: activeScopeID,
+                            isCollapsed: true,
+                            focusTarget: $focusTarget,
+                            onSelect: onSelectScope,
+                            onCreate: onCreateBoard,
+                            contextMenu: boardContextMenu,
+                            editingID: editingBoardID,
+                            onCommitName: onCommitBoardName,
+                            onBeginRename: onBeginRenameBoard)
             } else {
                 Button(action: onActivate) {
                     Image(systemName: "magnifyingglass")
@@ -43,8 +66,16 @@ struct OverlayTopBar: View {
                 .buttonStyle(.plain)
                 .help("Search history")
 
-                // Reserved for Phase 5's pinboard pills.
-                HStack(spacing: 8) {}
+                PinboardBar(boards: boards,
+                            activeID: activeScopeID,
+                            isCollapsed: false,
+                            focusTarget: $focusTarget,
+                            onSelect: onSelectScope,
+                            onCreate: onCreateBoard,
+                            contextMenu: boardContextMenu,
+                            editingID: editingBoardID,
+                            onCommitName: onCommitBoardName,
+                            onBeginRename: onBeginRenameBoard)
             }
         }
         .frame(maxWidth: .infinity)

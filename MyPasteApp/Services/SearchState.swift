@@ -58,6 +58,8 @@ extension SearchState {
         case closeSearch
         /// Drop the multi-paste marks, leaving the drawer open.
         case clearMarks
+        /// Go back to the history, leaving the drawer open.
+        case leaveScope
         case dismissOverlay
     }
 
@@ -78,18 +80,21 @@ extension SearchState {
     /// twice to close a field they never typed into would tax the common case
     /// to serve the rare one.
     ///
-    /// Marks come after the search: with both live, the first escape lets go
-    /// of the search, the second clears the marks, the third closes the
+    /// Marks come after the search, and the scope after the marks: with all
+    /// three live, the first escape lets go of the search, the second clears
+    /// the marks, the third returns to the history, the fourth closes the
     /// drawer — most volatile first, all the way down.
     static func escapeAction(isFilterPanelOpen: Bool,
                              isPreviewOpen: Bool,
                              isActive: Bool,
                              hasContent: Bool,
-                             hasMarks: Bool) -> EscapeAction {
+                             hasMarks: Bool,
+                             hasScope: Bool) -> EscapeAction {
         if isFilterPanelOpen { return .closeFilterPanel }
         if isPreviewOpen { return .hidePreview }
         if isActive, hasContent { return .closeSearch }
         if hasMarks { return .clearMarks }
+        if hasScope { return .leaveScope }
         return .dismissOverlay
     }
 
@@ -137,9 +142,30 @@ extension SearchState {
 ///
 /// Top-level rather than nested in `OverlayView`, because `OverlayTopBar` has
 /// to name the same type to take the focus binding.
+///
+/// Every field in the drawer takes its focus from this one enum, and no view
+/// below `OverlayView` may declare a `@FocusState` of its own. `PinboardPill`
+/// did, and the two systems did not merge: `+` pointed the pill's private
+/// `@FocusState` at the rename field while this one still said `.list`, so the
+/// letters typed next went to the overlay's handlers, which opened the search
+/// and typed into it. Same class of failure as the one described on
+/// `SearchTextField.focusTarget` — a focus value nothing in the tree claims is
+/// dropped — reached by a second door.
 enum OverlayFocusTarget: Hashable {
+    /// The card strip: the drawer's root container, which is `focusable()` so
+    /// that `onKeyPress` has somewhere to fire from at rest. Every field hands
+    /// the keyboard back here on the way out.
     case list
+    /// The search field. The tag lives on `SearchTextField` itself, applied by
+    /// `SearchFieldView` — see the note there on tagging the field and not a
+    /// container that merely contains it.
     case search
+    /// The inline rename field on a pinboard pill.
+    ///
+    /// No board id attached, and none needed: `PinboardScope.renamingBoardID`
+    /// is a single optional, so at most one pill shows the field at a time and
+    /// there is never a second one for a value to disambiguate.
+    case boardName
 }
 
 /// One active filter, as shown inside the search field.

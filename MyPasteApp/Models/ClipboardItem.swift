@@ -74,6 +74,29 @@ final class ClipboardItem {
     /// on every launch, forever.
     var ocrProcessedAt: Date?
 
+    /// The pinboard this item was filed under, or nil for "history only".
+    ///
+    /// At most one: the card header takes its colour from the board while that
+    /// board is the active scope, and two boards of different colours would
+    /// leave that with no single answer. See the Phase 5 spec.
+    var pinboard: Pinboard?
+
+    /// When this item should be deleted, whatever the global policy says.
+    ///
+    /// An absolute date, written at the moment the user chooses a duration —
+    /// never a duration evaluated against `createdAt`, which is rewritten on
+    /// every paste (see the note at the top of ROADMAP.md) and would restart
+    /// the countdown each time the item is used.
+    ///
+    /// nil means "follow the global policy". Distinct from `keepForever`.
+    var expiresAt: Date?
+
+    /// The "never expires" state, set by the user on this item alone.
+    ///
+    /// Separate from `isPinned` on purpose: pinning also sorts the item to the
+    /// front of the list, and "keep this forever" shouldn't have to.
+    var keepForever: Bool = false
+
     var type: ClipboardItemType {
         get { ClipboardItemType(rawValue: typeRaw) ?? .text }
         set { typeRaw = newValue.rawValue }
@@ -101,6 +124,7 @@ final class ClipboardItem {
         linkBackgroundHex: String? = nil,
         sourceAppBundleID: String? = nil,
         isPinned: Bool = false,
+        keepForever: Bool = false,
         label: String? = nil
     ) {
         self.id = id
@@ -119,6 +143,7 @@ final class ClipboardItem {
         self.linkBackgroundHex = linkBackgroundHex
         self.sourceAppBundleID = sourceAppBundleID
         self.isPinned = isPinned
+        self.keepForever = keepForever
         self.label = label
     }
 }

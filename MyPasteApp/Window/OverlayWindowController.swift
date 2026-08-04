@@ -30,6 +30,13 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
     /// Owned here, not by `OverlayView`, for the same reason `searchState` is:
     /// the overlay is built once and reused for the life of the process.
     private let markedSelection = MarkedSelection()
+    /// Owned here, not by the view, and reset on every opening — the same rule
+    /// as `searchState` and `markedSelection`. Reopening the drawer inside a
+    /// pinboard would mean copying something and not seeing it appear, which
+    /// is the invisible-state failure the roadmap treats as the worst kind.
+    /// It also holds the inline rename (`renamingBoardID`), so that too is
+    /// covered by the single `reset()` below instead of a parallel path.
+    private let pinboardScope = PinboardScope()
     // Task 19 spike: a second window of our own, so the click-outside
     // monitors below need to know about it too. See ItemPreviewPanel.
     private var previewPanel: NSPanel?
@@ -112,6 +119,7 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
             itemEditor: itemEditor,
             search: searchState,
             marked: markedSelection,
+            scope: pinboardScope,
             onPick: { [weak self] item, plainText in
                 guard let self else { return }
                 self.onPick(item, plainText)
@@ -174,7 +182,8 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         guard let panel = window else { return }
 
         // Every opening starts at rest: magnifier, no query, no filters,
-        // nothing marked. Done before the panel is ordered front so the
+        // nothing marked, the history in view and no pill mid-rename. Done
+        // before the panel is ordered front so the
         // collapsed top bar is already laid out by the
         // `layoutSubtreeIfNeeded()` below, and the slide-up never shows a
         // stale field. These two lines are the single place that covers all
@@ -183,6 +192,7 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         // teardown inside `OverlayView`.
         searchState.close()
         markedSelection.clear()
+        pinboardScope.reset()
         // Separate from `close()` on purpose: `close()` only changes anything
         // when there was a search to close, so it can't be what tells the view
         // to re-take the keyboard on an opening that follows an untouched one.
