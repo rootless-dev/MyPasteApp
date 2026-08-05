@@ -39,6 +39,15 @@ struct ThumbnailImage<Fallback: View>: View {
 
     let data: Data?
     let id: UUID
+    /// Identity of the bytes being drawn — the item's `contentHash`.
+    ///
+    /// The id alone is not enough. Rotation rewrites `imageData` in place, so
+    /// the id, the pixel size and therefore `currentKey` all stayed the same
+    /// across an edit: `.task(id:)` never re-fired and `loaded` below kept
+    /// answering with the image from before the rotation. Folding the hash
+    /// into the key is what makes an edit look like a different image to
+    /// every layer at once — this view's state, the `.task` id and the cache.
+    let contentHash: String
     /// Longest side, in pixels. Use `ImageThumbnailCache.pixels(for:)`.
     let maxPixel: Int
     var contentMode: ContentMode = .fit
@@ -64,7 +73,7 @@ struct ThumbnailImage<Fallback: View>: View {
     @State private var failed: NSString?
 
     private var currentKey: NSString {
-        ImageThumbnailCache.key(id: id, maxPixel: maxPixel)
+        ImageThumbnailCache.key(id: id, contentHash: contentHash, maxPixel: maxPixel)
     }
 
     /// Prefers `loaded` over the cache so a warm entry, once pinned by this
@@ -73,7 +82,9 @@ struct ThumbnailImage<Fallback: View>: View {
     /// has had a chance to run.
     private var image: NSImage? {
         if let loaded, loaded.key == currentKey { return loaded.image }
-        return ImageThumbnailCache.shared.cached(id: id, maxPixel: maxPixel)
+        return ImageThumbnailCache.shared.cached(id: id,
+                                                 contentHash: contentHash,
+                                                 maxPixel: maxPixel)
     }
 
     var body: some View {
@@ -105,7 +116,7 @@ struct ThumbnailImage<Fallback: View>: View {
             if let loaded, loaded.key == key { return }
             guard let data else { return }
             if let decoded = await ImageThumbnailCache.shared.thumbnail(
-                for: data, id: id, maxPixel: maxPixel
+                for: data, id: id, contentHash: contentHash, maxPixel: maxPixel
             ) {
                 loaded = (key, decoded)
             } else {

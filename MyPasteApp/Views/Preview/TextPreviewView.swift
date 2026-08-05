@@ -25,6 +25,32 @@ import SwiftUI
 /// check which engine is live.
 struct TextPreviewView: NSViewRepresentable {
     let text: String
+    /// The item's stored rich representation, if it has one. Decoded through
+    /// `RichText.decode`, which dispatches on `richTextFormat` rather than
+    /// guessing — an HTML-only capture fed to the RTF path fails silently.
+    /// See `RichText.decode`'s doc comment and `ItemEditorView.init`, which
+    /// decodes the same pair of fields the same way.
+    let richTextData: Data?
+    let richTextFormat: RichTextFormat?
+
+    /// What actually goes into the text view: the decoded rich text when
+    /// there is one, plain `text` otherwise.
+    private var content: NSAttributedString {
+        if let richTextData, let richTextFormat,
+           let decoded = RichText.decode(data: richTextData, format: richTextFormat) {
+            // The panel draws on a dark background (`drawsBackground =
+            // false`); a run with no foreground colour of its own would
+            // otherwise fall back to render nearly invisible. Colour the
+            // source *did* specify — a dark heading pulled from a web page,
+            // say — is left exactly as authored; only the gaps are filled.
+            // See `RichText.applyingDefaultForegroundColor`.
+            return RichText.applyingDefaultForegroundColor(decoded, default: .textColor)
+        }
+        return NSAttributedString(string: text, attributes: [
+            .font: NSFont.systemFont(ofSize: 13),
+            .foregroundColor: NSColor.textColor
+        ])
+    }
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSTextView.scrollableTextView()
@@ -44,9 +70,10 @@ struct TextPreviewView: NSViewRepresentable {
         // Keeps the selection the previous `.textSelection(.enabled)` gave.
         textView.isSelectable = true
         textView.drawsBackground = false
-        textView.font = .systemFont(ofSize: 13)
         textView.textContainerInset = NSSize(width: 12, height: 12)
-        textView.string = text
+        // Through the storage, never `.string`: the latter can only carry
+        // plain text, which is the whole bug this file exists to fix.
+        textView.textStorage?.setAttributedString(content)
         return scrollView
     }
 
@@ -55,7 +82,8 @@ struct TextPreviewView: NSViewRepresentable {
         // Only rewrite when the model actually diverged: reassigning on every
         // SwiftUI update would throw away the scroll position and whatever the
         // user had selected. Same guard RichTextEditor uses.
-        guard textView.string != text else { return }
-        textView.string = text
+        let updated = content
+        guard textView.textStorage?.isEqual(to: updated) == false else { return }
+        textView.textStorage?.setAttributedString(updated)
     }
 }

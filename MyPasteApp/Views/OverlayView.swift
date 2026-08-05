@@ -324,30 +324,49 @@ struct OverlayView: View {
                 )
             }
         )
-        .onTapGesture {
-            // `onTapGesture` doesn't report modifiers,
-            // so ⌘ is read from the current event at
-            // the moment of the click — the same shape
-            // `pastesPlainText` already uses for ⇧.
-            //
-            // Three-way, not two: ⌘-click on a
-            // markable item toggles the mark; ⌘-click
-            // on one that isn't markable does nothing
-            // — it must not fall through to `pick`,
-            // which would paste it and close the
-            // drawer out from under a block the user
-            // is still assembling. Only a plain click,
-            // with no ⌘ at all, pastes. Mirrors ⌘M,
-            // which returns `.ignored` on the same
-            // gate instead of pasting.
+        // Double click pastes; a single click only selects. Declared
+        // before the single-click handler because SwiftUI gives the
+        // higher count precedence in that order.
+        //
+        // ⌘ is excluded here for the same reason it is below: while a
+        // multi-paste block is being assembled, ⌘-clicking is how cards
+        // join it, and a fast second ⌘-click must keep toggling marks
+        // rather than paste one card and close the drawer out from
+        // under the block.
+        .onTapGesture(count: 2) {
+            guard !NSEvent.modifierFlags.contains(.command) else { return }
+            pick(item)
+        }
+        // `simultaneousGesture`, not a second `onTapGesture`: two
+        // competing tap recognisers make the single-click one wait out
+        // `NSEvent.doubleClickInterval` (half a second by default)
+        // before it can rule out a second click, and selection that
+        // arrives half a second after the click feels broken. Declared
+        // simultaneous, it fires on mouse-up with no arbitration.
+        //
+        // The cost is that a double click also runs this once per
+        // click, selecting the card before pasting it — which is
+        // exactly what a user would expect to see anyway, and `pick`
+        // acts on the item it was handed, never on `selectedID`.
+        //
+        // `onTapGesture` doesn't report modifiers, so ⌘ is read from
+        // the current event at the moment of the click — the same
+        // shape `pastesPlainText` already uses for ⇧.
+        //
+        // Three-way, not two: ⌘-click on a markable item toggles the
+        // mark; ⌘-click on one that isn't markable does nothing. A
+        // plain click selects the card and nothing else — it is the
+        // mouse's way of doing what the arrow keys do, so ↵, ⌘C, ⌘E,
+        // ⌘P and ⌫ all act on the card the user just clicked.
+        .simultaneousGesture(TapGesture().onEnded {
             if NSEvent.modifierFlags.contains(.command) {
                 if MultiPaste.isMarkable(item.type) {
                     marked.toggle(item.id)
                 }
             } else {
-                pick(item)
+                selectedID = item.id
             }
-        }
+        })
         .contextMenu {
             ItemContextMenu(item: item,
                             actions: itemActions,
@@ -386,7 +405,7 @@ struct OverlayView: View {
                 // emptied the list — and SwiftUI gives no guarantee that an
                 // `onChange`/`onPreferenceChange` on a view leaving the tree
                 // still fires. `notifyPreviewSelection()` below is exactly
-                // that: `OverlayWindowController.updatePreviewSelection`
+                // that: `PreviewPanelController.updateSelection`
                 // depends on receiving `item: nil` to close a preview panel
                 // that's anchored to a card no longer on screen (search
                 // narrowed to nothing, or `⌃Tab` into an empty board), and a
@@ -797,6 +816,23 @@ struct OverlayView: View {
             onDismiss()
             return .handled
         })
+        .onKeyPress(keys: ["o"], action: gated { press in
+            // `gated` is not optional here: without it this fires while the
+            // pinboard rename field has the keyboard. See `handlesKeys`.
+            guard press.modifiers.contains(.command) else { return .ignored }
+            // Only file and URL items have somewhere to be opened; over any
+            // other card the key travels on, rather than being swallowed by a
+            // handler that would do nothing with it.
+            guard let item = filtered.first(where: { $0.id == selectedID }),
+                  case .openable = OpenWith.target(for: item) else {
+                return .ignored
+            }
+            itemActions.open(item)
+            // Same as ⌘E: the drawer's job is done, and the app being opened
+            // is about to take the foreground anyway.
+            onDismiss()
+            return .handled
+        })
         .onKeyPress(keys: ["n"], action: gated { press in
             guard press.modifiers.contains(.command) else { return .ignored }
             // Unlike ⌘E/⌘R, this needs no selected card — it opens an empty
@@ -1142,7 +1178,7 @@ struct OverlayView: View {
 /// Reported in the `.global` coordinate space — for SwiftUI content hosted
 /// directly by an `NSHostingView` (as `OverlayView` is, in
 /// `OverlayWindowController.prepare()`), that's equivalent to the hosting
-/// view's own bounds. `OverlayWindowController.positionPreviewPanel(_:)`
+/// view's own bounds. `PreviewPanelController.positionPreviewPanel(_:)`
 /// converts it to window, then screen, coordinates from there.
 struct CardFramePreferenceKey: PreferenceKey {
     static var defaultValue: [UUID: CGRect] = [:]

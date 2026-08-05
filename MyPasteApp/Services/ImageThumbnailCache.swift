@@ -33,13 +33,16 @@ final class ImageThumbnailCache {
     /// The cached thumbnail, if there is one. Synchronous on purpose: views
     /// call this while building their body so a warm entry draws on the first
     /// frame instead of flashing a placeholder.
-    func cached(id: UUID, maxPixel: Int) -> NSImage? {
-        cache.object(forKey: Self.key(id: id, maxPixel: maxPixel))
+    func cached(id: UUID, contentHash: String, maxPixel: Int) -> NSImage? {
+        cache.object(forKey: Self.key(id: id, contentHash: contentHash, maxPixel: maxPixel))
     }
 
     /// The thumbnail, decoding it off the main thread if it isn't cached yet.
-    func thumbnail(for data: Data, id: UUID, maxPixel: Int) async -> NSImage? {
-        if let hit = cached(id: id, maxPixel: maxPixel) { return hit }
+    func thumbnail(for data: Data,
+                   id: UUID,
+                   contentHash: String,
+                   maxPixel: Int) async -> NSImage? {
+        if let hit = cached(id: id, contentHash: contentHash, maxPixel: maxPixel) { return hit }
 
         // Only the CGImage crosses back to the main actor — NSImage is built
         // here, where it will be used.
@@ -51,7 +54,7 @@ final class ImageThumbnailCache {
         let image = NSImage(cgImage: decoded,
                             size: NSSize(width: decoded.width, height: decoded.height))
         cache.setObject(image,
-                        forKey: Self.key(id: id, maxPixel: maxPixel),
+                        forKey: Self.key(id: id, contentHash: contentHash, maxPixel: maxPixel),
                         cost: decoded.bytesPerRow * decoded.height)
         return image
     }
@@ -76,8 +79,18 @@ final class ImageThumbnailCache {
         return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
     }
 
-    nonisolated static func key(id: UUID, maxPixel: Int) -> NSString {
-        "\(id.uuidString)#\(maxPixel)" as NSString
+    /// The cache key for one item's bytes at one size.
+    ///
+    /// `contentHash` is in the key, not just `id`: an item's bytes are
+    /// rewritten in place by `ImageEdit.apply` (rotation), and the id doesn't
+    /// change when they do. Keying on the id alone meant the cache — and,
+    /// worse, `ThumbnailImage`'s `.task(id:)` and its own `@State` — all
+    /// answered "same key, nothing to do" while the image on disk had
+    /// changed, so the card kept drawing the un-rotated picture until the app
+    /// was relaunched. Explicit invalidation could not reach the view's state
+    /// at all; a key that moves with the bytes reaches everything at once.
+    nonisolated static func key(id: UUID, contentHash: String, maxPixel: Int) -> NSString {
+        "\(id.uuidString)#\(contentHash)#\(maxPixel)" as NSString
     }
 
     /// Longest side of `size`, in points, converted to pixels for this display.

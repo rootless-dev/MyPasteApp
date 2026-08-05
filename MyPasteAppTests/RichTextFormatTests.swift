@@ -1,0 +1,190 @@
+//
+//  RichTextFormatTests.swift
+//  MyPasteAppTests
+//
+
+import AppKit
+import Testing
+@testable import MyPasteApp
+
+@Suite("Rich text formatting")
+struct RichTextFormatTests {
+
+    private let base = NSAttributedString(
+        string: "hello world",
+        attributes: [.font: NSFont.systemFont(ofSize: 13)])
+
+    private func isBold(_ text: NSAttributedString, at location: Int) -> Bool {
+        guard let font = text.attribute(.font, at: location, effectiveRange: nil) as? NSFont
+        else { return false }
+        return font.fontDescriptor.symbolicTraits.contains(.bold)
+    }
+
+    @Test("bold applies to the selected range only")
+    func boldsTheRange() {
+        let result = RichText.toggling(.bold, in: base, range: NSRange(location: 0, length: 5))
+        #expect(isBold(result, at: 0))
+        #expect(!isBold(result, at: 6))
+        // The text itself must survive untouched — this is the failure mode
+        // that silently destroys an item.
+        #expect(result.string == "hello world")
+    }
+
+    @Test("bolding twice returns to plain")
+    func boldIsAToggle() {
+        let once = RichText.toggling(.bold, in: base, range: NSRange(location: 0, length: 5))
+        let twice = RichText.toggling(.bold, in: once, range: NSRange(location: 0, length: 5))
+        #expect(!isBold(twice, at: 0))
+    }
+
+    @Test("a mixed selection becomes uniformly bold")
+    func mixedSelectionBecomesBold() {
+        // Half bold, half not: the first press should make it all bold, not
+        // flip each half independently.
+        let half = RichText.toggling(.bold, in: base, range: NSRange(location: 0, length: 5))
+        let all = RichText.toggling(.bold, in: half, range: NSRange(location: 0, length: 11))
+        #expect(isBold(all, at: 0))
+        #expect(isBold(all, at: 6))
+    }
+
+    @Test("underline toggles")
+    func underlineToggles() {
+        let range = NSRange(location: 0, length: 5)
+        let on = RichText.togglingUnderline(in: base, range: range)
+        #expect(on.attribute(.underlineStyle, at: 0, effectiveRange: nil) != nil)
+        let off = RichText.togglingUnderline(in: on, range: range)
+        #expect(off.attribute(.underlineStyle, at: 0, effectiveRange: nil) == nil)
+    }
+
+    @Test("strikethrough toggles")
+    func strikethroughToggles() {
+        let range = NSRange(location: 0, length: 5)
+        let on = RichText.togglingStrikethrough(in: base, range: range)
+        #expect(on.attribute(.strikethroughStyle, at: 0, effectiveRange: nil) != nil)
+        let off = RichText.togglingStrikethrough(in: on, range: range)
+        #expect(off.attribute(.strikethroughStyle, at: 0, effectiveRange: nil) == nil)
+    }
+
+    @Test("clearing formatting keeps the text and drops the attributes")
+    func stripsFormatting() {
+        let font = NSFont.systemFont(ofSize: 13)
+        let bold = RichText.toggling(.bold, in: base, range: NSRange(location: 0, length: 11))
+        let underlined = RichText.togglingUnderline(in: bold,
+                                                    range: NSRange(location: 0, length: 11))
+        let stripped = RichText.stripped(underlined, font: font)
+
+        #expect(stripped.string == "hello world")
+        #expect(!isBold(stripped, at: 0))
+        #expect(stripped.attribute(.underlineStyle, at: 0, effectiveRange: nil) == nil)
+        #expect(stripped.attribute(.font, at: 0, effectiveRange: nil) as? NSFont == font)
+    }
+
+    @Test("clearing formatting removes attachment placeholders")
+    func stripsAttachmentPlaceholders() {
+        // An inline image is an `NSTextAttachment`, which lives in an
+        // attribute `stripped` drops — but `attributed.string` still renders
+        // it as U+FFFC. Left in, the user sees a `￼` glyph where the image
+        // was, and Save writes it into `textContent`.
+        let font = NSFont.systemFont(ofSize: 13)
+        let withImage = NSMutableAttributedString(string: "before ")
+        withImage.append(NSAttributedString(attachment: NSTextAttachment()))
+        withImage.append(NSAttributedString(string: " after"))
+        #expect(withImage.string.contains("\u{FFFC}"))
+
+        let stripped = RichText.stripped(withImage, font: font)
+
+        #expect(stripped.string == "before  after")
+        #expect(!stripped.string.contains("\u{FFFC}"))
+    }
+
+    @Test("the placeholder rule works on bare text too")
+    func placeholderRemovalIsPure() {
+        #expect(RichText.withoutAttachmentPlaceholders("a\u{FFFC}b\u{FFFC}") == "ab")
+        #expect(RichText.withoutAttachmentPlaceholders("nothing to do") == "nothing to do")
+    }
+
+    @Test("a selection inside the new length is left alone")
+    func clampKeepsValidRanges() {
+        #expect(RichText.clamped(NSRange(location: 2, length: 3), toLength: 10)
+                == NSRange(location: 2, length: 3))
+        // Ending exactly at the end is valid, not out of bounds.
+        #expect(RichText.clamped(NSRange(location: 5, length: 5), toLength: 10)
+                == NSRange(location: 5, length: 5))
+    }
+
+    @Test("a caret at the old end survives the document getting shorter")
+    func clampMovesTheCaretBack() {
+        // The crash case: clearing formatting on an HTML capture deletes the
+        // U+FFFC of each attachment, so the caret at the end of the old text
+        // points past the end of the new one. Unclamped this raises
+        // NSRangeException.
+        #expect(RichText.clamped(NSRange(location: 11, length: 0), toLength: 10)
+                == NSRange(location: 10, length: 0))
+    }
+
+    @Test("a selection running past the new end is cut, not dropped")
+    func clampTrimsOverlongSelections() {
+        #expect(RichText.clamped(NSRange(location: 3, length: 20), toLength: 10)
+                == NSRange(location: 3, length: 7))
+        // Starting past the end keeps nothing to select.
+        #expect(RichText.clamped(NSRange(location: 40, length: 5), toLength: 10)
+                == NSRange(location: 10, length: 0))
+    }
+
+    @Test("clamping to an empty document gives an empty caret")
+    func clampToEmpty() {
+        #expect(RichText.clamped(NSRange(location: 7, length: 3), toLength: 0)
+                == NSRange(location: 0, length: 0))
+    }
+
+    @Test("an empty range changes nothing")
+    func emptyRangeIsANoOp() {
+        let result = RichText.toggling(.bold, in: base, range: NSRange(location: 3, length: 0))
+        #expect(result.isEqual(to: base))
+    }
+
+    @Test("a mixed underline selection becomes uniformly underlined")
+    func mixedSelectionBecomesUniformlyUnderlined() {
+        // Half underlined, half not: the first press should extend underline
+        // to the whole range, not remove it because the first character
+        // already had it — the same rule bold already follows.
+        let half = RichText.togglingUnderline(in: base, range: NSRange(location: 0, length: 5))
+        let all = RichText.togglingUnderline(in: half, range: NSRange(location: 0, length: 11))
+        #expect(all.attribute(.underlineStyle, at: 0, effectiveRange: nil) != nil)
+        #expect(all.attribute(.underlineStyle, at: 6, effectiveRange: nil) != nil)
+
+        let none = RichText.togglingUnderline(in: all, range: NSRange(location: 0, length: 11))
+        #expect(none.attribute(.underlineStyle, at: 0, effectiveRange: nil) == nil)
+        #expect(none.attribute(.underlineStyle, at: 6, effectiveRange: nil) == nil)
+    }
+
+    @Test("a mixed strikethrough selection becomes uniformly struck through")
+    func mixedSelectionBecomesUniformlyStruckThrough() {
+        let half = RichText.togglingStrikethrough(in: base, range: NSRange(location: 0, length: 5))
+        let all = RichText.togglingStrikethrough(in: half, range: NSRange(location: 0, length: 11))
+        #expect(all.attribute(.strikethroughStyle, at: 0, effectiveRange: nil) != nil)
+        #expect(all.attribute(.strikethroughStyle, at: 6, effectiveRange: nil) != nil)
+
+        let none = RichText.togglingStrikethrough(in: all, range: NSRange(location: 0, length: 11))
+        #expect(none.attribute(.strikethroughStyle, at: 0, effectiveRange: nil) == nil)
+        #expect(none.attribute(.strikethroughStyle, at: 6, effectiveRange: nil) == nil)
+    }
+
+    @Test("a run with an explicit zero underline style counts as not underlined")
+    func explicitZeroStyleCountsAsAbsent() {
+        // The empty NSUnderlineStyle option set rawValue is 0. A run carrying
+        // that value has the attribute key present but styled as "no line" —
+        // it must not block the rest of the range from being seen as "not
+        // yet styled".
+        let withExplicitZero = NSMutableAttributedString(attributedString: base)
+        withExplicitZero.addAttribute(.underlineStyle,
+                                      value: NSUnderlineStyle([]).rawValue,
+                                      range: NSRange(location: 0, length: 11))
+
+        let result = RichText.togglingUnderline(in: withExplicitZero,
+                                                 range: NSRange(location: 0, length: 11))
+        #expect(result.attribute(.underlineStyle, at: 0, effectiveRange: nil) != nil)
+        let style = result.attribute(.underlineStyle, at: 0, effectiveRange: nil) as? Int
+        #expect(style == NSUnderlineStyle.single.rawValue)
+    }
+}

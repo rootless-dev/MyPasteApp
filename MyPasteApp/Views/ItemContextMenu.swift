@@ -13,8 +13,6 @@ import SwiftUI
 /// doesn't actually work is worse than no entry at all, so nothing is listed
 /// here before it works.
 ///
-/// `⌘O Open` belongs above the paste group and arrives with roadmap item 21.
-///
 /// **Why the shortcut glyphs are plain trailing text, not `.keyboardShortcut`.**
 /// `OverlayView` already handles every one of these keys itself
 /// (`onKeyPress`), so the menu and the overlay would have two independent
@@ -80,6 +78,17 @@ struct ItemContextMenu: View {
         // mirrors this same choice.
         Button(titled("Copy", "⌘C")) { actions.copy(item) }
 
+        if let code = item.textContent, let color = ColorCode.parse(code) {
+            Menu("Copy Color as") {
+                ForEach(ColorFormat.allCases, id: \.self) { format in
+                    // The format's own rendering is the label: seeing
+                    // "rgb(58, 134, 255)" before choosing beats reading "RGB"
+                    // and finding out afterwards.
+                    Button(color.formatted(as: format)) { actions.copyColor(color, as: format) }
+                }
+            }
+        }
+
         if MultiPaste.isMarkable(item.type) {
             // Same trailing-text glyph as every other entry here — see the
             // type-level doc comment for why these aren't `.keyboardShortcut`.
@@ -101,6 +110,25 @@ struct ItemContextMenu: View {
             // Only meaningful while something is hiding the rest of the
             // history — with the full list on screen it would do nothing.
             Button(titled("Show in History", "⌘J")) { actions.jumpToHistory(item) }
+        }
+
+        switch OpenWith.target(for: item) {
+        case .openable(let target):
+            Menu(titled("Open with", "⌘O")) {
+                Button("Default App") { actions.open(item) }
+                let candidates = OpenWith.candidates(for: target)
+                if !candidates.isEmpty { Divider() }
+                ForEach(candidates) { candidate in
+                    Button(candidate.name) { actions.open(item, with: candidate.url) }
+                }
+            }
+        case .missing(let path):
+            // Disabled and explaining itself. A silently absent entry sends
+            // the user looking for a bug in the wrong place.
+            Button("Open with — file not found: \(path)") {}
+                .disabled(true)
+        case .unsupported:
+            EmptyView()
         }
 
         Divider()

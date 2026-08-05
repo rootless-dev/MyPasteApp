@@ -62,13 +62,31 @@ struct ImageThumbnailCacheTests {
 
     @Test func keyDistinguishesSizesOfTheSameItem() {
         let id = UUID()
-        #expect(ImageThumbnailCache.key(id: id, maxPixel: 100)
-                != ImageThumbnailCache.key(id: id, maxPixel: 200))
+        #expect(ImageThumbnailCache.key(id: id, contentHash: "a", maxPixel: 100)
+                != ImageThumbnailCache.key(id: id, contentHash: "a", maxPixel: 200))
     }
 
     @Test func keyDistinguishesItemsAtTheSameSize() {
-        #expect(ImageThumbnailCache.key(id: UUID(), maxPixel: 100)
-                != ImageThumbnailCache.key(id: UUID(), maxPixel: 100))
+        #expect(ImageThumbnailCache.key(id: UUID(), contentHash: "a", maxPixel: 100)
+                != ImageThumbnailCache.key(id: UUID(), contentHash: "a", maxPixel: 100))
+    }
+
+    /// The whole point of the hash being in the key: rotation rewrites an
+    /// item's bytes in place, keeping its id and its pixel size. If the key
+    /// didn't move, neither the cache nor `ThumbnailImage`'s `.task(id:)`
+    /// would notice, and the card would keep drawing the un-rotated image.
+    @Test func keyDistinguishesBytesOfTheSameItemAtTheSameSize() {
+        let id = UUID()
+        #expect(ImageThumbnailCache.key(id: id, contentHash: "before", maxPixel: 100)
+                != ImageThumbnailCache.key(id: id, contentHash: "after", maxPixel: 100))
+    }
+
+    /// And the other half of it: unchanged bytes must keep hitting the same
+    /// entry, or every re-render would pay a fresh decode.
+    @Test func keyIsStableForUnchangedBytes() {
+        let id = UUID()
+        #expect(ImageThumbnailCache.key(id: id, contentHash: "same", maxPixel: 100)
+                == ImageThumbnailCache.key(id: id, contentHash: "same", maxPixel: 100))
     }
 
     /// Points in, pixels out: a 260pt card on a 2x display needs 520px.

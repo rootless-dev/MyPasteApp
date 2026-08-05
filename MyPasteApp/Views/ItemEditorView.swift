@@ -36,7 +36,24 @@ struct ItemEditorView: View {
     @AppStorage(PreferenceKeys.previewTextLength) private var previewTextLength: Int = 200
     @State private var attributed: NSAttributedString
     @State private var label: String
+    @State private var formatCommand: RichTextCommand?
     @FocusState private var labelFocused: Bool
+
+    /// Quarter turns the user has asked for but not saved yet.
+    ///
+    /// Rotation is deliberately not applied as it's clicked: every apply would
+    /// rewrite the external blob, recompute the hash, drop the thumbnail and
+    /// promote the item — four side effects per click, with the card jumping
+    /// position while the user is still deciding, and no way to change their
+    /// mind. `Save` does it once; `Cancel` still means nothing happened.
+    @State private var quarterTurns = 0
+
+    private var editableImage: (item: ClipboardItem, data: Data)? {
+        guard case .existing(let item) = mode,
+              item.type == .image,
+              let data = item.imageData else { return nil }
+        return (item, data)
+    }
 
     init(mode: ItemEditorMode,
          initialFocus: ItemEditorFocus,
@@ -89,16 +106,38 @@ struct ItemEditorView: View {
                 .focused($labelFocused)
                 .padding(12)
 
+            if let editable = editableImage {
+                Divider()
+                imageBody(data: editable.data)
+            }
+
             if hasEditableBody {
                 Divider()
 
-                RichTextEditor(attributedText: $attributed)
+                HStack(spacing: 14) {
+                    Spacer()
+                    formatButton("bold", .bold, "Bold")
+                    formatButton("italic", .italic, "Italic")
+                    formatButton("underline", .underline, "Underline")
+                    formatButton("strikethrough", .strikethrough, "Strikethrough")
+                    formatButton("eraser", .clear, "Clear formatting")
+                    Spacer()
+                }
+                .padding(.vertical, 6)
+
+                RichTextEditor(attributedText: $attributed, command: $formatCommand)
                     .frame(minWidth: 480, minHeight: 280)
             }
 
             Divider()
 
             HStack {
+                if hasEditableBody {
+                    Text(TextStats.summary(attributed.string))
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
                 Spacer()
                 Button("Cancel", role: .cancel) { onClose() }
                     .keyboardShortcut(.cancelAction)
@@ -110,9 +149,89 @@ struct ItemEditorView: View {
         .onAppear { labelFocused = (initialFocus == .label) }
     }
 
+    private func formatButton(_ symbol: String,
+                              _ command: RichTextCommand,
+                              _ help: String) -> some View {
+        Button { formatCommand = command } label: {
+            Image(systemName: symbol).font(.system(size: 13))
+        }
+        .buttonStyle(.plain)
+        .help(help)
+    }
+
+    private func imageBody(data: Data) -> some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Spacer()
+                Button { quarterTurns -= 1 } label: {
+                    Image(systemName: "rotate.left")
+                }
+                .help("Rotate left")
+                Button { quarterTurns += 1 } label: {
+                    Image(systemName: "rotate.right")
+                }
+                .help("Rotate right")
+                Spacer()
+            }
+            .buttonStyle(.plain)
+            .font(.system(size: 15))
+            .padding(.bottom, 8)
+
+            ZStack {
+                CheckerboardBackground()
+                if let image = NSImage(data: data) {
+                    // `rotationEffect` doesn't participate in layout — it
+                    // spins the already-laid-out view in place — so fitting
+                    // first and rotating after (as a bare `.scaledToFit()`
+                    // did) sizes a wide image for its own pre-turn footprint.
+                    // A 90°/270° turn then makes it taller than the frame,
+                    // and nothing was clipping it. Measuring the real space
+                    // and, for a quarter turn, fitting into that box with its
+                    // axes swapped first means the rotated result lands back
+                    // inside `available` exactly. `.clipped()` is a backstop
+                    // for the rounding, not the primary fix.
+                    GeometryReader { geometry in
+                        let inset: CGFloat = 12
+                        let available = CGSize(
+                            width: max(0, geometry.size.width - inset * 2),
+                            height: max(0, geometry.size.height - inset * 2)
+                        )
+                        let swapped = quarterTurns % 2 != 0
+                        let fitSize = swapped
+                            ? CGSize(width: available.height, height: available.width)
+                            : available
+
+                        Image(nsImage: image)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: fitSize.width, height: fitSize.height)
+                            // Display-only: the bytes are rotated once, on Save.
+                            .rotationEffect(.degrees(Double(quarterTurns) * 90))
+                            .frame(width: geometry.size.width, height: geometry.size.height)
+                            .clipped()
+                    }
+                }
+            }
+            .frame(minWidth: 480, minHeight: 280)
+        }
+    }
+
     private func save() {
         switch mode {
         case .existing(let item):
+            if item.type == .image {
+                // `rotate` returns the original bytes unchanged for zero turns,
+                // so turning right and back left again costs nothing: no new
+                // blob, no new hash, no dropped thumbnail.
+                if quarterTurns % 4 != 0,
+                   let data = item.imageData,
+                   let rotated = ImageRotation.rotate(data, quarterTurns: quarterTurns) {
+                    ImageEdit.apply(to: item, imageData: rotated)
+                }
+                ItemEdit.applyLabel(to: item, label: label)
+                onClose()
+                return
+            }
             if hasEditableBody {
                 ItemEdit.apply(to: item,
                                attributed: attributed,

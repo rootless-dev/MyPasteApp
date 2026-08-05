@@ -66,6 +66,12 @@ struct ClipboardCardView: View {
                               lineWidth: isOutlined ? 2.5 : 1)
         }
         .shadow(color: .black.opacity(0.10), radius: 6, y: 3)
+        // The drag begins with a mouse-down *inside* the overlay, so
+        // `OverlayWindowController.installClickOutsideMonitors` — which only
+        // watches mouse-down — doesn't read it as a click outside. What can
+        // still close the drawer is the destination app activating on drop;
+        // that's a manual check, recorded in the phase's roteiro.
+        .onDrag { DragItemProvider.make(for: item) }
         .onHover { hovering in
             isHoveringCard = hovering
             if !hovering { isHoveringDelete = false }
@@ -177,11 +183,16 @@ struct ClipboardCardView: View {
     private func content(density: CardDensity) -> some View {
         switch item.type {
         case .text:
-            Text(item.preview)
-                .font(.system(size: 12, design: .monospaced))
-                .foregroundStyle(.primary)
-                .lineLimit(8)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            if let code = item.textContent, let color = ColorCode.parse(code) {
+                ColorSwatchView(color: color, code: code)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                Text(item.preview)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(.primary)
+                    .lineLimit(8)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
         case .url:
             LinkPreviewView(item: item)
         case .image:
@@ -189,6 +200,7 @@ struct ClipboardCardView: View {
                 ThumbnailImage(
                     data: data,
                     id: item.id,
+                    contentHash: item.contentHash,
                     maxPixel: ImageThumbnailCache.pixels(
                         for: CGSize(width: density.width, height: density.height)
                     )

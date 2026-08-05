@@ -39,25 +39,9 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
     private let pinboardScope = PinboardScope()
     // Task 19 spike: a second window of our own, so the click-outside
     // monitors below need to know about it too. See ItemPreviewPanel.
-    private var previewPanel: NSPanel?
-    /// The item the preview panel would show right now, and where it sits
-    /// on screen — kept up to date by `OverlayView.onPreviewSelectionChange`
-    /// on every selection or layout change, whether or not the panel is
-    /// actually open. See `updatePreviewSelection(item:anchor:)`.
-    private var previewItem: ClipboardItem?
-    private var previewAnchorFrame: CGRect?
-    /// The id of the item whose content is currently loaded into the preview
-    /// panel's `contentView`, or nil when nothing has been built yet.
-    ///
-    /// Guards `applyPreviewContent` against rebuilding on every card-frame
-    /// change `updatePreviewSelection` reports — scrolling the card strip
-    /// reports a new frame for the selected card on every animation tick,
-    /// and rebuilding on each one threw away the panel's own scroll position
-    /// and text selection, and allocated a fresh `NSHostingView` per frame.
-    /// The item's own content still updates live when it changes underneath
-    /// an unchanged id: `ClipboardItem` is a SwiftData `@Model`, so the
-    /// already-hosted `ItemPreviewView` observes its properties on its own.
-    private var previewDisplayedItemID: UUID?
+    // Task 3 (Fase 6.5): its management moved into PreviewPanelController;
+    // this window controller only reaches it through that type now.
+    private let previewController: PreviewPanelController
 
     init(modelContainer: ModelContainer,
          writer: ClipboardWriter,
@@ -69,11 +53,70 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         self.itemEditor = itemEditor
         self.onPick = onPick
         self.onPickMultiple = onPickMultiple
+        self.previewController = PreviewPanelController(
+            modelContainer: modelContainer,
+            writer: writer,
+            itemEditor: itemEditor
+        )
         super.init()
+        // Dragging the preview panel off the drawer closes the drawer behind
+        // it. The controller doesn't know the drawer exists; this closure is
+        // the whole of what it knows. Safe against the obvious re-entrancy
+        // worry — `hide()` calls `hideAnchored()`, but by the time this runs
+        // the panel has already left the anchored slot, which is exactly the
+        // ordering `detachAnchored()` is written around.
+        previewController.onDetach = { [weak self] in self?.hide() }
     }
 
+    /// Losing key status closes the drawer. This is what makes ⌘-Tab, the
+    /// Dock, and anything else that moves the keyboard elsewhere dismiss it —
+    /// a separate mechanism from `installClickOutsideMonitors()`, and the one
+    /// that actually fires first on most dismissals.
+    ///
+    /// **Why the hide is deferred by one runloop turn.** A *detached* preview
+    /// panel is deliberately key-capable: `PreviewPanelController
+    /// .detachAnchored()` drops `.nonactivatingPanel` and
+    /// `becomesKeyOnlyIfNeeded` so ⌘C, ⌘W and Escape reach it. Clicking one
+    /// therefore takes key status away from the drawer — and unguarded, that
+    /// click slid the drawer shut *and* ordered out and gutted the anchored
+    /// preview with it (`hide()` calls `hideAnchored()` unconditionally):
+    /// detach a panel, reopen the drawer, press `␣`, click the detached panel,
+    /// and everything closed. `owns(_:)` is the test that says "this window is
+    /// one of ours"; it was wired into the click-outside monitor only, while
+    /// key status is the layer that actually does the closing.
+    ///
+    /// The check cannot be made here and now: at resign time the outgoing
+    /// window has already dropped key status and the incoming one has not yet
+    /// taken it, so `NSApp.keyWindow` is `nil` inside this callback no matter
+    /// who is about to become key. One turn later it answers. Nothing else in
+    /// AppKit reports the incoming window synchronously — `NSApp.currentEvent`
+    /// looks like it would, but it also holds a *stale* event when the resign
+    /// wasn't caused by one (⌘-Tab delivers no event to this app), and a stale
+    /// click inside a detached panel would then keep the drawer open forever.
+    ///
+    /// The two guards, in order:
+    ///
+    /// 1. `isKeyWindow` — anything that re-showed the drawer inside the turn
+    ///    made it key again (`show()` ends in `makeKey()`), and a hide queued
+    ///    before that opening must not close it.
+    /// 2. `owns(_:)` — the incoming key window is the anchored panel or a
+    ///    detached one, so nothing closes. Note `owns(nil)` is false by
+    ///    construction (see its doc comment): with `NSApp.keyWindow` nil —
+    ///    which is exactly what ⌘-Tab leaves behind — a true answer here would
+    ///    mean the drawer never closes again.
+    ///
+    /// The deferral itself is safe against the paths that hide the drawer
+    /// synchronously: `hideImmediately()` orders the panel out (posting this
+    /// very notification) before the synthetic ⌘V, and the queued `hide()`
+    /// finds `panel.isVisible == false` and returns without touching the
+    /// layer, well before the 50ms paste delay elapses.
     func windowDidResignKey(_ notification: Notification) {
-        hide()
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard self.window?.isKeyWindow != true else { return }
+            guard !self.previewController.owns(NSApp.keyWindow) else { return }
+            self.hide()
+        }
     }
 
     func toggle() {
@@ -133,11 +176,11 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
             onDismiss: { [weak self] in self?.hide() },
             destinationAppName: { [weak self] in self?.previousApp?.localizedName },
             onPreviewSelectionChange: { [weak self] item, anchor in
-                self?.updatePreviewSelection(item: item, anchor: anchor)
+                self?.previewController.updateSelection(item: item, anchor: anchor)
             },
-            onShowPreview: { [weak self] in self?.showPreviewPanel() },
-            onHidePreview: { [weak self] in self?.hidePreviewPanel() },
-            isPreviewOpen: { [weak self] in self?.previewPanel?.isVisible == true }
+            onShowPreview: { [weak self] in self?.previewController.showAnchored() },
+            onHidePreview: { [weak self] in self?.previewController.hideAnchored() },
+            isPreviewOpen: { [weak self] in self?.previewController.isAnchoredOpen == true }
         )
         .modelContainer(modelContainer)
 
@@ -149,6 +192,7 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         // Force the initial layout now, outside the hotkey hot path.
         host.layoutSubtreeIfNeeded()
         window = panel
+        previewController.overlayWindow = panel
 
         // "Real" pre-warm: briefly show the panel off-screen and order it out
         // on the next runloop. This forces SwiftUI to run onAppear and the
@@ -168,7 +212,7 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
     /// private, so the AppDelegate can't do this itself.
     func applySharingPolicy() {
         window?.sharingType = WindowPrivacy.sharingType()
-        previewPanel?.sharingType = WindowPrivacy.sharingType()
+        previewController.refreshPrivacy()
     }
 
     func show() {
@@ -225,8 +269,16 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         }
 
         // Initial state: translated below the window itself.
+        //
+        // The closing pair is removed too, not just the opening one: `hide()`
+        // adds them with `fillMode: .forwards`, so reopening the drawer while
+        // it is still sliding out would leave the layer pinned off-screen and
+        // transparent — an opening animation running on content nobody can
+        // see.
         hostLayer.removeAnimation(forKey: "slideUp")
         hostLayer.removeAnimation(forKey: "fadeIn")
+        hostLayer.removeAnimation(forKey: "slideDown")
+        hostLayer.removeAnimation(forKey: "fadeOut")
         hostLayer.setAffineTransform(CGAffineTransform(translationX: 0, y: -height))
         panel.alphaValue = 1
 
@@ -282,14 +334,65 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         // Spike rule for Step 3: a click outside both windows closes both.
         // Unconditional (not gated on the overlay's own visibility) so this
         // also covers the "preview open, overlay already gone" edge case.
-        hidePreviewPanel()
+        previewController.hideAnchored()
         guard let panel = window, panel.isVisible else { return }
-        NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.18
-            panel.animator().alphaValue = 0
-        }, completionHandler: {
+
+        // The drawer leaves the way it arrived: by translating the content
+        // view's layer, never the window. `show()` explains why — a
+        // window-level slide crosses monitor boundaries in multi-display
+        // setups and produces a "teleport" glitch. The window stays put at
+        // its final frame and the content slides out of it.
+        guard let hostLayer = panel.contentView?.layer else {
+            panel.alphaValue = 0
             panel.orderOut(nil)
-        })
+            return
+        }
+
+        let height = Self.overlayHeight
+
+        // Any in-flight opening animation has to go first, or its
+        // `fillMode: .forwards` end state fights this one.
+        hostLayer.removeAnimation(forKey: "slideUp")
+        hostLayer.removeAnimation(forKey: "fadeIn")
+
+        hostLayer.shouldRasterize = true
+        hostLayer.rasterizationScale = panel.backingScaleFactor
+
+        // Ease-in, not the spring `show()` uses: a spring overshoots, and
+        // overshooting on the way out reads as the drawer bouncing off the
+        // bottom of the screen rather than leaving.
+        let slide = CABasicAnimation(keyPath: "transform")
+        slide.fromValue = CATransform3DIdentity
+        slide.toValue = CATransform3DMakeTranslation(0, -height, 0)
+        slide.duration = 0.18
+        slide.timingFunction = CAMediaTimingFunction(name: .easeIn)
+        slide.fillMode = .forwards
+        slide.isRemovedOnCompletion = false
+
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 1
+        fade.toValue = 0
+        fade.duration = 0.18
+        fade.timingFunction = CAMediaTimingFunction(name: .easeIn)
+        fade.fillMode = .forwards
+        fade.isRemovedOnCompletion = false
+
+        CATransaction.begin()
+        CATransaction.setCompletionBlock {
+            panel.orderOut(nil)
+            // Back to the resting state the next `show()` expects to find.
+            // `show()` sets both itself, but leaving the layer parked
+            // off-screen and transparent would show an empty drawer for one
+            // frame if anything ever ordered the panel front without it.
+            hostLayer.removeAnimation(forKey: "slideDown")
+            hostLayer.removeAnimation(forKey: "fadeOut")
+            hostLayer.setAffineTransform(.identity)
+            hostLayer.opacity = 1
+            hostLayer.shouldRasterize = false
+        }
+        hostLayer.add(slide, forKey: "slideDown")
+        hostLayer.add(fade, forKey: "fadeOut")
+        CATransaction.commit()
     }
 
     /// Hides without the fade, for when an item was picked.
@@ -301,8 +404,21 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
     /// the text is landing in.
     func hideImmediately() {
         removeClickOutsideMonitors()
-        hidePreviewPanel()
+        previewController.hideAnchored()
         guard let panel = window, panel.isVisible else { return }
+        // Cancel any slide in flight and put the layer back at rest. Without
+        // this, picking an item while the drawer is mid-animation would leave
+        // a `fillMode: .forwards` end state parked on the layer for the next
+        // opening to fight.
+        if let hostLayer = panel.contentView?.layer {
+            hostLayer.removeAnimation(forKey: "slideUp")
+            hostLayer.removeAnimation(forKey: "fadeIn")
+            hostLayer.removeAnimation(forKey: "slideDown")
+            hostLayer.removeAnimation(forKey: "fadeOut")
+            hostLayer.setAffineTransform(.identity)
+            hostLayer.opacity = 1
+            hostLayer.shouldRasterize = false
+        }
         panel.alphaValue = 0
         panel.orderOut(nil)
     }
@@ -339,159 +455,11 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
             guard let self else { return event }
             // The preview panel is ours too: a click inside it must not read
             // as a click outside the overlay.
-            if event.window !== self.window && event.window !== self.previewPanel {
+            if event.window !== self.window && !self.previewController.owns(event.window) {
                 self.hide()
             }
             return event
         }
-    }
-
-    /// Shows the preview panel with whatever `previewItem` currently holds.
-    ///
-    /// A no-op when there's nothing selected to show (e.g. the history is
-    /// empty) — there's nothing meaningful to open the panel onto. Reused by
-    /// both `␣` and `onShowPreview` (the "Preview" context menu entry), which
-    /// is why it never closes the panel itself: that decision belongs to the
-    /// caller.
-    private func showPreviewPanel() {
-        guard let item = previewItem else { return }
-        let panel = previewPanel ?? ItemPreviewPanel.make()
-        previewPanel = panel
-        panel.sharingType = WindowPrivacy.sharingType()
-        // Reopening on the same item the panel already had loaded (e.g. ␣ was
-        // pressed again after Escape closed it) doesn't need a rebuild — see
-        // `previewDisplayedItemID`.
-        if previewDisplayedItemID != item.id {
-            applyPreviewContent(to: panel, item: item)
-        }
-        positionPreviewPanel(panel)
-        // orderFrontRegardless, not makeKeyAndOrderFront: the panel must
-        // never take key status away from the overlay. See the brief's Step 3.
-        panel.orderFrontRegardless()
-    }
-
-    /// Closes just the preview panel, leaving the overlay itself open.
-    ///
-    /// Used by Escape's "dismiss what's on top" rule (see
-    /// `OverlayView.escapeClosesPreview`), by `ItemPreviewView`'s own close
-    /// button, and by every other path that hides the panel — this is the only
-    /// place that does it.
-    ///
-    /// Dropping `contentView` is not housekeeping: `orderOut` alone leaves the
-    /// `NSHostingView` and every Core Animation layer behind it alive, and a
-    /// long text preview measured 240 MB of CoreAnimation that never came back
-    /// until the app quit. Clearing `previewDisplayedItemID` is what makes the
-    /// next open rebuild the content — `showPreviewPanel()` skips the rebuild
-    /// when the id already matches.
-    private func hidePreviewPanel() {
-        guard let panel = previewPanel else { return }
-        panel.orderOut(nil)
-        panel.contentView = NSView(
-            frame: NSRect(origin: .zero, size: ItemPreviewPanel.defaultSize)
-        )
-        previewDisplayedItemID = nil
-    }
-
-    /// Keeps the preview panel in sync with the overlay's selection.
-    ///
-    /// Called on every selection or layout change reported by `OverlayView`,
-    /// whether or not the panel is currently open — see the doc comment on
-    /// `previewItem`. Only rebuilds/repositions the visible panel; while it's
-    /// closed, this just records the latest values so the next `show`
-    /// reflects whatever is selected right now, with no stale first frame.
-    private func updatePreviewSelection(item: ClipboardItem?, anchor: CGRect?) {
-        previewItem = item
-        previewAnchorFrame = anchor
-        guard let panel = previewPanel, panel.isVisible else { return }
-        guard let item else {
-            // Nothing left to preview (e.g. the last item was deleted, or a
-            // search filtered everything out) — closing is the least
-            // surprising option, matching what happens when the overlay
-            // itself runs out of cards to select.
-            hidePreviewPanel()
-            return
-        }
-        // Only rebuild the panel's content when the selection actually
-        // changed. This fires on every card-frame update too — scrolling the
-        // strip alone would otherwise tear down and rebuild the panel's
-        // content on every animation frame, losing the user's scroll
-        // position and text selection inside it. Repositioning stays
-        // unconditional below: the panel must keep tracking the card as it
-        // moves regardless of whether its content changed.
-        if previewDisplayedItemID != item.id {
-            applyPreviewContent(to: panel, item: item)
-        }
-        positionPreviewPanel(panel)
-    }
-
-    /// Builds `ItemPreviewView` for `item` and assigns it as the panel's
-    /// content.
-    ///
-    /// The one place in this file that hands a hosting view to
-    /// `contentView` — see the comment on `ItemPreviewPanel.make()` for why
-    /// the explicit `frame`/`autoresizingMask` here matters: without them,
-    /// the window would be resized to the content's intrinsic size instead
-    /// of the frame `positionPreviewPanel(_:)` sets, the same bug the Task 19
-    /// spike ran into.
-    private func applyPreviewContent(to panel: NSPanel, item: ClipboardItem) {
-        let host = NSHostingView(rootView: ItemPreviewView(item: item, onClose: { [weak self] in
-            self?.hidePreviewPanel()
-        }))
-        host.frame = NSRect(origin: .zero, size: ItemPreviewPanel.defaultSize)
-        host.autoresizingMask = [NSView.AutoresizingMask.width, NSView.AutoresizingMask.height]
-        panel.contentView = host
-        previewDisplayedItemID = item.id
-    }
-
-    /// Positions the panel above the selected card, horizontally centered on
-    /// it.
-    ///
-    /// `previewAnchorFrame` arrives from `OverlayView` in the `.global`
-    /// coordinate space of its SwiftUI tree, which — since `OverlayView` is
-    /// the direct `rootView` of the overlay's own `NSHostingView` (see
-    /// `prepare()`) — is equivalent to that hosting view's bounds.
-    /// `NSView.convert(_:to:)` turns that into window coordinates (handling
-    /// the flip from SwiftUI's top-left origin automatically), and
-    /// `convertToScreen` turns those into what `setFrame` needs. Falls back
-    /// to centering on screen when there's no anchor yet (the panel was
-    /// asked to open before any card reported its frame) or no overlay
-    /// window to convert against.
-    ///
-    /// Deliberately does not draw a pointer/beak connecting the panel to the
-    /// card (design-refs/03-preview-web.png) — see the Task 20 report.
-    private func positionPreviewPanel(_ panel: NSPanel) {
-        let size = ItemPreviewPanel.defaultSize
-        guard let screen = window?.screen ?? NSScreen.main else { return }
-        guard let anchor = previewAnchorFrame,
-              let overlayWindow = window,
-              let contentView = overlayWindow.contentView else {
-            let centered = NSRect(
-                x: screen.frame.midX - size.width / 2,
-                y: screen.frame.midY - size.height / 2,
-                width: size.width,
-                height: size.height
-            )
-            panel.setFrame(centered, display: false)
-            return
-        }
-        let windowRect = contentView.convert(anchor, to: nil)
-        let screenRect = overlayWindow.convertToScreen(windowRect)
-
-        let margin: CGFloat = 12
-        let edgeInset: CGFloat = 8
-        var x = screenRect.midX - size.width / 2
-        var y = screenRect.maxY + margin
-
-        x = max(screen.visibleFrame.minX + edgeInset,
-                min(x, screen.visibleFrame.maxX - size.width - edgeInset))
-        if y + size.height > screen.visibleFrame.maxY - edgeInset {
-            y = screen.visibleFrame.maxY - size.height - edgeInset
-        }
-        if y < screen.visibleFrame.minY + edgeInset {
-            y = screen.visibleFrame.minY + edgeInset
-        }
-
-        panel.setFrame(NSRect(x: x, y: y, width: size.width, height: size.height), display: false)
     }
 
     /// Resolves which `NSScreen` the overlay should appear on.
