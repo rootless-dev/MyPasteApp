@@ -94,25 +94,65 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
     /// coordinates. Set by OverlayWindowController.prepare().
     var overlayWindow: NSPanel?
 
+    /// Watches `modelContainer.mainContext` for saves, so a detached panel
+    /// doesn't outlive the item it's showing.
+    ///
+    /// One observer here beats teaching every deletion site about preview
+    /// panels — today that's `ItemActions.swift`, `HistorySettingsView.swift`
+    /// and three spots in `RetentionPolicy.swift`, all six saving through
+    /// this same context. A seventh path, whenever it's written, inherits the
+    /// rule for free instead of being the one that forgets it. Removed in
+    /// `deinit`.
+    private var didSaveObserver: NSObjectProtocol?
+
     init(modelContainer: ModelContainer, writer: ClipboardWriter, itemEditor: ItemEditorWindowController) {
         self.modelContainer = modelContainer
         self.writer = writer
         self.itemEditor = itemEditor
         super.init()
+        didSaveObserver = NotificationCenter.default.addObserver(
+            forName: ModelContext.didSave,
+            object: modelContainer.mainContext,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.closeDetachedForDeletedItems() }
+        }
+    }
+
+    deinit {
+        if let didSaveObserver {
+            NotificationCenter.default.removeObserver(didSaveObserver)
+        }
     }
 
     var isAnchoredOpen: Bool {
         previewPanel?.isVisible == true
     }
 
+    /// Whether `window` is one of ours: the anchored panel, or any panel that
+    /// has left the drawer.
+    ///
+    /// Both matter to `OverlayWindowController.installClickOutsideMonitors()`
+    /// — without the detached half, a click on a detached panel would read as
+    /// a click outside the drawer and close it, and reopening the drawer with
+    /// that same detached panel still on screen would then let a click inside
+    /// it close the drawer all over again.
     func owns(_ window: NSWindow?) -> Bool {
-        window === previewPanel
+        window === previewPanel || detachedPreviews.contains { $0.panel === window }
     }
 
-    /// Re-reads the screen-sharing preference and applies it. The panel is
-    /// private, so the AppDelegate can't do this itself.
+    /// Re-reads the screen-sharing preference and applies it to every open
+    /// panel — the anchored one and each detached window.
+    ///
+    /// Detached panels are independent windows the overlay no longer touches,
+    /// so nothing else re-applies this when the preference changes; a panel
+    /// left out here would keep showing up in a recording after the user
+    /// turned the setting on specifically to stop that.
     func refreshPrivacy() {
         previewPanel?.sharingType = WindowPrivacy.sharingType()
+        for detached in detachedPreviews {
+            detached.panel.sharingType = WindowPrivacy.sharingType()
+        }
     }
 
     /// Shows the preview panel with whatever `previewItem` currently holds.
@@ -279,22 +319,41 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
         onDetach?()
     }
 
-    /// Closes a detached panel.
-    ///
-    /// Deliberately minimal — Task 6 owns the detached panels' life cycle
-    /// (items being deleted underneath them, `refreshPrivacy`, `owns(_:)`).
-    /// This exists so `⌘W` and `Escape` have something to call.
-    ///
-    /// Dropping `contentView` for the same reason `hideAnchored()` does: the
-    /// `NSHostingView` and every Core Animation layer behind it survive an
-    /// `orderOut` on their own.
+    /// Closes a detached panel — the single path `⌘W`, `Escape`, the ✕ in the
+    /// header (via `close(_:)`) and `closeDetachedForDeletedItems()` all
+    /// funnel through.
     private func closeDetached(_ panel: PreviewPanel) {
         guard let index = detachedPreviews.firstIndex(where: { $0.panel === panel }) else { return }
-        detachedPreviews.remove(at: index)
+        panel.orderOut(nil)
+        // Not housekeeping: `orderOut` alone leaves the `NSHostingView` and
+        // every Core Animation layer behind it alive — a long text preview
+        // measured 240 MB of CoreAnimation that never came back until the app
+        // quit, and that's what `hideAnchored()` clears for the anchored
+        // panel today. With N detached panels open at once the cost
+        // multiplies, so each one gets the same treatment on its way out.
+        panel.contentView = NSView(frame: NSRect(origin: .zero, size: panel.frame.size))
         // Also breaks panel → closure → panel.
         panel.onCloseCommand = nil
-        panel.orderOut(nil)
-        panel.contentView = NSView()
+        detachedPreviews.remove(at: index)
+    }
+
+    /// Closes every detached panel whose item has been deleted — the item no
+    /// longer belongs to a model context, meaning one of the deletion sites
+    /// (`ItemActions.swift`, `HistorySettingsView.swift`, three in
+    /// `RetentionPolicy.swift`) removed and saved it, whether or not that
+    /// item happened to be showing in a panel the user dragged off the
+    /// drawer.
+    ///
+    /// `item.modelContext == nil`, not `item.isDeleted`: confirmed against
+    /// the installed SDK that `isDeleted` flips `true` the instant
+    /// `context.delete(_:)` is called but resets to `false` again once
+    /// `save()` commits, while `modelContext` only goes `nil` when the
+    /// deletion is actually saved — which is also the moment `didSave` fires,
+    /// so the two line up.
+    private func closeDetachedForDeletedItems() {
+        for detached in detachedPreviews where detached.item.modelContext == nil {
+            closeDetached(detached.panel)
+        }
     }
 
     /// Keeps the preview panel in sync with the overlay's selection.
