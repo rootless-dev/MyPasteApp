@@ -172,6 +172,24 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
         lastAnchoredFrame = nil
     }
 
+    /// Closes whichever panel the ✕ that called this was drawn in.
+    ///
+    /// `ItemPreviewView`'s hosting view crosses the detach untouched —
+    /// nothing rebuilds it — so an `onClose` hard-wired to `hideAnchored()`
+    /// would go on closing *the anchored panel* from a window that stopped
+    /// being it: detach A, reopen the drawer, open anchored preview B, click
+    /// A's ✕, and B vanishes while A stays put. Dispatching on the panel the
+    /// view is hosted in keeps the button pointed at its own window on both
+    /// sides of the detach, without rebuilding the view or throwing away the
+    /// `@State` (zoom level, sampler mode) inside it.
+    private func close(_ panel: PreviewPanel) {
+        if panel === previewPanel {
+            hideAnchored()
+        } else {
+            closeDetached(panel)
+        }
+    }
+
     // MARK: - Detaching
 
     /// Watches the anchored panel for the user dragging it.
@@ -325,11 +343,18 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
     /// the window would be resized to the content's intrinsic size instead
     /// of the frame `positionPreviewPanel(_:chrome:)` sets, the same bug the
     /// Task 19 spike ran into.
-    private func applyPreviewContent(to panel: NSPanel, item: ClipboardItem, chrome: PreviewChrome) {
+    private func applyPreviewContent(to panel: PreviewPanel, item: ClipboardItem, chrome: PreviewChrome) {
         let host = NSHostingView(rootView: ItemPreviewView(
             item: item,
             chrome: chrome,
-            onClose: { [weak self] in self?.hideAnchored() },
+            // Bound to the panel this view is being hosted in, not to
+            // "whatever is anchored" — see `close(_:)`. `weak panel` is load
+            // bearing: the panel owns the hosting view that owns this
+            // closure, so a strong capture would close the cycle.
+            onClose: { [weak self, weak panel] in
+                guard let panel else { return }
+                self?.close(panel)
+            },
             onCopyColor: { [weak self] color in
                 guard let self else { return }
                 let text = color.formatted(as: .hex)

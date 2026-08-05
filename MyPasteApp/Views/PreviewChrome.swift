@@ -33,8 +33,15 @@ final class PreviewChrome {
     var beakOffset: CGFloat?
 
     /// Whether this panel has been dragged off the drawer into its own
-    /// independent window. Not read anywhere yet — Task 5 is what gives it a
-    /// meaning; it's declared now, always `false`, so this task's plumbing
-    /// doesn't have to be revisited to add it later.
+    /// independent window.
+    ///
+    /// Written once, by `PreviewPanelController.detachAnchored()`, and never
+    /// back: a detached panel stays detached for the rest of its life.
+    /// `ItemPreviewView` reads it twice, and both readings are about the
+    /// 12pt strip the beak used to occupy — the bottom padding that reserved
+    /// it, and the `beakHeight` handed to `PreviewPanelShape`. The window
+    /// itself sheds those same 12 points in the same call, which is what
+    /// keeps the drawn shape and the window's frame agreeing about where the
+    /// bottom edge is.
     var isDetached = false
 }
