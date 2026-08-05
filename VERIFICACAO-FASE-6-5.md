@@ -44,9 +44,23 @@ comportamento "bom demais" que pode ser sorte de uma corrida específica.
       abre um **segundo** painel, ancorado, sobre o novo card selecionado; o
       painel solto continua exatamente onde estava, sem se mover nem fechar.
 
-- [ ] **A3** Com os dois painéis na tela (um ancorado, um solto), clique
-      dentro de cada um, alternando. **Critério:** nenhum clique nos dois
-      fecha a gaveta — nem o clique no ancorado, nem o clique no solto.
+- [ ] **A3 🔴 O outro caso que estava quebrado.** Com os dois painéis na tela
+      (um ancorado, um solto), clique dentro de cada um, alternando.
+      **Critério:** nenhum clique nos dois fecha a gaveta — nem o clique no
+      ancorado, nem o clique no solto, e o painel **ancorado** também continua
+      aberto depois do clique no solto. As duas metades falham por motivos
+      diferentes: o painel ancorado nunca vira key window (`becomesKeyOnlyIfNeeded`),
+      enquanto o solto **vira** de propósito — é o que faz `⌘C`/`⌘W`/`Esc`
+      chegarem nele — e tirar o key da gaveta era o que a fechava. Quem segura
+      isso agora é a checagem de `owns(_:)` em
+      `OverlayWindowController.windowDidResignKey`.
+
+- [ ] **A3b** Logo depois de clicar no painel **solto** (A3), sem clicar em
+      mais nada, aperte as setas. **Comportamento esperado, a registrar e não
+      um defeito:** a gaveta continua aberta mas **perdeu o teclado** para o
+      painel solto, então as setas não navegam mais pelos cards. Clique de
+      volta na gaveta. **Critério:** o teclado volta — as setas voltam a
+      navegar e o preview ancorado volta a acompanhar a seleção.
 
 - [ ] **A4** `Esc` com o foco no painel ancorado: fecha só ele, gaveta e
       painel solto continuam. `Esc` com o foco no painel solto: fecha só ele,
@@ -63,6 +77,15 @@ comportamento "bom demais" que pode ser sorte de uma corrida específica.
       (abra-o de novo se A5 o fechou), e o bico continua apontando para o
       card certo — nada no ciclo de vida do painel solto vazou para o
       ancorado.
+
+- [ ] **A7 ⚠️ A regressão que a correção do A3 poderia ter causado.** Sem
+      nenhum painel solto na tela, abra a gaveta e saia do app **pelo teclado**
+      (`⌘Tab`), sem clicar em lugar nenhum. **Critério:** a gaveta fecha
+      sozinha, como sempre. Repita com um painel **ancorado** aberto e depois
+      com um painel **solto** na tela. Este passo existe porque a correção do
+      A3 passou a consultar quem virou key window: se essa consulta
+      respondesse "é uma janela nossa" quando não há key window nenhuma (o
+      caso do `⌘Tab`), a gaveta ficaria aberta atrás do outro app para sempre.
 
 ---
 

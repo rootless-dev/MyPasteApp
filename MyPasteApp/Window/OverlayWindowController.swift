@@ -68,8 +68,55 @@ final class OverlayWindowController: NSObject, NSWindowDelegate {
         previewController.onDetach = { [weak self] in self?.hide() }
     }
 
+    /// Losing key status closes the drawer. This is what makes ⌘-Tab, the
+    /// Dock, and anything else that moves the keyboard elsewhere dismiss it —
+    /// a separate mechanism from `installClickOutsideMonitors()`, and the one
+    /// that actually fires first on most dismissals.
+    ///
+    /// **Why the hide is deferred by one runloop turn.** A *detached* preview
+    /// panel is deliberately key-capable: `PreviewPanelController
+    /// .detachAnchored()` drops `.nonactivatingPanel` and
+    /// `becomesKeyOnlyIfNeeded` so ⌘C, ⌘W and Escape reach it. Clicking one
+    /// therefore takes key status away from the drawer — and unguarded, that
+    /// click slid the drawer shut *and* ordered out and gutted the anchored
+    /// preview with it (`hide()` calls `hideAnchored()` unconditionally):
+    /// detach a panel, reopen the drawer, press `␣`, click the detached panel,
+    /// and everything closed. `owns(_:)` is the test that says "this window is
+    /// one of ours"; it was wired into the click-outside monitor only, while
+    /// key status is the layer that actually does the closing.
+    ///
+    /// The check cannot be made here and now: at resign time the outgoing
+    /// window has already dropped key status and the incoming one has not yet
+    /// taken it, so `NSApp.keyWindow` is `nil` inside this callback no matter
+    /// who is about to become key. One turn later it answers. Nothing else in
+    /// AppKit reports the incoming window synchronously — `NSApp.currentEvent`
+    /// looks like it would, but it also holds a *stale* event when the resign
+    /// wasn't caused by one (⌘-Tab delivers no event to this app), and a stale
+    /// click inside a detached panel would then keep the drawer open forever.
+    ///
+    /// The two guards, in order:
+    ///
+    /// 1. `isKeyWindow` — anything that re-showed the drawer inside the turn
+    ///    made it key again (`show()` ends in `makeKey()`), and a hide queued
+    ///    before that opening must not close it.
+    /// 2. `owns(_:)` — the incoming key window is the anchored panel or a
+    ///    detached one, so nothing closes. Note `owns(nil)` is false by
+    ///    construction (see its doc comment): with `NSApp.keyWindow` nil —
+    ///    which is exactly what ⌘-Tab leaves behind — a true answer here would
+    ///    mean the drawer never closes again.
+    ///
+    /// The deferral itself is safe against the paths that hide the drawer
+    /// synchronously: `hideImmediately()` orders the panel out (posting this
+    /// very notification) before the synthetic ⌘V, and the queued `hide()`
+    /// finds `panel.isVisible == false` and returns without touching the
+    /// layer, well before the 50ms paste delay elapses.
     func windowDidResignKey(_ notification: Notification) {
-        hide()
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard self.window?.isKeyWindow != true else { return }
+            guard !self.previewController.owns(NSApp.keyWindow) else { return }
+            self.hide()
+        }
     }
 
     func toggle() {

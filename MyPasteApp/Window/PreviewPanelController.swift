@@ -137,8 +137,20 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
     /// a click outside the drawer and close it, and reopening the drawer with
     /// that same detached panel still on screen would then let a click inside
     /// it close the drawer all over again.
+    ///
+    /// `OverlayWindowController.windowDidResignKey` asks the same question
+    /// about key status, which is the other half of the same rule — a click
+    /// closes the drawer through *two* independent mechanisms, and teaching
+    /// only one of them about our own windows fixes only half the bug.
+    ///
+    /// The `nil` guard is load bearing, not defensive noise. `previewPanel` is
+    /// `nil` whenever nothing is anchored, so a bare `window === previewPanel`
+    /// answers **true** for `owns(nil)` — and the key-status caller asks with
+    /// `NSApp.keyWindow`, which is `nil` every time the user ⌘-Tabs away from
+    /// the app. That "true" would mean the drawer stops closing altogether.
     func owns(_ window: NSWindow?) -> Bool {
-        window === previewPanel || detachedPreviews.contains { $0.panel === window }
+        guard let window else { return false }
+        return window === previewPanel || detachedPreviews.contains { $0.panel === window }
     }
 
     /// Re-reads the screen-sharing preference and applies it to every open
