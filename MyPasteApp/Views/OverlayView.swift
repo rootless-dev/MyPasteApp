@@ -405,7 +405,7 @@ struct OverlayView: View {
                 // emptied the list — and SwiftUI gives no guarantee that an
                 // `onChange`/`onPreferenceChange` on a view leaving the tree
                 // still fires. `notifyPreviewSelection()` below is exactly
-                // that: `OverlayWindowController.updatePreviewSelection`
+                // that: `PreviewPanelController.updateSelection`
                 // depends on receiving `item: nil` to close a preview panel
                 // that's anchored to a card no longer on screen (search
                 // narrowed to nothing, or `⌃Tab` into an empty board), and a
@@ -1178,7 +1178,7 @@ struct OverlayView: View {
 /// Reported in the `.global` coordinate space — for SwiftUI content hosted
 /// directly by an `NSHostingView` (as `OverlayView` is, in
 /// `OverlayWindowController.prepare()`), that's equivalent to the hosting
-/// view's own bounds. `OverlayWindowController.positionPreviewPanel(_:)`
+/// view's own bounds. `PreviewPanelController.positionPreviewPanel(_:)`
 /// converts it to window, then screen, coordinates from there.
 struct CardFramePreferenceKey: PreferenceKey {
     static var defaultValue: [UUID: CGRect] = [:]

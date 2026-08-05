@@ -40,6 +40,10 @@ Carthage/Build/
 # Superpowers — rascunho de execução de planos (ledger, briefs, diffs de review)
 .superpowers/
 
+# Roteiros de verificação manual — documento de trabalho local, da mesma
+# natureza de ROADMAP.md e DESIGN.md. Ficam no disco, fora do repositório.
+VERIFICACAO-*.md
+
 # Misc
 *.log
 *.tmp
