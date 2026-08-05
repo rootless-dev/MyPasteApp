@@ -141,12 +141,20 @@ enum ItemPreviewPanel {
         // the window's frame view for some style changes — everything that
         // survives only because we set it has to be settable again.
         applyAppearance(to: panel)
-        // Lets the user drag the window from anywhere the SwiftUI tree
-        // didn't claim the click. On its own this is not enough to satisfy
-        // "drag by the header or an empty part of the body" — see
-        // `ItemPreviewView.windowDragSurface` for what actually carries the
-        // gesture and why. Kept as the fallback underneath it.
-        panel.isMovableByWindowBackground = true
+        // Deliberately NOT `isMovableByWindowBackground`. It was set here as a
+        // "fallback underneath" `ItemPreviewView.windowDragSurface`, on the
+        // premise that it would only catch clicks the SwiftUI tree hadn't
+        // claimed. That premise is wrong: AppKit resolves it on the NSView,
+        // through `mouseDownCanMoveWindow`, *before* SwiftUI ever sees the
+        // event — and a plain `Image` doesn't mark its region as unclaimable,
+        // no matter how many `.contentShape`/`.simultaneousGesture` modifiers
+        // sit on it. The result was that dragging across a zoomed image moved
+        // the whole window instead of panning the image, because
+        // `ItemPreviewView.panGesture` never received the click at all.
+        //
+        // The window is dragged by `windowDragSurface` alone: the header and
+        // the band around the body, both carrying an explicit
+        // `WindowDragGesture` and neither overlapping the previewed content.
         // .nonactivatingPanel only keeps a click here from activating the
         // app — by itself it does NOT stop the panel from becoming key, and
         // a panel that becomes key sends windowDidResignKey to whichever

@@ -153,10 +153,11 @@ struct ItemPreviewView: View {
     /// gesture the user has to discover.
     ///
     /// `WindowDragGesture` is macOS 15+ and this app targets 26.2, so it needs
-    /// no availability check. `ItemPreviewPanel.make()` also sets
-    /// `isMovableByWindowBackground`; the two are belt and braces, and they
-    /// can't fight because this band carries no other gesture for either of
-    /// them to lose to.
+    /// no availability check. This is the *only* thing that drags the panel:
+    /// `ItemPreviewPanel.make()` deliberately leaves
+    /// `isMovableByWindowBackground` off, because it is decided on the NSView
+    /// and would claim the image preview's clicks before this tree could —
+    /// see the comment there for the whole story.
     private var windowDragSurface: some View {
         Color.clear
             .contentShape(Rectangle())
