@@ -1,5 +1,88 @@
 # Changelog
 
+## [1.5.0](https://github.com/rootless-dev/MyPasteApp/compare/v1.4.0...v1.5.0) (2026-08-05)
+
+
+### Features
+
+* **color:** read, convert and write colour codes ([5ffc46a](https://github.com/rootless-dev/MyPasteApp/commit/5ffc46aac2ade93c8f2c2cccdbc80966a4fe89e7))
+* **color:** sample a colour from the screen into the history ([ef60232](https://github.com/rootless-dev/MyPasteApp/commit/ef60232b320642e2fc6ecca6bce49a282a038f65))
+* **color:** show recognised colours and convert between formats ([d4921b1](https://github.com/rootless-dev/MyPasteApp/commit/d4921b14ebcca1056fe2cd29c93ce0c506003075))
+* **drag:** decide what each card hands over, and what to clean up ([954cf04](https://github.com/rootless-dev/MyPasteApp/commit/954cf041e6815eb277cb5d98de5d46625184f7a1))
+* **drag:** drag any card out of the drawer ([4385e3a](https://github.com/rootless-dev/MyPasteApp/commit/4385e3a2827d3b651304e951614425daf5a650e2))
+* **editor:** count characters, words and lines ([4ded4ec](https://github.com/rootless-dev/MyPasteApp/commit/4ded4ec9cc305a1f4e3dc809263596c9e81fcfd7))
+* **editor:** format text from a toolbar ([6771af2](https://github.com/rootless-dev/MyPasteApp/commit/6771af2515416abdd1321f674067ba49af1ef992))
+* **image:** read the colour of a pixel from the original data ([e236ed8](https://github.com/rootless-dev/MyPasteApp/commit/e236ed895ed5bf8c5ed8bb434ced74cd8e41a163))
+* **image:** rotate image data by quarter turns ([9e00139](https://github.com/rootless-dev/MyPasteApp/commit/9e001391d49c65ae1d5721abf57b68709d369832))
+* **image:** rotate images in the item editor ([9c64291](https://github.com/rootless-dev/MyPasteApp/commit/9c642913bd9e832cb90e6fbfc5863a04cd84fe93))
+* **image:** sample a colour from the preview panel ([7aad17c](https://github.com/rootless-dev/MyPasteApp/commit/7aad17cec971c1fd8d1d5e10b60955932a81db66))
+* **image:** select text inside an image with Live Text ([8424f6c](https://github.com/rootless-dev/MyPasteApp/commit/8424f6cac875c301b91f7c6d1c6b796ef743f1bb))
+* **live-text:** turn on the data detectors the spec promised ([20dbe5b](https://github.com/rootless-dev/MyPasteApp/commit/20dbe5bc376d4a2dd9707f6e1203ee1f93a95471))
+* **open:** open files and links in another app ([09dd5bd](https://github.com/rootless-dev/MyPasteApp/commit/09dd5bdc16ffae35f2f84d89b9749bfa99946665))
+* **overlay:** select on click, paste on double click ([1a576ab](https://github.com/rootless-dev/MyPasteApp/commit/1a576ab5e4b61ca6ab02460b5df72af8a8bba697))
+* **overlay:** slide the drawer back down on the way out ([173dbe9](https://github.com/rootless-dev/MyPasteApp/commit/173dbe96a28af2540b9b4fa7f6297048244cfc45))
+* **preview:** add pure zoom geometry for the image preview panel ([a6b7a69](https://github.com/rootless-dev/MyPasteApp/commit/a6b7a696c040f84aa457f7fae98e63f012810ffd))
+* **preview:** drag the panel off the drawer into its own window ([b2624ea](https://github.com/rootless-dev/MyPasteApp/commit/b2624ea4775c08ed053de33a3d201a4496972250))
+* **preview:** draw the panel's own shape on a transparent window ([98dddb8](https://github.com/rootless-dev/MyPasteApp/commit/98dddb898f519d263f54e0e7cfdf71ccab55429c))
+* **preview:** give detached panels a life cycle of their own ([11e3796](https://github.com/rootless-dev/MyPasteApp/commit/11e3796aecd17c0959e434964ac121c493e8fbac))
+* **preview:** o preview vira janela — bico ancorado e soltar ao arrastar ([3fda9df](https://github.com/rootless-dev/MyPasteApp/commit/3fda9df5ea609884f257b3fd1a916e4ff15c1ec6))
+* **preview:** pinch/button zoom and pan on the image preview panel ([32d9ca1](https://github.com/rootless-dev/MyPasteApp/commit/32d9ca1e2784eaebcc284ba348da61f0e5641a29))
+* **preview:** point the panel's beak at the card it is showing ([c32ec57](https://github.com/rootless-dev/MyPasteApp/commit/c32ec57b767244076303ef4e1960f7b2949f0574))
+
+
+### Bug Fixes
+
+* **color:** file the colour sampled in the preview, like the other two ([20e6323](https://github.com/rootless-dev/MyPasteApp/commit/20e632322781e1b83d29dc62621128b7dad640f3))
+* **color:** judge swatch text contrast against the composited colour ([2262aed](https://github.com/rootless-dev/MyPasteApp/commit/2262aedeac6ae9de4f1879e123636dee37dc93b6))
+* **colors:** credit converted colours to this app, and only file them once ([ff2f308](https://github.com/rootless-dev/MyPasteApp/commit/ff2f3089f195f7dda24f377adfae79f21deb4820))
+* **colors:** wrap negative hues, cap parse length, read the appearance ([d7d1b09](https://github.com/rootless-dev/MyPasteApp/commit/d7d1b097aa8b599029d45b4d2c8a9e3c983d84c9))
+* **drag:** carry whichever rich format the source offered, and pin the fallback file-name clock ([765a11f](https://github.com/rootless-dev/MyPasteApp/commit/765a11f74b93245c922e08c32df1ae7c0081b428))
+* **drag:** make the fallback file-name test independent of the runner's zone ([20c5c08](https://github.com/rootless-dev/MyPasteApp/commit/20c5c08b3172a49e339bb726a9bb11155e2595ff))
+* **drag:** stop N file registrations from clobbering each other, isolate temp writes ([306f220](https://github.com/rootless-dev/MyPasteApp/commit/306f220ba7ea99db16ba3adfb04ed21030007355))
+* **editor:** defer command state publish and fix uniform toggle for underline/strikethrough ([ce425cb](https://github.com/rootless-dev/MyPasteApp/commit/ce425cbe7954110fae6cbd2a95af355a766fe0f5))
+* **editor:** fit rotated images to the frame instead of overflowing it ([81fa0a5](https://github.com/rootless-dev/MyPasteApp/commit/81fa0a5fcea78a6c2b2e9c40a0b1d020b59737dd))
+* **editor:** give format commands identity and defer the whole apply ([c054d00](https://github.com/rootless-dev/MyPasteApp/commit/c054d006d6e7fdf10f5d8db89c14768145667dbc))
+* **editor:** give the formatting toolbar an undo ([3d85ba0](https://github.com/rootless-dev/MyPasteApp/commit/3d85ba0caa90b0b1b5e074e5bf9783a2dfe9bea8))
+* **editor:** stop clearing formatting from raising on a shorter document ([135ab57](https://github.com/rootless-dev/MyPasteApp/commit/135ab57d9844cba86f0bc181d18fdaf19067c1bc))
+* **image:** cancel in-flight Live Text analysis on view teardown ([e236fb3](https://github.com/rootless-dev/MyPasteApp/commit/e236fb32ba8f5c16d25918e66e63abb4ac87e137))
+* **image:** replace cursor push/pop with onContinuousHover + set() ([3e3a44a](https://github.com/rootless-dev/MyPasteApp/commit/3e3a44a34b10a0477c2be916eaa4d026ddbdb916))
+* **image:** sample the preview colour silently, per spec ([96bac6a](https://github.com/rootless-dev/MyPasteApp/commit/96bac6aebb49f79c37cefa0fe8717f45d4a07f9a))
+* **open-with:** let contact-card schemes open again ([1c6c390](https://github.com/rootless-dev/MyPasteApp/commit/1c6c39094c951794ef312cc516b58889a4693a03))
+* **open-with:** only hand http, https and mailto to NSWorkspace ([9b7cab0](https://github.com/rootless-dev/MyPasteApp/commit/9b7cab0078a485ab7f4324997db2835214487514))
+* **overlay:** select on the click, not half a second after it ([5a7ecd5](https://github.com/rootless-dev/MyPasteApp/commit/5a7ecd55a19b931baba2f7c17d8cb331c43a483b))
+* **preview:** give the panel back its drop shadow ([41b9b23](https://github.com/rootless-dev/MyPasteApp/commit/41b9b23b495ab85ddde61accc3b06f4658135077))
+* **preview:** point the panel's close button at its own window ([ebd2ce9](https://github.com/rootless-dev/MyPasteApp/commit/ebd2ce9a9fd88b75ebdb41b7c15a100474ee015c))
+* **preview:** quantise zoom's decode requests to a handful of steps ([7e77acc](https://github.com/rootless-dev/MyPasteApp/commit/7e77acce71c5e35f0cadc7ed1c11d0c2f0d56427))
+* **preview:** render rich text in the preview panel instead of plain ([4024dac](https://github.com/rootless-dev/MyPasteApp/commit/4024dac23dbe8595e3251d5feafeb20bf58aa01e))
+* **preview:** reset zoom when an edit rewrites the same item's image ([4db42a0](https://github.com/rootless-dev/MyPasteApp/commit/4db42a0961f1a9b7a16adb5c7439aaf5b4c42276))
+* **preview:** stop a click on a detached panel from closing the drawer ([115c8d6](https://github.com/rootless-dev/MyPasteApp/commit/115c8d6dbd152d9d2dfd84dad7a1c7d8b0c1dc10))
+* **preview:** stop pinch/pan from mutating zoom while Live Text is armed ([7028c6f](https://github.com/rootless-dev/MyPasteApp/commit/7028c6f2b925e616ebd7da4d720b3533454aed01))
+* **preview:** stop the window drag from eating the zoom pan ([5e6efcb](https://github.com/rootless-dev/MyPasteApp/commit/5e6efcbe639ea2d9019bb777a198babe9a6d4b18))
+* **rich-text:** drop attachment placeholders when clearing formatting ([0ad7f0d](https://github.com/rootless-dev/MyPasteApp/commit/0ad7f0d22a297b89c9d04e7a438bdb670e3264b9))
+* **sampler:** stop using a pixel buffer past its lifetime ([d298535](https://github.com/rootless-dev/MyPasteApp/commit/d298535bacf78afa7e0922c5014abc3fac144f5f))
+* **thumbnails:** let a rotated image look different to the card ([a72cdc7](https://github.com/rootless-dev/MyPasteApp/commit/a72cdc7c1d737994b12fe3138275bb7cc5adebf3))
+
+
+### Performance
+
+* **editor:** stop recounting a 2 MB log on every keystroke ([f73c807](https://github.com/rootless-dev/MyPasteApp/commit/f73c807a802db250ba0c51f5a15a05e9928c37c0))
+
+
+### Refactoring
+
+* **preview:** extract panel placement as a tested pure function ([ab2209a](https://github.com/rootless-dev/MyPasteApp/commit/ab2209a438a36588f7f7a7d288e2f1e500922a26))
+* **preview:** move panel management into PreviewPanelController ([49539c3](https://github.com/rootless-dev/MyPasteApp/commit/49539c3496b4cc2e05f134280b7c019d993b5047))
+
+
+### Documentation
+
+* **editor:** don't claim O(1) for a length this call site can't give ([77bb239](https://github.com/rootless-dev/MyPasteApp/commit/77bb239517e3fc607461075af86e5d7623cf353e))
+* **fase-6:** design and plan for content tools ([980ed39](https://github.com/rootless-dev/MyPasteApp/commit/980ed399a164286c845bad846ece9594dbc369f4))
+* **phase-6.5:** spec and plan for turning the preview into a window ([6fa3073](https://github.com/rootless-dev/MyPasteApp/commit/6fa3073273386a924b1f96581534e2056e275b2f))
+* **preview:** add A7b, the drawer state the A3 click leaves behind ([3e4571c](https://github.com/rootless-dev/MyPasteApp/commit/3e4571c7697ef1d242d19e9a5237c6efe53b7016))
+* **preview:** scope the hosting-view rule to hosting views ([4efe9e5](https://github.com/rootless-dev/MyPasteApp/commit/4efe9e55d109c70ac8d8cfb512810a779843a683))
+* **verify:** script the manual checks for phase 6 ([6ac1954](https://github.com/rootless-dev/MyPasteApp/commit/6ac19548c6e2430eebb58f2510f1d0d0646cac18))
+
 ## [1.4.0](https://github.com/rootless-dev/MyPasteApp/compare/v1.3.0...v1.4.0) (2026-08-04)
 
 
