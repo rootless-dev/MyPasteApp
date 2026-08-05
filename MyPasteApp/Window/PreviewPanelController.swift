@@ -408,8 +408,10 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
     /// Builds `ItemPreviewView` for `item` and assigns it as the panel's
     /// content.
     ///
-    /// The one place in this file that hands a hosting view to
-    /// `contentView` — see the comment on `ItemPreviewPanel.make()` for why
+    /// The one place that hands a *hosting view* to `contentView`
+    /// (`hideAnchored()` and `closeDetached(_:)` assign one too, but a plain
+    /// empty `NSView`, precisely to drop the hosting view this built) — see
+    /// the comment on `ItemPreviewPanel.make()` for why
     /// the explicit `frame`/`autoresizingMask` here matters: without them,
     /// the window would be resized to the content's intrinsic size instead
     /// of the frame `positionPreviewPanel(_:chrome:)` sets, the same bug the
