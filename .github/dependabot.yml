@@ -1,0 +1,23 @@
+version: 2
+
+updates:
+  # As GitHub Actions são a única dependência externa que este repositório
+  # executa: o app não usa SwiftPM, CocoaPods nem Carthage, então não há
+  # árvore de pacotes para vigiar. O que existe é o que os workflows chamam
+  # (actions/checkout e companhia), e é aí que mora o risco de supply chain
+  # de um repositório público — uma ação comprometida roda com acesso ao
+  # runner e aos segredos expostos ao job.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    commit-message:
+      # Conventional Commits, como o resto do projeto — o release-please lê
+      # o histórico, e um prefixo fora do padrão vira uma entrada estranha
+      # no CHANGELOG.
+      prefix: "chore"
+      include: scope
+    labels:
+      - dependencies
