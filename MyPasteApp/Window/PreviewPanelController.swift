@@ -196,6 +196,13 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
         // orderFrontRegardless, not makeKeyAndOrderFront: the panel must
         // never take key status away from the overlay. See the brief's Step 3.
         panel.orderFrontRegardless()
+        // The window shadow is derived from the content's alpha
+        // (`ItemPreviewPanel.applyAppearance(to:)`), and `hideAnchored()`
+        // leaves an *empty* `NSView` behind when it closes the panel. Whatever
+        // AppKit last derived was therefore derived from nothing at all, so
+        // reopening without this shows a panel with no shadow until the next
+        // thing that happens to invalidate it.
+        panel.invalidateShadow()
     }
 
     /// Closes just the preview panel, leaving the overlay itself open.
@@ -291,6 +298,14 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
         panel.setFrame(PreviewPlacement.detachedFrame(from: panel.frame,
                                                       losing: ItemPreviewPanel.beakHeight),
                        display: true)
+        // Steps 2 and 3 together are the largest outline change this panel
+        // ever makes — the beak vanishes and the window sheds the strip it
+        // occupied — and the window shadow is derived from the content's
+        // alpha, so it has to be told. Not folded into `setBeakOffset` above:
+        // that one is about the anchored panel tracking a card, while this is
+        // a one-time change of what the window *is*, and it also has to cover
+        // the `isDetached` half, which `setBeakOffset` knows nothing about.
+        panel.invalidateShadow()
 
         // 4. Keyboard. `becomesKeyOnlyIfNeeded = false` alone is not enough:
         //    keystrokes go to the *active* app, and `.nonactivatingPanel`
@@ -497,7 +512,7 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
             // and detach the panel on its own.
             lastAnchoredFrame = centered
             panel.setFrame(centered, display: false)
-            chrome.beakOffset = nil
+            setBeakOffset(nil, on: chrome, of: panel)
             return
         }
         let windowRect = contentView.convert(anchor, to: nil)
@@ -512,6 +527,39 @@ final class PreviewPanelController: NSObject, NSWindowDelegate {
         // Before `setFrame` — see the comment on the fallback path above.
         lastAnchoredFrame = result.frame
         panel.setFrame(result.frame, display: false)
-        chrome.beakOffset = result.beakOffset
+        setBeakOffset(result.beakOffset, on: chrome, of: panel)
+    }
+
+    /// Moves the beak, and tells AppKit to re-derive the window's shadow when
+    /// — and only when — that actually changed the outline it is derived from.
+    ///
+    /// The shadow comes from the alpha channel of the rendered content (see
+    /// `ItemPreviewPanel.applyAppearance(to:)`), and AppKit does not notice
+    /// content alpha changing underneath a window whose frame stayed put.
+    /// `beakOffset` is the one thing that reshapes this panel without resizing
+    /// it, so it is the one thing that has to say so.
+    ///
+    /// Guarded on the value rather than called from every reposition, because
+    /// `positionPreviewPanel(_:chrome:)` runs on every selection change *and*
+    /// every scroll tick of the card strip, while most of those leave the beak
+    /// exactly where it was — a card that merely moved under a panel that
+    /// followed it lands on the same offset. When the offset does change on
+    /// every tick (dragging the strip past several cards), invalidating on
+    /// every tick is the correct answer rather than an excessive one: the
+    /// outline really is different each time, and a shadow left over from the
+    /// previous beak position would point somewhere the beak no longer is.
+    ///
+    /// Called immediately after the mutation rather than deferred a turn, on
+    /// the reading that `invalidateShadow()` marks the shadow dirty for the
+    /// next display pass — the same contract as `setNeedsDisplay` — so the
+    /// re-derivation lands after SwiftUI has committed the new outline. If it
+    /// turns out to recompute *synchronously* instead, the symptom is specific
+    /// and worth naming here so nobody has to re-derive it: the shadow would
+    /// trail one step behind the beak while arrowing through cards, and the
+    /// fix is to hop these calls onto the next main-actor turn.
+    private func setBeakOffset(_ offset: CGFloat?, on chrome: PreviewChrome, of panel: NSPanel) {
+        guard chrome.beakOffset != offset else { return }
+        chrome.beakOffset = offset
+        panel.invalidateShadow()
     }
 }

@@ -83,12 +83,17 @@ struct ItemPreviewView: View {
         // exactly this much at the same moment, so the two stay in step.
         .padding(.bottom, chrome.isDetached ? 0 : ItemPreviewPanel.beakHeight)
         .background {
-            // The shadow lives here, on the shape, rather than on the VStack
-            // above: a shadow on the content would draw a rectangular
-            // silhouette behind the beak instead of following its point.
+            // No `.shadow` here. There used to be one, and it drew nothing at
+            // all: the window frame is exactly this shape's bounding box, so a
+            // shadow has no transparent margin inside the window to render
+            // into, and the `.clipShape` below then clips the composite —
+            // background included — to the very outline the shadow would have
+            // been cast by. The panel's elevation comes from the *window*
+            // shadow instead, which AppKit derives from this fill's alpha and
+            // can therefore draw outside the frame. See
+            // `ItemPreviewPanel.applyAppearance(to:)`.
             previewShape
                 .fill(.regularMaterial)
-                .shadow(radius: 12, y: 4)
         }
         // Same shape, same parameters as the background fill — see
         // `previewShape`'s doc comment for why a mismatch here would leak

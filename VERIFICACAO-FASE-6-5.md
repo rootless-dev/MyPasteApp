@@ -114,6 +114,31 @@ comportamento "bom demais" que pode ser sorte de uma corrida específica.
       simplesmente não aparece (corpo do painel sem bico), em vez de desenhar
       torto ou fora do canto.
 
+- [ ] **B6 ⚠️ A sombra existe?** Em **modo claro**, com uma janela de fundo
+      **clara** atrás do painel (uma página em branco do Safari, um documento
+      vazio — sobre fundo escuro a sombra some por falta de contraste e o
+      passo não mede nada). Olhe o painel **ancorado** e depois um painel
+      **solto**. **Critério, duas metades e as duas contam:** (a) a sombra
+      **está lá** — o painel parece *elevado* sobre a janela clara, não um
+      retângulo chapado de material colado nela; e (b) a sombra acompanha o
+      **contorno desenhado**, inclusive descendo em volta da ponta do bico, em
+      **nenhum** momento aparecendo como um segundo retângulo em volta do
+      painel ou uma faixa reta cruzando a base ao lado do bico.
+      **Por que este passo é assim tão explícito:** a Fase 6.5 deixou o painel
+      **sem sombra nenhuma** e isso passou batido na primeira leitura manual
+      porque a pergunta feita na Tarefa 1 era só "apareceu um retângulo
+      sobrando?" — "não" respondia bem tanto para "a sombra está certa" quanto
+      para "não há sombra". Responda **as duas** metades.
+
+- [ ] **B7 ⚠️ A sombra acompanha o bico ao navegar.** Com o painel ancorado
+      aberto, ande pelas setas por vários cards seguidos e depois role a tira.
+      **Critério:** a sombra em volta do bico acompanha o bico em tempo real.
+      **O sintoma a caçar:** a sombra ficar **um card atrás** — desenhada onde
+      o bico estava antes — ou sumir e só voltar na próxima troca. A sombra é
+      derivada do alpha do conteúdo e precisa de um `invalidateShadow()` a cada
+      mudança de contorno; se atrasar, o conserto já está escrito no comentário
+      de `PreviewPanelController.setBeakOffset`.
+
 ---
 
 ## C. O detach
@@ -218,6 +243,16 @@ comportamento "bom demais" que pode ser sorte de uma corrida específica.
 1. **O detach altera o tamanho do painel, sempre pela mesma quantia
    (`ItemPreviewPanel.beakHeight`, 12pt).** Não é ajustável pelo usuário — o
    painel não ganhou uma borda redimensionável nesta fase.
-2. **Um painel solto não volta a se ancorar.** `PreviewChrome.isDetached` é
+2. **A sombra do painel é a do sistema, não uma `.shadow` do SwiftUI.** A
+   `.shadow(radius: 12, y: 4)` que a Tarefa 1 pôs na forma nunca desenhou
+   nada — a janela mede exatamente o retângulo da forma, então não sobra
+   margem transparente onde renderizar, e o `.clipShape` recorta o composto no
+   mesmo contorno. Foi removida, e `hasShadow` voltou a `true`: com a janela
+   transparente, o AppKit tira a sombra do alpha do conteúdo e a desenha
+   **fora** do frame, que é o único lugar onde ela cabe. Se o passo B6 mostrar
+   que isso não vale nesta configuração, o próximo passo **não** é crescer a
+   janela e compensar em `PreviewPlacement` — é uma decisão do Carlos entre
+   aceitar o painel sem sombra e pagar pela mudança de geometria.
+3. **Um painel solto não volta a se ancorar.** `PreviewChrome.isDetached` é
    escrito uma vez e nunca desfeito — fechar e abrir `Espaço` de novo cria um
    painel ancorado novo, não reaproveita o solto.

@@ -177,11 +177,33 @@ enum ItemPreviewPanel {
     static func applyAppearance(to panel: NSPanel) {
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        // The system shadow follows the window's rectangle, not the shape
-        // drawn inside it — left on, it would draw a rectangular shadow
-        // around the transparent margin next to the beak. ItemPreviewView's
-        // .shadow on PreviewPanelShape itself replaces it.
-        panel.hasShadow = false
+        // The system shadow is what gives the panel its elevation, and it is
+        // the *only* thing that can: a SwiftUI `.shadow` inside the window has
+        // nowhere to render, because the window frame is exactly the shape's
+        // bounding box (`windowSize` == body + beak strip, no margin) and
+        // `ItemPreviewView`'s `.clipShape` clips the composite — background and
+        // shadow alike — to that same outline. See `ItemPreviewView.body`.
+        //
+        // Task 1 set this to `false` on the assumption that the system shadow
+        // follows the window's *rectangle*, which on a transparent window
+        // would ring the empty region beside the beak. That assumption was
+        // never checked against a running app, and it does not hold: with
+        // `isOpaque = false` and a clear `backgroundColor`, AppKit derives the
+        // shadow from the alpha channel of the rendered content, so it hugs
+        // whatever `PreviewPanelShape` drew — beak included. The drawer proves
+        // it in production: `OverlayPanel` is the same configuration, and
+        // `OverlayView` clips itself to a rounded rect and then insets it 8pt
+        // from every window edge (`OverlayView.swift`, `.clipShape` then
+        // `.padding(8)`). Its shadow follows those rounded corners; a
+        // rectangle-derived shadow would instead run square-cornered across
+        // the full width of the screen, 8pt out from the visible body.
+        //
+        // The catch is staleness, not shape: AppKit does not re-derive the
+        // shadow when content alpha changes underneath a window that stays the
+        // same size, so every place that changes the drawn outline has to say
+        // so — see `invalidateShadow()`'s three call sites in
+        // `PreviewPanelController`.
+        panel.hasShadow = true
         // ItemPreviewView draws its own header (close button, type label,
         // footnote) — a native titlebar on top of that would just duplicate
         // it, so it's hidden. Purely cosmetic: none of this touches the
