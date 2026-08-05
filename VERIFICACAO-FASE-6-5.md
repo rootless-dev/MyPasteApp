@@ -87,6 +87,16 @@ comportamento "bom demais" que pode ser sorte de uma corrida específica.
       respondesse "é uma janela nossa" quando não há key window nenhuma (o
       caso do `⌘Tab`), a gaveta ficaria aberta atrás do outro app para sempre.
 
+- [ ] **A7b ⚠️ O estado que o A7 não alcança.** Faça o A3 primeiro — clique
+      **dentro** do painel solto com a gaveta aberta, de modo que a gaveta
+      continue aberta mas **sem** o teclado. **Só então** saia pelo `⌘Tab`.
+      **Critério a observar, não a julgar:** anote se a gaveta fecha ou se
+      fica flutuando por cima do outro app. Diferente do A7, aqui a gaveta já
+      perdeu o status de key antes do `⌘Tab`, então o evento que a fecharia
+      não acontece de novo. Se ficar na tela, **não é perda de dados e se
+      resolve sozinho** com um clique qualquer ou uma tecla de atalho — a
+      decisão de corrigir depende do quanto incomoda na prática, e é sua.
+
 ---
 
 ## B. O bico
